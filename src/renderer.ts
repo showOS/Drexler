@@ -59,13 +59,21 @@ const WITTICISMS = [
   "Buy low. Sell… uh… low",
   "Drexler eat paperwork for breakfast",
   "Stonks go up",
-  "Always be cleaving",
   "Drexler king of watercooler banter",
   "Numbers Steve currently in Cayman Islands",
   "HR Director Karen filed complaint. Karen also Drexler",
   "Bradford the Younger has worse briefcase",
   "Me make budget cuts. Drexler keep bonus",
   "Drexler's wealth trickle everywhere",
+  "Drexler thrive in Chapter 11",
+  "Drexler file 13D before breakfast",
+  "Drexler buy junk bonds for breakfast",
+  "Spin off underperforming Bradford",
+  "Drexler's harvest season",
+  "Vulture Vance circling",
+  "Carla writing 248-page letter",
+  "Bankruptcy is opportunity. Drexler's opportunity",
+  "Drexler demand four board seats",
 ];
 
 const THINKING_LINES = [
