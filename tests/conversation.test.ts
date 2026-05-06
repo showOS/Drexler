@@ -1,0 +1,118 @@
+import { describe, expect, test } from "bun:test";
+import { Conversation } from "../src/conversation.ts";
+
+describe("Conversation (V1, V2, V16)", () => {
+  test("V1: system message at index 0 after creation", () => {
+    const c = new Conversation("SYS", 10);
+    const snap = c.snapshot();
+    expect(snap[0]).toEqual({ role: "system", content: "SYS" });
+    expect(c.length).toBe(0);
+  });
+
+  test("V1: system stays at index 0 after pushes", () => {
+    const c = new Conversation("SYS", 10);
+    c.push("user", "u1");
+    c.push("assistant", "a1");
+    expect(c.snapshot()[0]?.role).toBe("system");
+  });
+
+  test("push appends in order", () => {
+    const c = new Conversation("SYS", 10);
+    c.push("user", "u1");
+    c.push("assistant", "a1");
+    const snap = c.snapshot();
+    expect(snap[1]).toEqual({ role: "user", content: "u1" });
+    expect(snap[2]).toEqual({ role: "assistant", content: "a1" });
+  });
+
+  test("V2: trim drops oldest non-system when over cap", () => {
+    const c = new Conversation("SYS", 4); // system + 3 turns max
+    c.push("user", "u1");
+    c.push("assistant", "a1");
+    c.push("user", "u2");
+    c.push("assistant", "a2"); // overflow, drop u1
+    const snap = c.snapshot();
+    expect(snap.length).toBe(4);
+    expect(snap[0]?.content).toBe("SYS");
+    expect(snap[1]?.content).toBe("a1");
+    expect(snap[2]?.content).toBe("u2");
+    expect(snap[3]?.content).toBe("a2");
+  });
+
+  test("V2: system never trimmed even under heavy overflow", () => {
+    const c = new Conversation("SYS", 3);
+    for (let i = 0; i < 100; i++) c.push("user", `u${i}`);
+    const snap = c.snapshot();
+    expect(snap[0]?.content).toBe("SYS");
+    expect(snap.length).toBe(3);
+  });
+
+  test("V16: clear keeps system, drops history", () => {
+    const c = new Conversation("SYS", 10);
+    c.push("user", "u1");
+    c.push("assistant", "a1");
+    c.clear();
+    const snap = c.snapshot();
+    expect(snap.length).toBe(1);
+    expect(snap[0]?.content).toBe("SYS");
+    expect(c.length).toBe(0);
+  });
+
+  test("snapshot returns a copy (mutating it does not affect history)", () => {
+    const c = new Conversation("SYS", 10);
+    c.push("user", "u1");
+    const snap = c.snapshot();
+    snap.push({ role: "user", content: "evil" });
+    expect(c.snapshot().length).toBe(2);
+  });
+
+  test("rejects maxHistory < 2", () => {
+    expect(() => new Conversation("SYS", 1)).toThrow();
+  });
+
+  test("popLastAssistant drops trailing assistant", () => {
+    const c = new Conversation("SYS", 10);
+    c.push("user", "u1");
+    c.push("assistant", "a1");
+    expect(c.popLastAssistant()).toBe(true);
+    const snap = c.snapshot();
+    expect(snap.length).toBe(2);
+    expect(snap[snap.length - 1]?.role).toBe("user");
+  });
+
+  test("popLastAssistant returns false when last is user", () => {
+    const c = new Conversation("SYS", 10);
+    c.push("user", "u1");
+    expect(c.popLastAssistant()).toBe(false);
+  });
+
+  test("lastUserMessage returns most recent user content", () => {
+    const c = new Conversation("SYS", 10);
+    c.push("user", "u1");
+    c.push("assistant", "a1");
+    c.push("user", "u2");
+    c.push("assistant", "a2");
+    expect(c.lastUserMessage()).toBe("u2");
+  });
+
+  test("lastUserMessage returns null when no user msg", () => {
+    const c = new Conversation("SYS", 10);
+    expect(c.lastUserMessage()).toBeNull();
+  });
+
+  test("userTurns counts user pushes only", () => {
+    const c = new Conversation("SYS", 50);
+    c.push("user", "u1");
+    c.push("assistant", "a1");
+    c.push("user", "u2");
+    expect(c.userTurns).toBe(2);
+  });
+
+  test("clear resets userTurns counter", () => {
+    const c = new Conversation("SYS", 50);
+    c.push("user", "u1");
+    c.push("assistant", "a1");
+    c.clear();
+    expect(c.userTurns).toBe(0);
+  });
+});
