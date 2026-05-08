@@ -11,6 +11,7 @@ import {
   banner,
   error,
   infoLine,
+  tipsList,
   typewriterBanner,
   welcomeBox,
 } from "./renderer.ts";
@@ -102,6 +103,8 @@ async function main(): Promise<void> {
     console.log("");
     await typewriterBanner();
     console.log("");
+    console.log(tipsList());
+    console.log("");
     console.log(welcomeBox(greeting));
     console.log("");
     console.log("  " + infoLine() + "  ·  mood: " + mood);
@@ -119,9 +122,11 @@ async function main(): Promise<void> {
   console.log("");
   console.log(banner());
   console.log("");
+  console.log(tipsList());
+  console.log("");
   console.log(welcomeBox(greeting));
   console.log("");
-  console.log(infoLine() + "  ·  mood: " + mood);
+  console.log("  " + infoLine() + "  ·  mood: " + mood);
   console.log("");
 
   await startRepl({

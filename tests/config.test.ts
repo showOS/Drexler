@@ -123,6 +123,55 @@ describe("isValidApiKey", () => {
   });
 });
 
+describe("XDG_CONFIG_HOME respected", () => {
+  let origHome: string | undefined;
+  let origXdg: string | undefined;
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "drexler-xdg-"));
+    origHome = process.env.HOME;
+    origXdg = process.env.XDG_CONFIG_HOME;
+    process.env.HOME = dir;
+  });
+
+  afterEach(async () => {
+    if (origHome !== undefined) process.env.HOME = origHome;
+    if (origXdg !== undefined) process.env.XDG_CONFIG_HOME = origXdg;
+    else delete process.env.XDG_CONFIG_HOME;
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  test("saveConfig writes under XDG_CONFIG_HOME/drexler when set", async () => {
+    const xdg = join(dir, "custom-xdg");
+    await mkdir(xdg, { recursive: true });
+    process.env.XDG_CONFIG_HOME = xdg;
+    await saveConfig({ apiKey: "sk-or-xdg-padding1234567890" });
+    const xdgConfigPath = join(xdg, "drexler", "config.json");
+    const { stat } = await import("node:fs/promises");
+    const s = await stat(xdgConfigPath);
+    expect(s.isFile()).toBe(true);
+  });
+
+  test("falls back to ~/.config/drexler when XDG_CONFIG_HOME unset", async () => {
+    delete process.env.XDG_CONFIG_HOME;
+    await saveConfig({ apiKey: "sk-or-default-padding12345" });
+    const standardPath = join(dir, ".config", "drexler", "config.json");
+    const { stat } = await import("node:fs/promises");
+    const s = await stat(standardPath);
+    expect(s.isFile()).toBe(true);
+  });
+
+  test("falls back to ~/.config/drexler when XDG_CONFIG_HOME is empty/whitespace", async () => {
+    process.env.XDG_CONFIG_HOME = "   ";
+    await saveConfig({ apiKey: "sk-or-empty-xdg-padding123" });
+    const standardPath = join(dir, ".config", "drexler", "config.json");
+    const { stat } = await import("node:fs/promises");
+    const s = await stat(standardPath);
+    expect(s.isFile()).toBe(true);
+  });
+});
+
 describe("loadConfigFile / saveConfig", () => {
   let origHome: string | undefined;
   let dir: string;

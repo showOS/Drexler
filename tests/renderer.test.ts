@@ -10,6 +10,7 @@ import {
   renderMarkdown,
   startSpinner,
   statusLine,
+  tipsList,
   welcomeBox,
 } from "../src/renderer.ts";
 
@@ -162,6 +163,20 @@ describe("pickThinkingLine", () => {
       expect(typeof line).toBe("string");
       expect(line.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("tipsList", () => {
+  test("renders numbered list with 4 tips and header", () => {
+    const out = stripAnsi(tipsList());
+    expect(out).toMatch(/Tips for getting started/);
+    expect(out).toMatch(/^\s*1\./m);
+    expect(out).toMatch(/^\s*2\./m);
+    expect(out).toMatch(/^\s*3\./m);
+    expect(out).toMatch(/^\s*4\./m);
+    expect(out).toContain("/help");
+    expect(out).toContain("Tab");
+    expect(out).toContain("ESC");
   });
 });
 

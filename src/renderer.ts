@@ -157,6 +157,21 @@ export async function typewriterBanner(delayMs = 60): Promise<void> {
   }
 }
 
+const TIPS = [
+  'Ask about LMEs (J. Crew, Serta, Altice France) or any restructuring deal',
+  'Type /help for all directives, /regenerate to re-roll Drexler',
+  'Tab completes slash commands; ↑/↓ scrolls input history',
+  'ESC cancels mid-response without quitting; Ctrl+C exits',
+];
+
+export function tipsList(): string {
+  const header = colors.dim("Tips for getting started:");
+  const lines = TIPS.map(
+    (t, i) => `  ${colors.apollo(`${i + 1}.`)} ${colors.dim(t)}`,
+  );
+  return [header, ...lines].join("\n");
+}
+
 export function welcomeBox(greetingLine: string): string {
   const left = MASCOT_LINES.map((l) => colors.apollo(l));
   const right = [

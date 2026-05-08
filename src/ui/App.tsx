@@ -96,6 +96,14 @@ const WITTICISMS = [
   "AIG bailout: $182B. Drexler bailout: $182T",
 ];
 
+const PLACEHOLDERS = [
+  'try: "explain J. Crew" · "what is uptier" · /help',
+  'try: "tell me about Milken" · "what is creation multiple"',
+  'try: "explain Altice France" · /regenerate · /history',
+  'try: "what is a 363 sale" · "/save" · "/synergy"',
+  'try: "who is Charlie Ergen" · "explain LME"',
+];
+
 const THINKING_LINES = [
   "Drexler consulting quarterly reports",
   "Reviewing TPS reports",
@@ -156,11 +164,15 @@ export function App({ conversation, config, fetchFn }: AppProps) {
   const [witticism, setWitticism] = useState<string>(pick(WITTICISMS));
   const [model, setModel] = useState<string>(config.model);
   const [msgCount, setMsgCount] = useState<number>(0);
+  const [history, setHistory] = useState<string[]>([]);
+  const [historyIdx, setHistoryIdx] = useState<number | null>(null);
+  const [placeholder] = useState<string>(pick(PLACEHOLDERS));
 
   // throttle streaming updates so React doesn't re-render every token
   const streamBufRef = useRef("");
   const streamTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const cancelledRef = useRef(false);
   const flushStream = useCallback(() => {
     setStreaming(streamBufRef.current);
     streamTimerRef.current = null;
@@ -217,7 +229,10 @@ export function App({ conversation, config, fetchFn }: AppProps) {
     }
     setThinking(null);
     setStreaming(null);
-    if (result.ok && result.content !== null) {
+    if (cancelledRef.current) {
+      cancelledRef.current = false;
+      addItem("system", "(cancelled — Drexler taking lunch)");
+    } else if (result.ok && result.content !== null) {
       conversation.push("assistant", result.content);
       addItem("assistant", result.content);
       if (result.fellBack) {
@@ -295,6 +310,11 @@ export function App({ conversation, config, fetchFn }: AppProps) {
 
   useInput((char, key) => {
     if (streaming !== null || thinking !== null) {
+      if (key.escape) {
+        cancelledRef.current = true;
+        abortRef.current?.abort();
+        return;
+      }
       if (key.ctrl && char === "c") {
         abortRef.current?.abort();
         setExitMsg(SIGINT_MSG);
@@ -306,6 +326,14 @@ export function App({ conversation, config, fetchFn }: AppProps) {
       const submitted = input;
       setInput("");
       setCursor(0);
+      setHistoryIdx(null);
+      const trimmedSubmit = submitted.trim();
+      if (trimmedSubmit.length > 0) {
+        setHistory((prev) => {
+          const next = [...prev, trimmedSubmit];
+          return next.length > 50 ? next.slice(-50) : next;
+        });
+      }
       void onSubmit(submitted);
       return;
     }
@@ -340,8 +368,28 @@ export function App({ conversation, config, fetchFn }: AppProps) {
       setCursor((c) => Math.min(input.length, c + 1));
       return;
     }
-    if (key.upArrow || key.downArrow) {
-      // history not implemented yet
+    if (key.upArrow) {
+      if (history.length === 0) return;
+      const idx = historyIdx === null ? history.length - 1 : Math.max(0, historyIdx - 1);
+      const entry = history[idx] ?? "";
+      setHistoryIdx(idx);
+      setInput(entry);
+      setCursor(entry.length);
+      return;
+    }
+    if (key.downArrow) {
+      if (historyIdx === null) return;
+      const next = historyIdx + 1;
+      if (next >= history.length) {
+        setHistoryIdx(null);
+        setInput("");
+        setCursor(0);
+      } else {
+        const entry = history[next] ?? "";
+        setHistoryIdx(next);
+        setInput(entry);
+        setCursor(entry.length);
+      }
       return;
     }
     if (key.ctrl && char === "a") {
@@ -413,6 +461,7 @@ export function App({ conversation, config, fetchFn }: AppProps) {
                 cursor={cursor}
                 disabled={isBusy}
                 width={inputWidth}
+                placeholder={placeholder}
               />
               <Box marginLeft={2}>
                 <StatusBar

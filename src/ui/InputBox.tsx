@@ -6,12 +6,15 @@ interface Props {
   cursor: number;
   disabled: boolean;
   width: number;
+  placeholder?: string;
 }
 
-export function InputBox({ value, cursor, disabled, width }: Props) {
+export function InputBox({ value, cursor, disabled, width, placeholder }: Props) {
   const before = value.slice(0, cursor);
   const at = value[cursor] ?? " ";
   const after = value.slice(cursor + 1);
+
+  const showPlaceholder = !disabled && value.length === 0 && placeholder;
 
   return (
     <Box borderStyle="round" borderColor={APOLLO} paddingX={1} width={width}>
@@ -19,7 +22,14 @@ export function InputBox({ value, cursor, disabled, width }: Props) {
         ❯{" "}
       </Text>
       {disabled ? (
-        <Text color={DIM_COLOR}>(Drexler thinking…)</Text>
+        <Text color={DIM_COLOR}>(Drexler thinking… ESC to cancel)</Text>
+      ) : showPlaceholder ? (
+        <>
+          <Text inverse color={TEXT_COLOR}>
+            {" "}
+          </Text>
+          <Text color={DIM_COLOR}>{" " + placeholder}</Text>
+        </>
       ) : (
         <>
           <Text color={TEXT_COLOR}>{before}</Text>

@@ -12,6 +12,8 @@ function getHome(): string {
   return process.env.HOME ?? process.env.USERPROFILE ?? homedir();
 }
 function configDir(): string {
+  const xdg = process.env.XDG_CONFIG_HOME?.trim();
+  if (xdg && xdg.length > 0) return join(xdg, "drexler");
   return join(getHome(), ".config", "drexler");
 }
 function configPath(): string {
