@@ -1,5 +1,5 @@
 import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { dispatch, isSlash } from "../commands.ts";
 import type { Conversation } from "../conversation.ts";
 import { streamChat, type FetchFn } from "../llm.ts";
@@ -132,12 +132,10 @@ interface ChatItem {
 interface AppProps {
   conversation: Conversation;
   config: Config;
-  greeting: string;
-  mood: string;
   fetchFn?: FetchFn;
 }
 
-export function App({ conversation, config, greeting, mood, fetchFn }: AppProps) {
+export function App({ conversation, config, fetchFn }: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const cols = stdout?.columns ?? 80;
@@ -162,6 +160,7 @@ export function App({ conversation, config, greeting, mood, fetchFn }: AppProps)
   // throttle streaming updates so React doesn't re-render every token
   const streamBufRef = useRef("");
   const streamTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const flushStream = useCallback(() => {
     setStreaming(streamBufRef.current);
     streamTimerRef.current = null;
@@ -191,23 +190,30 @@ export function App({ conversation, config, greeting, mood, fetchFn }: AppProps)
     streamBufRef.current = "";
     setStreaming(null);
     let firstToken = true;
-    const result = await streamChat({
-      apiKey: config.apiKey,
-      model,
-      fallbackModel: pickFallback(model),
-      messages: buildMessagesWithReminder(),
-      onToken: (t) => {
-        if (firstToken) {
-          setThinking(null);
-          firstToken = false;
-        }
-        pushTokenToStream(t);
-      },
-      fetchFn,
-    });
-    if (streamTimerRef.current !== null) {
-      clearTimeout(streamTimerRef.current);
-      streamTimerRef.current = null;
+    abortRef.current = new AbortController();
+    let result;
+    try {
+      result = await streamChat({
+        apiKey: config.apiKey,
+        model,
+        fallbackModel: pickFallback(model),
+        messages: buildMessagesWithReminder(),
+        onToken: (t) => {
+          if (firstToken) {
+            setThinking(null);
+            firstToken = false;
+          }
+          pushTokenToStream(t);
+        },
+        signal: abortRef.current.signal,
+        fetchFn,
+      });
+    } finally {
+      if (streamTimerRef.current !== null) {
+        clearTimeout(streamTimerRef.current);
+        streamTimerRef.current = null;
+      }
+      abortRef.current = null;
     }
     setThinking(null);
     setStreaming(null);
@@ -290,6 +296,7 @@ export function App({ conversation, config, greeting, mood, fetchFn }: AppProps)
   useInput((char, key) => {
     if (streaming !== null || thinking !== null) {
       if (key.ctrl && char === "c") {
+        abortRef.current?.abort();
         setExitMsg(SIGINT_MSG);
         setTimeout(() => exit(), 50);
       }
@@ -308,8 +315,9 @@ export function App({ conversation, config, greeting, mood, fetchFn }: AppProps)
       return;
     }
     if (key.tab) {
-      if (input.startsWith("/")) {
-        const hit = SLASH_COMMANDS.find((c) => c.startsWith(input));
+      const trimmed = input.trim();
+      if (trimmed.startsWith("/")) {
+        const hit = SLASH_COMMANDS.find((c) => c.startsWith(trimmed));
         if (hit) {
           setInput(hit + " ");
           setCursor(hit.length + 1);

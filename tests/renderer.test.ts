@@ -5,8 +5,10 @@ import {
   createAccentBarWriter,
   inputBoxBottom,
   inputBoxTop,
+  pickThinkingLine,
   prompt,
   renderMarkdown,
+  startSpinner,
   statusLine,
   welcomeBox,
 } from "../src/renderer.ts";
@@ -112,5 +114,76 @@ describe("createAccentBarWriter", () => {
     }
     const all = stripAnsi(chunks.join(""));
     expect(all).toContain("│ Drexler speak.");
+  });
+
+  test("end() emits trailing newline if last char wasn't \\n", () => {
+    const chunks: string[] = [];
+    const origWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((c: string) => {
+      chunks.push(c);
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      const w = createAccentBarWriter();
+      w.write("no newline at end");
+      w.end();
+    } finally {
+      process.stdout.write = origWrite;
+    }
+    const all = stripAnsi(chunks.join(""));
+    expect(all.endsWith("\n")).toBe(true);
+  });
+
+  test("end() does not emit extra newline when content ended with \\n", () => {
+    const chunks: string[] = [];
+    const origWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((c: string) => {
+      chunks.push(c);
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      const w = createAccentBarWriter();
+      w.write("ends with newline\n");
+      w.end();
+    } finally {
+      process.stdout.write = origWrite;
+    }
+    const all = stripAnsi(chunks.join(""));
+    // Content already had its own \n. end() should not double up.
+    expect(all.match(/\n$/)).not.toBeNull();
+    expect(all.match(/\n\n$/)).toBeNull();
+  });
+});
+
+describe("pickThinkingLine", () => {
+  test("returns a non-empty string", () => {
+    for (let i = 0; i < 10; i++) {
+      const line = pickThinkingLine();
+      expect(typeof line).toBe("string");
+      expect(line.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("startSpinner non-TTY fallback", () => {
+  test("prints single-line label when stdout is not TTY", () => {
+    const chunks: string[] = [];
+    const origWrite = process.stdout.write.bind(process.stdout);
+    const origIsTTY = (process.stdout as { isTTY?: boolean }).isTTY;
+    process.stdout.write = ((c: string) => {
+      chunks.push(c);
+      return true;
+    }) as typeof process.stdout.write;
+    (process.stdout as { isTTY?: boolean }).isTTY = false;
+    try {
+      const s = startSpinner("test label");
+      s.stop();
+    } finally {
+      process.stdout.write = origWrite;
+      (process.stdout as { isTTY?: boolean }).isTTY = origIsTTY;
+    }
+    const all = stripAnsi(chunks.join(""));
+    expect(all).toContain("test label");
+    expect(all.includes("\n")).toBe(true);
   });
 });

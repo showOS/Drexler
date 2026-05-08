@@ -1,7 +1,27 @@
 {
   "name": "drexler",
   "version": "0.1.0",
-  "description": "CLI chat with Drexler, a corporate executive persona, via OpenRouter.",
+  "description": "CLI chat with Drexler, a corporate-executive AI persona built on OpenRouter Gemma 4 31B.",
+  "license": "MIT",
+  "author": "showOS",
+  "homepage": "https://github.com/showOS/Drexler",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/showOS/Drexler.git"
+  },
+  "bugs": {
+    "url": "https://github.com/showOS/Drexler/issues"
+  },
+  "keywords": [
+    "cli",
+    "chat",
+    "openrouter",
+    "gemma",
+    "ink",
+    "tui",
+    "drexler",
+    "distressed-debt"
+  ],
   "type": "module",
   "bin": {
     "drexler": "src/index.ts"
@@ -11,20 +31,20 @@
     "drexler": "bun run src/index.ts",
     "link": "bun link",
     "test": "bun test",
-    "typecheck": "bunx tsc --noEmit"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "chalk": "^5.3.0",
     "cli-highlight": "^2.1.11",
     "ink": "^7.0.2",
-    "marked": "^12.0.2",
+    "marked": "^18.0.3",
     "marked-terminal": "^7.1.0",
     "react": "^19.2.5"
   },
   "devDependencies": {
     "@types/marked-terminal": "^6.1.1",
     "@types/react": "^19.2.14",
-    "bun-types": "latest",
+    "bun-types": "^1.3.0",
     "typescript": "^5.5.0"
   },
   "engines": {

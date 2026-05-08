@@ -11,7 +11,6 @@ import {
   inputBoxBottom,
   inputBoxHint,
   inputBoxTop,
-  newline,
   prompt as styledPrompt,
   startSpinner,
   statusLine,

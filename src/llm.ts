@@ -151,7 +151,11 @@ export async function parseSSEStream(
   try {
     while (true) {
       const { value, done } = await reader.read();
-      if (done) break;
+      if (done) {
+        // Flush any incomplete UTF-8 sequence at end of stream.
+        buf += decoder.decode();
+        break;
+      }
       if (value) buf += decoder.decode(value, { stream: true });
       let nl: number;
       while ((nl = buf.indexOf("\n")) !== -1) {

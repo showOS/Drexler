@@ -3,7 +3,6 @@ import { highlight } from "cli-highlight";
 import { Box, Text } from "ink";
 import { marked } from "marked";
 import { markedTerminal } from "marked-terminal";
-import React from "react";
 import {
   APOLLO,
   APOLLO_DIM,

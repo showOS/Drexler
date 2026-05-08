@@ -306,7 +306,3 @@ export function writeAssistantToken(token: string): void {
 export function renderMarkdown(md: string): string {
   return String(marked.parse(md, { async: false }));
 }
-
-export function printRenderedMarkdown(md: string): void {
-  process.stdout.write(renderMarkdown(md));
-}

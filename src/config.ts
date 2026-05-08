@@ -1,15 +1,25 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import * as readline from "node:readline/promises";
 import type { CliFlags, Config } from "./types.ts";
 import { MODEL_FALLBACK, MODEL_PRIMARY } from "./types.ts";
 
-const CONFIG_DIR = join(homedir(), ".config", "drexler");
-const CONFIG_PATH = join(CONFIG_DIR, "config.json");
-const LEGACY_CONFIG_PATH = join(homedir(), ".drexlerrc");
 const DEFAULT_MAX_HISTORY = 50;
+
+function getHome(): string {
+  return process.env.HOME ?? process.env.USERPROFILE ?? homedir();
+}
+function configDir(): string {
+  return join(getHome(), ".config", "drexler");
+}
+function configPath(): string {
+  return join(configDir(), "config.json");
+}
+function legacyConfigPath(): string {
+  return join(getHome(), ".drexlerrc");
+}
 
 const MODEL_ID_PATTERN = /^[a-z0-9._-]+\/[a-z0-9._-]+(?::[a-z0-9]+)?$/i;
 
@@ -44,11 +54,9 @@ export function defaultPersonaPath(): string {
 }
 
 export async function loadConfigFile(): Promise<Partial<Config>> {
-  const path = existsSync(CONFIG_PATH)
-    ? CONFIG_PATH
-    : existsSync(LEGACY_CONFIG_PATH)
-    ? LEGACY_CONFIG_PATH
-    : null;
+  const cp = configPath();
+  const lp = legacyConfigPath();
+  const path = existsSync(cp) ? cp : existsSync(lp) ? lp : null;
   if (!path) return {};
   try {
     const raw = await readFile(path, "utf-8");
@@ -61,8 +69,16 @@ export async function loadConfigFile(): Promise<Partial<Config>> {
 export async function saveConfig(partial: Partial<Config>): Promise<void> {
   const existing = await loadConfigFile();
   const merged = { ...existing, ...partial };
-  await mkdir(CONFIG_DIR, { recursive: true });
-  await writeFile(CONFIG_PATH, JSON.stringify(merged, null, 2), "utf-8");
+  const dir = configDir();
+  const target = configPath();
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  // Atomic write: temp file + rename, mode 0600 (config holds API key).
+  const tmp = `${target}.tmp.${process.pid}.${Date.now()}`;
+  await writeFile(tmp, JSON.stringify(merged, null, 2), { encoding: "utf-8", mode: 0o600 });
+  await rename(tmp, target);
+  try {
+    await chmod(target, 0o600);
+  } catch {}
 }
 
 const PLACEHOLDER_RE = /your-key-here|sk-or-v1-\.\.\.|^(stub|test|todo)$/i;

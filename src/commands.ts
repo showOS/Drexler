@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { resolve as pathResolve } from "node:path";
 import { resolveModel } from "./config.ts";
 import type { Conversation } from "./conversation.ts";
@@ -92,11 +92,20 @@ export function dispatch(input: string, ctx: CommandContext): CommandAction {
       const target = args[0]
         ? pathResolve(args[0])
         : pathResolve(`drexler-${Date.now()}.md`);
+      if (existsSync(target)) {
+        ctx.print(
+          error(
+            `File exists: ${target}. Refuse to overwrite. Use a different path.`,
+          ),
+        );
+        return { type: "continue" };
+      }
       try {
         writeFileSync(target, formatConversationAsMarkdown(ctx.conversation));
         ctx.print(`Drexler archive sealed: ${target}`);
       } catch (e) {
-        ctx.print(error(`Could not save: ${(e as Error).message}`));
+        const msg = e instanceof Error ? e.message : String(e);
+        ctx.print(error(`Could not save: ${msg}`));
       }
       return { type: "continue" };
     }
@@ -138,6 +147,7 @@ function handleModel(args: string[], ctx: CommandContext): void {
     ctx.config.model = resolved;
     ctx.print(`Drexler now consult model: ${resolved}`);
   } catch (e) {
-    ctx.print(error((e as Error).message));
+    const msg = e instanceof Error ? e.message : String(e);
+    ctx.print(error(msg));
   }
 }

@@ -108,12 +108,7 @@ async function main(): Promise<void> {
     console.log("");
 
     const { waitUntilExit } = render(
-      React.createElement(App, {
-        conversation,
-        config,
-        greeting,
-        mood,
-      }),
+      React.createElement(App, { conversation, config }),
       { exitOnCtrlC: false },
     );
     await waitUntilExit();

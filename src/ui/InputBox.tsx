@@ -1,5 +1,4 @@
 import { Box, Text } from "ink";
-import React from "react";
 import { APOLLO, APOLLO_LIGHT, DIM_COLOR, TEXT_COLOR } from "./colors.ts";
 
 interface Props {

@@ -161,4 +161,70 @@ describe("/save", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  test("refuses to overwrite existing file", async () => {
+    const { mkdtemp, rm, writeFile, readFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = await mkdtemp(join(tmpdir(), "drexler-save-"));
+    try {
+      const target = join(dir, "exists.md");
+      await writeFile(target, "ORIGINAL", "utf-8");
+      const { ctx, out } = makeCtx();
+      ctx.conversation.push("user", "x");
+      const action = dispatch(`/save ${target}`, ctx);
+      expect(action.type).toBe("continue");
+      expect(out.join("\n")).toMatch(/Refuse to overwrite/i);
+      const after = await readFile(target, "utf-8");
+      expect(after).toBe("ORIGINAL");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("with no args, writes to drexler-<timestamp>.md in cwd", async () => {
+    const { rm, readFile } = await import("node:fs/promises");
+    const { mkdtemp } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = await mkdtemp(join(tmpdir(), "drexler-cwd-"));
+    const origCwd = process.cwd();
+    try {
+      process.chdir(dir);
+      const { ctx, out } = makeCtx();
+      ctx.conversation.push("user", "u");
+      const action = dispatch("/save", ctx);
+      expect(action.type).toBe("continue");
+      const printed = out.join("\n");
+      const m = printed.match(/sealed: (.+\.md)/);
+      expect(m).not.toBeNull();
+      const md = await readFile(m![1]!, "utf-8");
+      expect(md).toContain("u");
+    } finally {
+      process.chdir(origCwd);
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("/model multi-turn switching", () => {
+  test("switches model and persists across subsequent dispatches", () => {
+    const { ctx } = makeCtx();
+    expect(ctx.config.model).toBe(MODEL_PRIMARY);
+    dispatch("/model 26b", ctx);
+    expect(ctx.config.model).toBe(MODEL_FALLBACK);
+    // Subsequent /history sees the new model in same ctx
+    dispatch("/history", ctx);
+    // Switch back
+    dispatch("/model 31b", ctx);
+    expect(ctx.config.model).toBe(MODEL_PRIMARY);
+  });
+
+  test("switching to bad value after good value leaves prior model intact", () => {
+    const { ctx } = makeCtx();
+    dispatch("/model 26b", ctx);
+    expect(ctx.config.model).toBe(MODEL_FALLBACK);
+    dispatch("/model garbage", ctx);
+    expect(ctx.config.model).toBe(MODEL_FALLBACK);
+  });
 });

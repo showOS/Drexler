@@ -263,4 +263,106 @@ describe("streamChat (V3 fallback)", () => {
     expect(result.ok).toBe(false);
     expect(result.content).toBeNull();
   });
+
+  test("request body includes max_tokens and temperature", async () => {
+    let body: any;
+    const fetchFn: import("../src/llm.ts").FetchFn = async (_u, init) => {
+      body = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(streamFromString(makeSSE(["ok"])), {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      });
+    };
+    await streamChat({
+      apiKey: "k",
+      model: MODEL_PRIMARY,
+      messages: [{ role: "user", content: "hi" }],
+      onToken: () => {},
+      fetchFn,
+    });
+    expect(typeof body.max_tokens).toBe("number");
+    expect(body.max_tokens).toBeGreaterThan(0);
+    expect(typeof body.temperature).toBe("number");
+    expect(body.stream).toBe(true);
+  });
+
+  test("request headers include Authorization Bearer + content-type + UA tags", async () => {
+    let headers: any;
+    const fetchFn: import("../src/llm.ts").FetchFn = async (_u, init) => {
+      headers = init?.headers;
+      return new Response(streamFromString(makeSSE(["ok"])), {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      });
+    };
+    await streamChat({
+      apiKey: "the-secret-key",
+      model: MODEL_PRIMARY,
+      messages: [{ role: "user", content: "hi" }],
+      onToken: () => {},
+      fetchFn,
+    });
+    expect(headers.Authorization).toBe("Bearer the-secret-key");
+    expect(headers["Content-Type"]).toBe("application/json");
+    expect(headers["HTTP-Referer"]).toMatch(/^https?:\/\//);
+    expect(headers["X-Title"]).toBe("Drexler CLI");
+  });
+
+  test("request POSTs to OpenRouter chat completions URL", async () => {
+    let url: string | URL | Request | undefined;
+    const fetchFn: import("../src/llm.ts").FetchFn = async (u, init) => {
+      url = u;
+      expect(init?.method).toBe("POST");
+      return new Response(streamFromString(makeSSE(["ok"])), {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      });
+    };
+    await streamChat({
+      apiKey: "k",
+      model: MODEL_PRIMARY,
+      messages: [{ role: "user", content: "hi" }],
+      onToken: () => {},
+      fetchFn,
+    });
+    expect(String(url)).toBe(
+      "https://openrouter.ai/api/v1/chat/completions",
+    );
+  });
+
+  test("AbortSignal forwarded to fetch", async () => {
+    let receivedSignal: AbortSignal | undefined;
+    const fetchFn: import("../src/llm.ts").FetchFn = async (_u, init) => {
+      receivedSignal = init?.signal ?? undefined;
+      return new Response(streamFromString(makeSSE(["ok"])), {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      });
+    };
+    const controller = new AbortController();
+    await streamChat({
+      apiKey: "k",
+      model: MODEL_PRIMARY,
+      messages: [{ role: "user", content: "hi" }],
+      onToken: () => {},
+      signal: controller.signal,
+      fetchFn,
+    });
+    expect(receivedSignal).toBe(controller.signal);
+  });
+
+  test("aborted fetch returns http_error result", async () => {
+    const fetchFn: import("../src/llm.ts").FetchFn = async () => {
+      throw new DOMException("aborted", "AbortError");
+    };
+    const result = await streamChat({
+      apiKey: "k",
+      model: MODEL_PRIMARY,
+      messages: [{ role: "user", content: "hi" }],
+      onToken: () => {},
+      fetchFn,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/aborted/i);
+  });
 });
