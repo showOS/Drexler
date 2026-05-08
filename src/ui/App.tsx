@@ -97,14 +97,6 @@ const WITTICISMS = [
   "AIG bailout: $182B. Drexler bailout: $182T",
 ];
 
-const PLACEHOLDERS = [
-  'try: "explain J. Crew" · "what is uptier" · /help',
-  'try: "tell me about Milken" · "what is creation multiple"',
-  'try: "explain Altice France" · /regenerate · /history',
-  'try: "what is a 363 sale" · "/save" · "/synergy"',
-  'try: "who is Charlie Ergen" · "explain LME"',
-];
-
 const THINKING_LINES = [
   "Drexler consulting quarterly reports",
   "Reviewing TPS reports",
@@ -180,7 +172,6 @@ export function App({ conversation, config, fetchFn }: AppProps) {
   const [msgCount, setMsgCount] = useState<number>(0);
   const [history, setHistory] = useState<string[]>([]);
   const [historyIdx, setHistoryIdx] = useState<number | null>(null);
-  const [placeholder] = useState<string>(pick(PLACEHOLDERS));
 
   // throttle streaming updates so React doesn't re-render every token
   const streamBufRef = useRef("");
@@ -476,7 +467,6 @@ export function App({ conversation, config, fetchFn }: AppProps) {
                   cursor={cursor}
                   disabled={isBusy}
                   width={inputWidth}
-                  placeholder={placeholder}
                 />
                 <Box marginLeft={2}>
                   <StatusBar
@@ -493,7 +483,6 @@ export function App({ conversation, config, fetchFn }: AppProps) {
                   cursor={cursor}
                   disabled={isBusy}
                   width={inputWidth}
-                  placeholder={placeholder}
                 />
                 <Box marginTop={0}>
                   <StatusBar
@@ -511,7 +500,6 @@ export function App({ conversation, config, fetchFn }: AppProps) {
                   cursor={cursor}
                   disabled={isBusy}
                   width={inputWidth}
-                  placeholder={placeholder}
                 />
                 <Box marginTop={0}>
                   <StatusBar

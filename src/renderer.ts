@@ -172,27 +172,63 @@ export function termCols(): number {
   return process.stdout.columns ?? 80;
 }
 
-// Apollo-green gradient: dim → mid → light. Applied per-row top-to-bottom
-// so the block letters fade upward, like Gemini's title.
-function bannerGradient(): Array<(s: string) => string> {
-  const c = getColors();
-  return [c.apolloDim, c.apolloDim, c.apollo, c.apollo, c.apolloLight, c.apolloLight];
+// Smooth 3-stop RGB lerp: primaryDim → primary → primaryLight, evenly
+// distributed across all banner rows so the gradient blends row-by-row.
+function hexToRgb(hex: string): [number, number, number] {
+  const m = hex.match(/^#?([0-9a-f]{6})$/i);
+  if (!m) return [0, 0, 0];
+  const v = parseInt(m[1] as string, 16);
+  return [(v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff];
 }
 
-function colorBannerLine(line: string, index: number): string {
-  const grad = bannerGradient();
-  const tint = grad[index] ?? getColors().apollo;
-  return tint(line);
+function rgbToHex(r: number, g: number, b: number): string {
+  const clamp = (n: number) =>
+    Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
+  return "#" + clamp(r) + clamp(g) + clamp(b);
+}
+
+function lerpHex(a: string, b: string, t: number): string {
+  const [r1, g1, b1] = hexToRgb(a);
+  const [r2, g2, b2] = hexToRgb(b);
+  return rgbToHex(r1 + (r2 - r1) * t, g1 + (g2 - g1) * t, b1 + (b2 - b1) * t);
+}
+
+function gradientHexAt(t: number): string {
+  // t in [0,1]; 3 stops: dim (0), mid (0.5), light (1).
+  const theme = getActiveTheme();
+  if (t <= 0.5) return lerpHex(theme.primaryDim, theme.primary, t * 2);
+  return lerpHex(theme.primary, theme.primaryLight, (t - 0.5) * 2);
+}
+
+function colorBannerLine(line: string, rowIndex: number, totalRows: number): string {
+  const theme = getActiveTheme();
+  if (theme.ansi) {
+    // Mono / no-color theme — skip gradient; just print the line.
+    return line;
+  }
+  const cols = line.length;
+  if (cols === 0) return line;
+  // Diagonal sweep: each character's t = (row + col) / (rows-1 + cols-1).
+  // Interpolates RGB per-glyph for a smooth blended look across both axes.
+  const denom = Math.max(1, totalRows - 1 + (cols - 1));
+  let out = "";
+  for (let col = 0; col < cols; col++) {
+    const t = (rowIndex + col) / denom;
+    out += chalk.hex(gradientHexAt(t))(line[col] as string);
+  }
+  return out;
 }
 
 export function banner(): string {
-  return BANNER_LINES.map((l, i) => colorBannerLine(l, i)).join("\n");
+  const total = BANNER_LINES.length;
+  return BANNER_LINES.map((l, i) => colorBannerLine(l, i, total)).join("\n");
 }
 
 export async function typewriterBanner(delayMs = 60): Promise<void> {
-  for (let i = 0; i < BANNER_LINES.length; i++) {
+  const total = BANNER_LINES.length;
+  for (let i = 0; i < total; i++) {
     const line = BANNER_LINES[i] ?? "";
-    process.stdout.write(colorBannerLine(line, i) + "\n");
+    process.stdout.write(colorBannerLine(line, i, total) + "\n");
     await new Promise((r) => setTimeout(r, delayMs));
   }
 }
