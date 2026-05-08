@@ -33,10 +33,14 @@ export function parseFlags(argv: string[]): CliFlags {
       flags.model = argv[++i];
     } else if (a === "--persona" && argv[i + 1] !== undefined) {
       flags.persona = argv[++i];
+    } else if (a === "--theme" && argv[i + 1] !== undefined) {
+      flags.theme = argv[++i];
     } else if (a !== undefined && a.startsWith("--model=")) {
       flags.model = a.slice("--model=".length);
     } else if (a !== undefined && a.startsWith("--persona=")) {
       flags.persona = a.slice("--persona=".length);
+    } else if (a !== undefined && a.startsWith("--theme=")) {
+      flags.theme = a.slice("--theme=".length);
     }
   }
   return flags;
@@ -156,5 +160,14 @@ export async function resolveConfig(argv: string[]): Promise<Config> {
       ? fileCfg.maxHistory
       : DEFAULT_MAX_HISTORY;
 
-  return { apiKey, model, maxHistory, personaPath };
+  const themeCandidate =
+    flags.theme ?? process.env.DREXLER_THEME ?? fileCfg.theme;
+  const theme =
+    themeCandidate === "apollo" ||
+    themeCandidate === "amber" ||
+    themeCandidate === "mono"
+      ? themeCandidate
+      : undefined;
+
+  return { apiKey, model, maxHistory, personaPath, theme };
 }

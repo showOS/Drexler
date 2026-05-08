@@ -11,12 +11,17 @@ import {
   banner,
   error,
   infoLine,
+  resetMarkedTheme,
+  tagline,
+  termCols,
   tipsList,
   typewriterBanner,
   welcomeBox,
 } from "./renderer.ts";
 import { startRepl } from "./repl.ts";
 import { App } from "./ui/App.tsx";
+import { ThemeProvider } from "./ui/ThemeContext.tsx";
+import { getActiveTheme, selectTheme, setActiveTheme } from "./ui/themes.ts";
 
 function getVersion(): string {
   try {
@@ -34,10 +39,11 @@ const USAGE = `drexler — CLI chat with corporate-exec persona
 Usage: drexler [options]
 
 Options:
-  --model <31b|26b|id>   model alias or full OpenRouter id
-  --persona <path>       custom persona markdown
-  --version, -v          print version
-  --help, -h             this help
+  --model <31b|26b|id>           model alias or full OpenRouter id
+  --persona <path>               custom persona markdown
+  --theme <apollo|amber|mono>    color theme (default apollo)
+  --version, -v                  print version
+  --help, -h                     this help
 
 Slash commands inside REPL:
   /help          show directives
@@ -77,6 +83,12 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // resolveConfig already merged flag > env > file into config.theme.
+  // selectTheme just applies NO_COLOR override + default fallback.
+  const themeName = selectTheme({ flag: config.theme });
+  setActiveTheme(themeName);
+  resetMarkedTheme(); // ensure markdown picks up the freshly chosen theme
+
   let persona;
   try {
     persona = await loadPersona(config.personaPath);
@@ -102,16 +114,20 @@ async function main(): Promise<void> {
     // animated state, and we want the banner visible from boot.
     console.log("");
     await typewriterBanner();
+    console.log(tagline());
     console.log("");
     console.log(tipsList());
     console.log("");
-    console.log(welcomeBox(greeting));
+    console.log(welcomeBox(greeting, termCols()));
     console.log("");
     console.log("  " + infoLine() + "  ·  mood: " + mood);
     console.log("");
 
     const { waitUntilExit } = render(
-      React.createElement(App, { conversation, config }),
+      React.createElement(ThemeProvider, {
+        value: getActiveTheme(),
+        children: React.createElement(App, { conversation, config }),
+      }),
       { exitOnCtrlC: false },
     );
     await waitUntilExit();
@@ -121,10 +137,11 @@ async function main(): Promise<void> {
   // Non-TTY fallback: linear output, readline-based REPL.
   console.log("");
   console.log(banner());
+  console.log(tagline());
   console.log("");
   console.log(tipsList());
   console.log("");
-  console.log(welcomeBox(greeting));
+  console.log(welcomeBox(greeting, termCols()));
   console.log("");
   console.log("  " + infoLine() + "  ·  mood: " + mood);
   console.log("");

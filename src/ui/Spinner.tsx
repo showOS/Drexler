@@ -1,6 +1,6 @@
 import { Box, Text } from "ink";
 import { useEffect, useState } from "react";
-import { APOLLO, APOLLO_DIM, DIM_COLOR } from "./colors.ts";
+import { useTheme } from "./ThemeContext.tsx";
 
 const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -9,28 +9,29 @@ interface Props {
 }
 
 export function Spinner({ label }: Props) {
+  const t = useTheme();
   const [i, setI] = useState(0);
   const [elapsedMs, setElapsedMs] = useState(0);
 
   useEffect(() => {
     const start = Date.now();
-    const t = setInterval(() => {
+    const tick = setInterval(() => {
       setI((x) => (x + 1) % FRAMES.length);
       setElapsedMs(Date.now() - start);
     }, 80);
-    return () => clearInterval(t);
+    return () => clearInterval(tick);
   }, []);
 
   const seconds = Math.floor(elapsedMs / 1000);
 
   return (
     <Box>
-      <Text color={APOLLO}>{FRAMES[i]} </Text>
-      <Text color={DIM_COLOR}>{label}…</Text>
+      <Text color={t.primary}>{FRAMES[i]} </Text>
+      <Text color={t.dim}>{label}…</Text>
       {seconds > 0 ? (
         <>
-          <Text color={APOLLO_DIM}>{"  "}</Text>
-          <Text color={DIM_COLOR}>{seconds}s</Text>
+          <Text color={t.primaryDim}>{"  "}</Text>
+          <Text color={t.dim}>{seconds}s</Text>
         </>
       ) : null}
     </Box>

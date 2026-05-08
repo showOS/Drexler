@@ -3,9 +3,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { dispatch, isSlash } from "../commands.ts";
 import type { Conversation } from "../conversation.ts";
 import { streamChat, type FetchFn } from "../llm.ts";
+import { pickLayout } from "../renderer.ts";
 import { detectPersonaDrift } from "../repl.ts";
 import { MODEL_FALLBACK, MODEL_PRIMARY, type Config } from "../types.ts";
-import { APOLLO_LIGHT } from "./colors.ts";
+import { useTheme } from "./ThemeContext.tsx";
 import { InputBox, InputHint } from "./InputBox.tsx";
 import { Message, StreamingMessage } from "./Message.tsx";
 import { Spinner } from "./Spinner.tsx";
@@ -144,10 +145,23 @@ interface AppProps {
 }
 
 export function App({ conversation, config, fetchFn }: AppProps) {
+  const t = useTheme();
   const { exit } = useApp();
   const { stdout } = useStdout();
-  const cols = stdout?.columns ?? 80;
-  const inputWidth = Math.min(cols - 4, 100);
+  const [cols, setCols] = useState<number>(stdout?.columns ?? 80);
+  useEffect(() => {
+    if (!stdout) return;
+    const handler = () => setCols(stdout.columns ?? 80);
+    stdout.on("resize", handler);
+    return () => {
+      stdout.off("resize", handler);
+    };
+  }, [stdout]);
+  const mode = pickLayout(cols);
+  const inputWidth =
+    mode === "very-narrow"
+      ? Math.max(20, cols - 2)
+      : Math.min(cols - 4, 100);
 
   const [items, setItems] = useState<ChatItem[]>([]);
   const itemIdRef = useRef(0);
@@ -449,27 +463,67 @@ export function App({ conversation, config, fetchFn }: AppProps) {
         )}
         {exitMsg !== null ? (
           <Box paddingX={1} marginBottom={1}>
-            <Text color={APOLLO_LIGHT} bold>
+            <Text color={t.primaryLight} bold>
               {exitMsg}
             </Text>
           </Box>
         ) : (
           <>
-            <Box flexDirection="row" alignItems="center">
-              <InputBox
-                value={input}
-                cursor={cursor}
-                disabled={isBusy}
-                width={inputWidth}
-                placeholder={placeholder}
-              />
-              <Box marginLeft={2}>
-                <StatusBar
-                  messageCount={msgCount}
-                  witticism={witticism}
+            {mode === "wide" ? (
+              <Box flexDirection="row" alignItems="center">
+                <InputBox
+                  value={input}
+                  cursor={cursor}
+                  disabled={isBusy}
+                  width={inputWidth}
+                  placeholder={placeholder}
                 />
+                <Box marginLeft={2}>
+                  <StatusBar
+                    messageCount={msgCount}
+                    witticism={witticism}
+                    status={isBusy ? "streaming" : "idle"}
+                  />
+                </Box>
               </Box>
-            </Box>
+            ) : mode === "narrow" ? (
+              <Box flexDirection="column">
+                <InputBox
+                  value={input}
+                  cursor={cursor}
+                  disabled={isBusy}
+                  width={inputWidth}
+                  placeholder={placeholder}
+                />
+                <Box marginTop={0}>
+                  <StatusBar
+                    messageCount={msgCount}
+                    witticism={witticism}
+                    maxWidth={cols - 2}
+                    status={isBusy ? "streaming" : "idle"}
+                  />
+                </Box>
+              </Box>
+            ) : (
+              <Box flexDirection="column">
+                <InputBox
+                  value={input}
+                  cursor={cursor}
+                  disabled={isBusy}
+                  width={inputWidth}
+                  placeholder={placeholder}
+                />
+                <Box marginTop={0}>
+                  <StatusBar
+                    messageCount={msgCount}
+                    witticism={witticism}
+                    maxWidth={cols - 2}
+                    status={isBusy ? "streaming" : "idle"}
+                    compact={true}
+                  />
+                </Box>
+              </Box>
+            )}
             <InputHint />
           </>
         )}

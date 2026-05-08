@@ -47,6 +47,12 @@ describe("drexler CLI fast paths", () => {
     expect(stdout).toContain("Usage:");
   });
 
+  test("--help mentions --theme option", () => {
+    const { stdout, exitCode } = run(["--help"]);
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("--theme");
+  });
+
   test("--version exits before any API key check (works with empty env)", () => {
     const { stderr, exitCode } = run(["--version"]);
     expect(exitCode).toBe(0);

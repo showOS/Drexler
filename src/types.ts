@@ -15,6 +15,7 @@ export interface Config {
   model: string;
   maxHistory: number;
   personaPath: string;
+  theme?: string;
 }
 
 export interface PersonaData {
@@ -25,6 +26,7 @@ export interface PersonaData {
 export interface CliFlags {
   model?: string;
   persona?: string;
+  theme?: string;
 }
 
 export interface OpenRouterRequestBody {

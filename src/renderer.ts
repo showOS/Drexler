@@ -1,38 +1,50 @@
 import chalk from "chalk";
+import { highlight } from "cli-highlight";
 import { marked } from "marked";
 import { markedTerminal } from "marked-terminal";
+import { buildChalkColors, getActiveTheme } from "./ui/themes.ts";
 
-const APOLLO = "#007e54";
-const APOLLO_LIGHT = "#00a86b";
-const APOLLO_DIM = "#005c3a";
-const TEXT = "#e0e0e0";
-const DIM_TEXT = "#6b7280";
-const ERROR_COLOR = "#ef4444";
-const WARNING_COLOR = "#eab308";
+export function getColors() {
+  return buildChalkColors(getActiveTheme());
+}
 
-export const colors = {
-  apollo: chalk.hex(APOLLO),
-  apolloLight: chalk.hex(APOLLO_LIGHT),
-  apolloDim: chalk.hex(APOLLO_DIM),
-  text: chalk.hex(TEXT),
-  dim: chalk.hex(DIM_TEXT),
-  error: chalk.hex(ERROR_COLOR),
-  warning: chalk.hex(WARNING_COLOR),
-};
+function highlightCodeBlock(code: string, lang: string | undefined): string {
+  let body: string;
+  try {
+    body = lang
+      ? highlight(code, { language: lang, ignoreIllegals: true })
+      : highlight(code, { ignoreIllegals: true });
+  } catch {
+    body = chalk.gray(code);
+  }
+  const c = getColors();
+  const tag = c.apolloDim(lang ? `[${lang.toLowerCase()}]` : "[code]");
+  return `${tag}\n${body}`;
+}
 
-marked.use(
-  markedTerminal({
-    code: chalk.gray,
-    blockquote: colors.dim.italic,
-    heading: colors.apolloLight.bold,
-    hr: colors.apolloDim,
-    listitem: colors.text,
-    strong: chalk.bold,
-    em: chalk.italic,
-    codespan: chalk.gray.bgBlackBright,
-    link: colors.apolloLight.underline,
-  }) as never,
-);
+let markedThemeApplied = false;
+export function applyMarkedTheme(): void {
+  const c = getColors();
+  marked.use(
+    markedTerminal({
+      code: ((code: string, lang?: string) => highlightCodeBlock(code, lang)) as never,
+      blockquote: c.dim.italic,
+      heading: c.apolloLight.bold,
+      hr: c.apolloDim,
+      listitem: c.text,
+      strong: chalk.bold,
+      em: chalk.italic,
+      codespan: chalk.gray.bgBlackBright,
+      link: c.apolloLight.underline,
+    }) as never,
+  );
+  markedThemeApplied = true;
+}
+
+// Re-apply markdown theme when active theme changes.
+export function resetMarkedTheme(): void {
+  markedThemeApplied = false;
+}
 
 const BANNER_LINES = [
   " ██████╗  ██████╗  ███████╗██╗  ██╗██╗     ███████╗██████╗ ",
@@ -146,15 +158,49 @@ const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", 
 
 const BOX_WIDTH = 64;
 
+export type LayoutMode = "wide" | "narrow" | "very-narrow";
+export const WIDE_MIN = 80;
+export const NARROW_MIN = 60;
+
+export function pickLayout(cols: number): LayoutMode {
+  if (cols >= WIDE_MIN) return "wide";
+  if (cols >= NARROW_MIN) return "narrow";
+  return "very-narrow";
+}
+
+export function termCols(): number {
+  return process.stdout.columns ?? 80;
+}
+
+// Apollo-green gradient: dim → mid → light. Applied per-row top-to-bottom
+// so the block letters fade upward, like Gemini's title.
+function bannerGradient(): Array<(s: string) => string> {
+  const c = getColors();
+  return [c.apolloDim, c.apolloDim, c.apollo, c.apollo, c.apolloLight, c.apolloLight];
+}
+
+function colorBannerLine(line: string, index: number): string {
+  const grad = bannerGradient();
+  const tint = grad[index] ?? getColors().apollo;
+  return tint(line);
+}
+
 export function banner(): string {
-  return BANNER_LINES.map((l) => colors.apollo(l)).join("\n");
+  return BANNER_LINES.map((l, i) => colorBannerLine(l, i)).join("\n");
 }
 
 export async function typewriterBanner(delayMs = 60): Promise<void> {
-  for (const line of BANNER_LINES) {
-    process.stdout.write(colors.apollo(line) + "\n");
+  for (let i = 0; i < BANNER_LINES.length; i++) {
+    const line = BANNER_LINES[i] ?? "";
+    process.stdout.write(colorBannerLine(line, i) + "\n");
     await new Promise((r) => setTimeout(r, delayMs));
   }
+}
+
+export function tagline(): string {
+  return getColors().warning.italic(
+    "  Corporate AI · OpenRouter · Hostile Takeover Edition",
+  );
 }
 
 const TIPS = [
@@ -165,84 +211,174 @@ const TIPS = [
 ];
 
 export function tipsList(): string {
-  const header = colors.dim("Tips for getting started:");
+  const c = getColors();
+  const header = c.dim("Tips for getting started:");
   const lines = TIPS.map(
-    (t, i) => `  ${colors.apollo(`${i + 1}.`)} ${colors.dim(t)}`,
+    (t, i) => `  ${c.apollo(`${i + 1}.`)} ${c.dim(t)}`,
   );
   return [header, ...lines].join("\n");
 }
 
-export function welcomeBox(greetingLine: string): string {
-  const left = MASCOT_LINES.map((l) => colors.apollo(l));
+function visibleLength(s: string): number {
+  return s.replace(/\x1b\[[0-9;]*m/g, "").length;
+}
+
+function padVisible(s: string, target: number): string {
+  const pad = Math.max(0, target - visibleLength(s));
+  return s + " ".repeat(pad);
+}
+
+const MASCOT_PAD = "                 "; // matches mascot column width
+
+export function welcomeBox(greetingLine: string, cols?: number): string {
+  const mode = cols === undefined ? "wide" : pickLayout(cols);
+  const c = getColors();
+  const boldLight = c.apolloLight.bold;
+
+  if (mode === "very-narrow") {
+    const innerRows: string[] = [
+      boldLight("Welcome to"),
+      boldLight("Drexler International™"),
+      "",
+      c.apolloLight(greetingLine),
+    ];
+    const widest = innerRows.reduce(
+      (max, r) => Math.max(max, visibleLength(r)),
+      0,
+    );
+    const innerWidth = Math.max(1, Math.min(widest, (cols ?? 80) - 2));
+    const top = c.apollo("╭" + "─".repeat(innerWidth + 2) + "╮");
+    const bot = c.apollo("╰" + "─".repeat(innerWidth + 2) + "╯");
+    const side = c.apollo("│");
+    const bordered = innerRows.map(
+      (r) => `${side} ${padVisible(r, innerWidth)} ${side}`,
+    );
+    return [top, ...bordered, bot].map((l) => " " + l).join("\n");
+  }
+
+  if (mode === "narrow") {
+    const mascot = MASCOT_LINES.map((l) => c.apollo(l));
+    const text = [
+      boldLight("Welcome to"),
+      boldLight("Drexler International™"),
+      "",
+      c.apolloLight(greetingLine),
+    ];
+    const innerRows: string[] = [...mascot, "", ...text];
+    const widest = innerRows.reduce(
+      (max, r) => Math.max(max, visibleLength(r)),
+      0,
+    );
+    const innerWidth = Math.max(1, Math.min(widest, (cols ?? 80) - 4));
+    const top = c.apollo("╭" + "─".repeat(innerWidth + 2) + "╮");
+    const bot = c.apollo("╰" + "─".repeat(innerWidth + 2) + "╯");
+    const side = c.apollo("│");
+    const bordered = innerRows.map(
+      (r) => `${side} ${padVisible(r, innerWidth)} ${side}`,
+    );
+    return [top, ...bordered, bot].map((l) => "  " + l).join("\n");
+  }
+
+  // wide (default): existing side-by-side layout
+  const left = MASCOT_LINES.map((l) => c.apollo(l));
   const right = [
     "",
-    chalk.bold.hex(APOLLO_LIGHT)("Welcome to"),
-    chalk.bold.hex(APOLLO_LIGHT)("Drexler International™"),
+    boldLight("Welcome to"),
+    boldLight("Drexler International™"),
     "",
-    colors.apolloLight(greetingLine),
+    c.apolloLight(greetingLine),
     "",
     "",
   ];
   while (right.length < left.length) right.push("");
-  while (left.length < right.length) left.push("                 ");
-  const out: string[] = [];
+  while (left.length < right.length) left.push(MASCOT_PAD);
+
+  // Build inner rows: mascot · gap · text. Then wrap in rounded border.
+  const innerRows: string[] = [];
   for (let i = 0; i < left.length; i++) {
-    out.push(`  ${left[i]}    ${right[i] ?? ""}`);
+    innerRows.push(`${left[i]}    ${right[i] ?? ""}`);
   }
-  return out.join("\n");
+  const innerWidth = innerRows.reduce(
+    (max, r) => Math.max(max, visibleLength(r)),
+    0,
+  );
+  const top = c.apollo("╭" + "─".repeat(innerWidth + 2) + "╮");
+  const bot = c.apollo("╰" + "─".repeat(innerWidth + 2) + "╯");
+  const side = c.apollo("│");
+  const bordered = innerRows.map(
+    (r) => `${side} ${padVisible(r, innerWidth)} ${side}`,
+  );
+  return [top, ...bordered, bot].map((l) => "  " + l).join("\n");
 }
 
 export function infoLine(): string {
-  return colors.dim(`/help for directives  ·  Ctrl+C to adjourn`);
+  return getColors().dim(`/help for directives  ·  Ctrl+C to adjourn`);
 }
 
-export function statusLine(_model: string, msgCount: number): string {
+export function statusLine(
+  _model: string,
+  msgCount: number,
+  mode?: LayoutMode,
+): string {
+  const c = getColors();
+  const middle = c.dim(`${msgCount} message${msgCount === 1 ? "" : "s"}`);
+  if (mode === "very-narrow") {
+    return middle;
+  }
   const w = WITTICISMS[Math.floor(Math.random() * WITTICISMS.length)] ?? "";
-  const middle = colors.dim(`${msgCount} message${msgCount === 1 ? "" : "s"}`);
-  const right = colors.dim.italic(`"${w}"`);
-  return `${middle}  ${colors.apolloDim("│")}  ${right}`;
+  const right = c.dim.italic(`"${w}"`);
+  return `${middle}  ${c.apolloDim("│")}  ${right}`;
 }
 
-export function inputBoxTop(): string {
-  return colors.apollo("╭" + "─".repeat(BOX_WIDTH - 2) + "╮");
+export function inputBoxTop(cols?: number): string {
+  const w =
+    cols === undefined
+      ? BOX_WIDTH
+      : Math.max(20, Math.min(cols - 2, BOX_WIDTH));
+  return getColors().apollo("╭" + "─".repeat(w - 2) + "╮");
 }
 
-export function inputBoxBottom(): string {
-  return colors.apollo("╰" + "─".repeat(BOX_WIDTH - 2) + "╯");
+export function inputBoxBottom(cols?: number): string {
+  const w =
+    cols === undefined
+      ? BOX_WIDTH
+      : Math.max(20, Math.min(cols - 2, BOX_WIDTH));
+  return getColors().apollo("╰" + "─".repeat(w - 2) + "╯");
 }
 
 export function inputBoxHint(): string {
-  return colors.dim(
+  return getColors().dim(
     "  /help · /clear · /regenerate · /save · /exit",
   );
 }
 
 export function prompt(): string {
-  return colors.apollo("│ ") + chalk.bold.hex(APOLLO_LIGHT)("❯ ");
+  const c = getColors();
+  return c.apollo("│ ") + c.apolloLight.bold("❯ ");
 }
 
 export function greeting(line: string): string {
-  return colors.apolloLight.bold(line);
+  return getColors().apolloLight.bold(line);
 }
 
 export function info(msg: string): string {
-  return colors.dim(msg);
+  return getColors().dim(msg);
 }
 
 export function error(msg: string): string {
-  return colors.error(msg);
+  return getColors().error(msg);
 }
 
 export function warning(msg: string): string {
-  return colors.warning(msg);
+  return getColors().warning(msg);
 }
 
 export function dim(msg: string): string {
-  return colors.dim(msg);
+  return getColors().dim(msg);
 }
 
 export function separator(): string {
-  return colors.apolloDim("─".repeat(BOX_WIDTH));
+  return getColors().apolloDim("─".repeat(BOX_WIDTH));
 }
 
 export function pickThinkingLine(): string {
@@ -258,13 +394,14 @@ export function startSpinner(label?: string): Spinner {
   let i = 0;
   const isTTY = process.stdout.isTTY === true;
   if (!isTTY) {
-    process.stdout.write(colors.apollo(`◆ ${line}…\n`));
+    process.stdout.write(getColors().apollo(`◆ ${line}…\n`));
     return { stop: () => {} };
   }
   process.stdout.write("\x1b[?25l");
   const render = () => {
     const frame = SPINNER_FRAMES[i++ % SPINNER_FRAMES.length] ?? "·";
-    process.stdout.write(`\r${colors.apollo(frame)} ${colors.dim(line + "…")}   `);
+    const c = getColors();
+    process.stdout.write(`\r${c.apollo(frame)} ${c.dim(line + "…")}   `);
   };
   render();
   const timer = setInterval(render, 80);
@@ -288,13 +425,14 @@ export function createAccentBarWriter(): AccentBarWriter {
     write(chunk: string) {
       if (!chunk) return;
       let buf = "";
+      const c = getColors();
       for (const ch of chunk) {
         if (atLineStart) {
-          buf += colors.apollo("│ ");
+          buf += c.apollo("│ ");
           atLineStart = false;
           started = true;
         }
-        buf += ch === "\n" ? "" : colors.text(ch);
+        buf += ch === "\n" ? "" : c.text(ch);
         if (ch === "\n") {
           buf += "\n";
           atLineStart = true;
@@ -315,9 +453,10 @@ export function newline(): void {
 }
 
 export function writeAssistantToken(token: string): void {
-  process.stdout.write(colors.text(token));
+  process.stdout.write(getColors().text(token));
 }
 
 export function renderMarkdown(md: string): string {
+  if (!markedThemeApplied) applyMarkedTheme();
   return String(marked.parse(md, { async: false }));
 }

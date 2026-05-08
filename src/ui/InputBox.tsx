@@ -1,5 +1,5 @@
 import { Box, Text } from "ink";
-import { APOLLO, APOLLO_LIGHT, DIM_COLOR, TEXT_COLOR } from "./colors.ts";
+import { useTheme } from "./ThemeContext.tsx";
 
 interface Props {
   value: string;
@@ -10,6 +10,7 @@ interface Props {
 }
 
 export function InputBox({ value, cursor, disabled, width, placeholder }: Props) {
+  const t = useTheme();
   const before = value.slice(0, cursor);
   const at = value[cursor] ?? " ";
   const after = value.slice(cursor + 1);
@@ -17,26 +18,26 @@ export function InputBox({ value, cursor, disabled, width, placeholder }: Props)
   const showPlaceholder = !disabled && value.length === 0 && placeholder;
 
   return (
-    <Box borderStyle="round" borderColor={APOLLO} paddingX={1} width={width}>
-      <Text color={APOLLO_LIGHT} bold>
+    <Box borderStyle="round" borderColor={t.primary} paddingX={1} width={width}>
+      <Text color={t.primaryLight} bold>
         ❯{" "}
       </Text>
       {disabled ? (
-        <Text color={DIM_COLOR}>(Drexler thinking… ESC to cancel)</Text>
+        <Text color={t.dim}>(Drexler thinking… ESC to cancel)</Text>
       ) : showPlaceholder ? (
         <>
-          <Text inverse color={TEXT_COLOR}>
+          <Text inverse color={t.text}>
             {" "}
           </Text>
-          <Text color={DIM_COLOR}>{" " + placeholder}</Text>
+          <Text color={t.dim}>{" " + placeholder}</Text>
         </>
       ) : (
         <>
-          <Text color={TEXT_COLOR}>{before}</Text>
-          <Text inverse color={TEXT_COLOR}>
+          <Text color={t.text}>{before}</Text>
+          <Text inverse color={t.text}>
             {at}
           </Text>
-          <Text color={TEXT_COLOR}>{after}</Text>
+          <Text color={t.text}>{after}</Text>
         </>
       )}
     </Box>
@@ -44,9 +45,10 @@ export function InputBox({ value, cursor, disabled, width, placeholder }: Props)
 }
 
 export function InputHint() {
+  const t = useTheme();
   return (
     <Box paddingLeft={2}>
-      <Text color={DIM_COLOR}>
+      <Text color={t.dim}>
         /help · /clear · /regenerate · /save · /exit
       </Text>
     </Box>

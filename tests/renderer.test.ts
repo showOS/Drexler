@@ -5,6 +5,7 @@ import {
   createAccentBarWriter,
   inputBoxBottom,
   inputBoxTop,
+  pickLayout,
   pickThinkingLine,
   prompt,
   renderMarkdown,
@@ -200,5 +201,54 @@ describe("startSpinner non-TTY fallback", () => {
     const all = stripAnsi(chunks.join(""));
     expect(all).toContain("test label");
     expect(all.includes("\n")).toBe(true);
+  });
+});
+
+describe("responsive layout", () => {
+  test("pickLayout returns wide for >= 80 cols", () => {
+    expect(pickLayout(120)).toBe("wide");
+    expect(pickLayout(80)).toBe("wide");
+  });
+
+  test("pickLayout returns narrow for 60..79", () => {
+    expect(pickLayout(70)).toBe("narrow");
+    expect(pickLayout(60)).toBe("narrow");
+    expect(pickLayout(79)).toBe("narrow");
+  });
+
+  test("pickLayout returns very-narrow for < 60", () => {
+    expect(pickLayout(40)).toBe("very-narrow");
+    expect(pickLayout(59)).toBe("very-narrow");
+  });
+
+  test("welcomeBox(narrow) places 'Welcome to' on different visible line than mascot glyph", () => {
+    const out = stripAnsi(welcomeBox("hi", 70));
+    const lines = out.split("\n");
+    const welcomeIdx = lines.findIndex((l) => l.includes("Welcome to"));
+    const mascotIdx = lines.findIndex((l) => l.includes("◆"));
+    expect(welcomeIdx).toBeGreaterThanOrEqual(0);
+    expect(mascotIdx).toBeGreaterThanOrEqual(0);
+    expect(welcomeIdx).not.toBe(mascotIdx);
+  });
+
+  test("welcomeBox(very-narrow) drops mascot entirely", () => {
+    const out = stripAnsi(welcomeBox("hi", 50));
+    expect(out).not.toContain("◆");
+    expect(out).not.toContain("╔════╗");
+  });
+
+  test("inputBoxTop(40) matches narrowed bracket regex", () => {
+    expect(stripAnsi(inputBoxTop(40))).toMatch(/^╭─{36,38}╮$/);
+  });
+
+  test("inputBoxTop() with no arg still 64 wide (existing test preserved)", () => {
+    expect(stripAnsi(inputBoxTop())).toMatch(/^╭─+╮$/);
+    expect(stripAnsi(inputBoxTop()).length).toBe(64);
+  });
+
+  test("statusLine(model, 3, 'very-narrow') drops witticism quotes", () => {
+    const out = stripAnsi(statusLine("m", 3, "very-narrow"));
+    expect(out).not.toContain('"');
+    expect(out).toContain("3 message");
   });
 });

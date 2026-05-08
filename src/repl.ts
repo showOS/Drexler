@@ -11,9 +11,11 @@ import {
   inputBoxBottom,
   inputBoxHint,
   inputBoxTop,
+  pickLayout,
   prompt as styledPrompt,
   startSpinner,
   statusLine,
+  termCols,
 } from "./renderer.ts";
 import { MODEL_FALLBACK, MODEL_PRIMARY, type Config } from "./types.ts";
 
@@ -138,13 +140,20 @@ function slashCompleter(line: string): [string[], string] {
 }
 
 function printPromptHeader(deps: ReplDeps): void {
+  const cols = termCols();
+  const mode = pickLayout(cols);
   console.log("");
-  console.log(statusLine(deps.config.model, deps.conversation.length));
-  console.log(inputBoxTop());
+  console.log(
+    mode === "very-narrow"
+      ? statusLine(deps.config.model, deps.conversation.length, mode)
+      : statusLine(deps.config.model, deps.conversation.length),
+  );
+  console.log(inputBoxTop(cols));
 }
 
 function printPromptFooter(): void {
-  console.log(inputBoxBottom());
+  const cols = termCols();
+  console.log(inputBoxBottom(cols));
   console.log(inputBoxHint());
   console.log("");
 }

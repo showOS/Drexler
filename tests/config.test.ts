@@ -39,6 +39,14 @@ describe("parseFlags", () => {
   test("ignores unknown flags", () => {
     expect(parseFlags(["--unknown", "x"])).toEqual({});
   });
+
+  test("parses --theme alias (space form)", () => {
+    expect(parseFlags(["--theme", "amber"])).toEqual({ theme: "amber" });
+  });
+
+  test("parses --theme=value", () => {
+    expect(parseFlags(["--theme=mono"])).toEqual({ theme: "mono" });
+  });
 });
 
 describe("resolveModel", () => {
@@ -374,5 +382,37 @@ describe("ensureApiKey + resolveConfig (no-prompt paths)", () => {
     expect(() => resolveConfig(["--model", "garbage"])).toThrow(
       /Unknown model/,
     );
+  });
+
+  test("resolveConfig --theme flag wins over env DREXLER_THEME", async () => {
+    process.env.OPENROUTER_API_KEY = "sk-or-key-padding1234567890ab";
+    const origTheme = process.env.DREXLER_THEME;
+    process.env.DREXLER_THEME = "mono";
+    try {
+      const cfg = await resolveConfig(["--theme", "amber"]);
+      expect(cfg.theme).toBe("amber");
+    } finally {
+      if (origTheme !== undefined) process.env.DREXLER_THEME = origTheme;
+      else delete process.env.DREXLER_THEME;
+    }
+  });
+
+  test("resolveConfig env DREXLER_THEME used when no flag", async () => {
+    process.env.OPENROUTER_API_KEY = "sk-or-key-padding1234567890ab";
+    const origTheme = process.env.DREXLER_THEME;
+    process.env.DREXLER_THEME = "mono";
+    try {
+      const cfg = await resolveConfig([]);
+      expect(cfg.theme).toBe("mono");
+    } finally {
+      if (origTheme !== undefined) process.env.DREXLER_THEME = origTheme;
+      else delete process.env.DREXLER_THEME;
+    }
+  });
+
+  test("resolveConfig invalid theme value is ignored (theme undefined)", async () => {
+    process.env.OPENROUTER_API_KEY = "sk-or-key-padding1234567890ab";
+    const cfg = await resolveConfig(["--theme", "neon"]);
+    expect(cfg.theme).toBeUndefined();
   });
 });
