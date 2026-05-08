@@ -351,6 +351,36 @@ describe("streamChat (V3 fallback)", () => {
     expect(receivedSignal).toBe(controller.signal);
   });
 
+  test("401 returns friendly key-rejected message", async () => {
+    const fetchFn: import("../src/llm.ts").FetchFn = async () =>
+      new Response(`{"error":{"message":"Missing Authentication header","code":401}}`, { status: 401 });
+    const result = await streamChat({
+      apiKey: "k",
+      model: MODEL_PRIMARY,
+      messages: [{ role: "user", content: "hi" }],
+      onToken: () => {},
+      fetchFn,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/HTTP 401/);
+    expect(result.error).toMatch(/API key rejected/);
+    expect(result.error).toMatch(/\.env|config\.json/);
+  });
+
+  test("403 returns friendly key-rejected message", async () => {
+    const fetchFn: import("../src/llm.ts").FetchFn = async () =>
+      new Response("forbidden", { status: 403 });
+    const result = await streamChat({
+      apiKey: "k",
+      model: MODEL_PRIMARY,
+      messages: [{ role: "user", content: "hi" }],
+      onToken: () => {},
+      fetchFn,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/API key rejected/);
+  });
+
   test("aborted fetch returns http_error result", async () => {
     const fetchFn: import("../src/llm.ts").FetchFn = async () => {
       throw new DOMException("aborted", "AbortError");

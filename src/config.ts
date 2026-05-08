@@ -82,11 +82,12 @@ export async function saveConfig(partial: Partial<Config>): Promise<void> {
 }
 
 const PLACEHOLDER_RE = /your-key-here|sk-or-v1-\.\.\.|^(stub|test|todo)$/i;
+const MIN_KEY_LEN = 20;
 
 export function isValidApiKey(k: string | undefined | null): k is string {
   if (typeof k !== "string") return false;
   const t = k.trim();
-  if (t.length === 0) return false;
+  if (t.length < MIN_KEY_LEN) return false;
   if (PLACEHOLDER_RE.test(t)) return false;
   return true;
 }

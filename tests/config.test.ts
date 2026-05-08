@@ -114,6 +114,13 @@ describe("isValidApiKey", () => {
     expect(isValidApiKey("sk-or-realtest123abcdef")).toBe(true);
     expect(isValidApiKey("sk-or-v1-abc123def456")).toBe(true);
   });
+
+  test("rejects keys shorter than 20 chars (catches leftover sandbox stubs)", () => {
+    expect(isValidApiKey("sk-or-key")).toBe(false);
+    expect(isValidApiKey("sk-or-test1")).toBe(false);
+    expect(isValidApiKey("sk-or-19chars-pad12")).toBe(false); // 19
+    expect(isValidApiKey("sk-or-20chars-pad123")).toBe(true); // 20
+  });
 });
 
 describe("loadConfigFile / saveConfig", () => {
@@ -140,20 +147,20 @@ describe("loadConfigFile / saveConfig", () => {
     await mkdir(cfgDir, { recursive: true });
     await writeFile(
       join(cfgDir, "config.json"),
-      JSON.stringify({ apiKey: "sk-or-test1", model: "26b" }),
+      JSON.stringify({ apiKey: "sk-or-test1-padding1234567890", model: "26b" }),
     );
     const cfg = await loadConfigFile();
-    expect(cfg.apiKey).toBe("sk-or-test1");
+    expect(cfg.apiKey).toBe("sk-or-test1-padding1234567890");
     expect(cfg.model).toBe("26b");
   });
 
   test("loadConfigFile falls back to legacy ~/.drexlerrc", async () => {
     await writeFile(
       join(dir, ".drexlerrc"),
-      JSON.stringify({ apiKey: "sk-or-legacy" }),
+      JSON.stringify({ apiKey: "sk-or-legacy-padding1234567890" }),
     );
     const cfg = await loadConfigFile();
-    expect(cfg.apiKey).toBe("sk-or-legacy");
+    expect(cfg.apiKey).toBe("sk-or-legacy-padding1234567890");
   });
 
   test("loadConfigFile prefers new path over legacy", async () => {
@@ -161,13 +168,13 @@ describe("loadConfigFile / saveConfig", () => {
     await mkdir(cfgDir, { recursive: true });
     await writeFile(
       join(cfgDir, "config.json"),
-      JSON.stringify({ apiKey: "sk-or-new" }),
+      JSON.stringify({ apiKey: "sk-or-new-padding1234567890ab" }),
     );
     await writeFile(
       join(dir, ".drexlerrc"),
-      JSON.stringify({ apiKey: "sk-or-legacy" }),
+      JSON.stringify({ apiKey: "sk-or-legacy-padding1234567890" }),
     );
-    expect((await loadConfigFile()).apiKey).toBe("sk-or-new");
+    expect((await loadConfigFile()).apiKey).toBe("sk-or-new-padding1234567890ab");
   });
 
   test("loadConfigFile returns empty on malformed JSON", async () => {
@@ -178,19 +185,19 @@ describe("loadConfigFile / saveConfig", () => {
   });
 
   test("saveConfig writes config and merges with existing", async () => {
-    await saveConfig({ apiKey: "sk-or-1", model: "31b" });
+    await saveConfig({ apiKey: "sk-or-1-padding1234567890abcd", model: "31b" });
     let cfg = await loadConfigFile();
-    expect(cfg.apiKey).toBe("sk-or-1");
+    expect(cfg.apiKey).toBe("sk-or-1-padding1234567890abcd");
     expect(cfg.model).toBe("31b");
 
     await saveConfig({ model: "26b" });
     cfg = await loadConfigFile();
-    expect(cfg.apiKey).toBe("sk-or-1");
+    expect(cfg.apiKey).toBe("sk-or-1-padding1234567890abcd");
     expect(cfg.model).toBe("26b");
   });
 
   test("saveConfig writes file with mode 0600", async () => {
-    await saveConfig({ apiKey: "sk-or-secret" });
+    await saveConfig({ apiKey: "sk-or-secret-padding1234567890" });
     const cfgPath = join(dir, ".config", "drexler", "config.json");
     const { stat } = await import("node:fs/promises");
     const s = await stat(cfgPath);
@@ -198,13 +205,13 @@ describe("loadConfigFile / saveConfig", () => {
   });
 
   test("saveConfig file is valid JSON round-trip", async () => {
-    await saveConfig({ apiKey: "sk-or-rt", maxHistory: 25 });
+    await saveConfig({ apiKey: "sk-or-rt-padding1234567890ab", maxHistory: 25 });
     const raw = await readFile(
       join(dir, ".config", "drexler", "config.json"),
       "utf-8",
     );
     const parsed = JSON.parse(raw);
-    expect(parsed.apiKey).toBe("sk-or-rt");
+    expect(parsed.apiKey).toBe("sk-or-rt-padding1234567890ab");
     expect(parsed.maxHistory).toBe(25);
   });
 });
@@ -236,75 +243,75 @@ describe("ensureApiKey + resolveConfig (no-prompt paths)", () => {
   });
 
   test("ensureApiKey returns env key when set and valid", async () => {
-    process.env.OPENROUTER_API_KEY = "sk-or-fromenv1234";
-    expect(await ensureApiKey()).toBe("sk-or-fromenv1234");
+    process.env.OPENROUTER_API_KEY = "sk-or-fromenv1234-padding12345";
+    expect(await ensureApiKey()).toBe("sk-or-fromenv1234-padding12345");
   });
 
   test("ensureApiKey trims env key", async () => {
-    process.env.OPENROUTER_API_KEY = "  sk-or-trimme  ";
-    expect(await ensureApiKey()).toBe("sk-or-trimme");
+    process.env.OPENROUTER_API_KEY = "  sk-or-trimme-padding1234567890  ";
+    expect(await ensureApiKey()).toBe("sk-or-trimme-padding1234567890");
   });
 
   test("ensureApiKey treats placeholder env key as missing → falls back to config file", async () => {
     process.env.OPENROUTER_API_KEY = "sk-or-your-key-here";
-    await saveConfig({ apiKey: "sk-or-fromfile" });
-    expect(await ensureApiKey()).toBe("sk-or-fromfile");
+    await saveConfig({ apiKey: "sk-or-fromfile-padding1234567890" });
+    expect(await ensureApiKey()).toBe("sk-or-fromfile-padding1234567890");
   });
 
   test("ensureApiKey returns config file key when env missing", async () => {
-    await saveConfig({ apiKey: "sk-or-fileonly" });
-    expect(await ensureApiKey()).toBe("sk-or-fileonly");
+    await saveConfig({ apiKey: "sk-or-fileonly-padding1234567890" });
+    expect(await ensureApiKey()).toBe("sk-or-fileonly-padding1234567890");
   });
 
   test("resolveConfig prefers env key over file key", async () => {
-    process.env.OPENROUTER_API_KEY = "sk-or-envkey";
-    await saveConfig({ apiKey: "sk-or-filekey" });
+    process.env.OPENROUTER_API_KEY = "sk-or-envkey-padding1234567890";
+    await saveConfig({ apiKey: "sk-or-filekey-padding1234567890" });
     const cfg = await resolveConfig([]);
-    expect(cfg.apiKey).toBe("sk-or-envkey");
+    expect(cfg.apiKey).toBe("sk-or-envkey-padding1234567890");
   });
 
   test("resolveConfig --model flag overrides env DREXLER_MODEL", async () => {
-    process.env.OPENROUTER_API_KEY = "sk-or-key";
+    process.env.OPENROUTER_API_KEY = "sk-or-key-padding1234567890ab";
     process.env.DREXLER_MODEL = "31b";
     const cfg = await resolveConfig(["--model", "26b"]);
     expect(cfg.model).toBe(MODEL_FALLBACK);
   });
 
   test("resolveConfig env DREXLER_MODEL overrides file model", async () => {
-    process.env.OPENROUTER_API_KEY = "sk-or-key";
+    process.env.OPENROUTER_API_KEY = "sk-or-key-padding1234567890ab";
     process.env.DREXLER_MODEL = "26b";
-    await saveConfig({ apiKey: "sk-or-key", model: "31b" });
+    await saveConfig({ apiKey: "sk-or-key-padding1234567890ab", model: "31b" });
     const cfg = await resolveConfig([]);
     expect(cfg.model).toBe(MODEL_FALLBACK);
   });
 
   test("resolveConfig file model used when no flag/env", async () => {
-    await saveConfig({ apiKey: "sk-or-filekey", model: "26b" });
+    await saveConfig({ apiKey: "sk-or-filekey-padding1234567890", model: "26b" });
     const cfg = await resolveConfig([]);
     expect(cfg.model).toBe(MODEL_FALLBACK);
   });
 
   test("resolveConfig defaults model to 31b primary", async () => {
-    process.env.OPENROUTER_API_KEY = "sk-or-key";
+    process.env.OPENROUTER_API_KEY = "sk-or-key-padding1234567890ab";
     const cfg = await resolveConfig([]);
     expect(cfg.model).toBe(MODEL_PRIMARY);
   });
 
   test("resolveConfig --persona overrides default path", async () => {
-    process.env.OPENROUTER_API_KEY = "sk-or-key";
+    process.env.OPENROUTER_API_KEY = "sk-or-key-padding1234567890ab";
     const cfg = await resolveConfig(["--persona", "/custom/path.md"]);
     expect(cfg.personaPath).toBe("/custom/path.md");
   });
 
   test("resolveConfig file maxHistory respected if positive number", async () => {
-    process.env.OPENROUTER_API_KEY = "sk-or-key";
-    await saveConfig({ apiKey: "sk-or-key", maxHistory: 25 });
+    process.env.OPENROUTER_API_KEY = "sk-or-key-padding1234567890ab";
+    await saveConfig({ apiKey: "sk-or-key-padding1234567890ab", maxHistory: 25 });
     const cfg = await resolveConfig([]);
     expect(cfg.maxHistory).toBe(25);
   });
 
   test("resolveConfig defaults maxHistory to 50 when missing", async () => {
-    process.env.OPENROUTER_API_KEY = "sk-or-key";
+    process.env.OPENROUTER_API_KEY = "sk-or-key-padding1234567890ab";
     const cfg = await resolveConfig([]);
     expect(cfg.maxHistory).toBe(50);
   });
@@ -314,7 +321,7 @@ describe("ensureApiKey + resolveConfig (no-prompt paths)", () => {
   });
 
   test("resolveConfig invalid model alias rejects", async () => {
-    process.env.OPENROUTER_API_KEY = "sk-or-key";
+    process.env.OPENROUTER_API_KEY = "sk-or-key-padding1234567890ab";
     expect(() => resolveConfig(["--model", "garbage"])).toThrow(
       /Unknown model/,
     );

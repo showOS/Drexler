@@ -95,6 +95,18 @@ async function attempt(
     return { status: "rate_limit", content: null, error: "429 rate limited" };
   }
 
+  if (res.status === 401 || res.status === 403) {
+    let detail = "";
+    try {
+      detail = await res.text();
+    } catch {}
+    return {
+      status: "http_error",
+      content: null,
+      error: `HTTP ${res.status}: API key rejected by OpenRouter. Update via .env (OPENROUTER_API_KEY=...) or run "rm ~/.config/drexler/config.json" to re-prompt. ${detail.slice(0, 120)}`,
+    };
+  }
+
   if (res.status >= 500 && res.status <= 599 && !isRetry) {
     try {
       await res.text();
