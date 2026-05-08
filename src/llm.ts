@@ -160,8 +160,30 @@ export async function parseSSEStream(
   const decoder = new TextDecoder();
   let buf = "";
   let acc = "";
+  let doneSeen = false;
+  const processLine = (rawLine: string): void => {
+    const line = rawLine.replace(/\r$/, "").trim();
+    if (line === "" || line.startsWith(":")) return;
+    if (!line.startsWith("data:")) return;
+    const data = line.slice(5).trim();
+    if (data === "[DONE]") {
+      doneSeen = true;
+      return;
+    }
+    try {
+      const chunk = JSON.parse(data) as StreamChunk;
+      const tok = chunk.choices?.[0]?.delta?.content;
+      if (typeof tok === "string" && tok.length > 0) {
+        acc += tok;
+        onToken(tok);
+      }
+    } catch {
+      // tolerate malformed chunk
+    }
+  };
+
   try {
-    while (true) {
+    while (!doneSeen) {
       const { value, done } = await reader.read();
       if (done) {
         // Flush any incomplete UTF-8 sequence at end of stream.
@@ -173,24 +195,12 @@ export async function parseSSEStream(
       while ((nl = buf.indexOf("\n")) !== -1) {
         const rawLine = buf.slice(0, nl);
         buf = buf.slice(nl + 1);
-        const line = rawLine.replace(/\r$/, "").trim();
-        if (line === "" || line.startsWith(":")) continue;
-        if (!line.startsWith("data:")) continue;
-        const data = line.slice(5).trim();
-        if (data === "[DONE]") return acc;
-        try {
-          const chunk = JSON.parse(data) as StreamChunk;
-          const tok = chunk.choices?.[0]?.delta?.content;
-          if (typeof tok === "string" && tok.length > 0) {
-            acc += tok;
-            onToken(tok);
-          }
-        } catch {
-          // tolerate malformed chunk
-        }
+        processLine(rawLine);
+        if (doneSeen) return acc;
       }
     }
-    return acc;
+    if (buf.length > 0) processLine(buf);
+    return doneSeen ? acc : null;
   } catch {
     return null;
   } finally {

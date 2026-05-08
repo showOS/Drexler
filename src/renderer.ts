@@ -2,6 +2,7 @@ import chalk from "chalk";
 import { highlight } from "cli-highlight";
 import { marked } from "marked";
 import { markedTerminal } from "marked-terminal";
+import { STARTUP_TIPS } from "./startupTips.ts";
 import { buildChalkColors, getActiveTheme } from "./ui/themes.ts";
 
 export function getColors() {
@@ -239,17 +240,10 @@ export function tagline(): string {
   );
 }
 
-const TIPS = [
-  'Ask about LMEs (J. Crew, Serta, Altice France) or any restructuring deal',
-  'Type /help for all directives, /regenerate to re-roll Drexler',
-  'Tab completes slash commands; ↑/↓ scrolls input history',
-  'ESC cancels mid-response without quitting; Ctrl+C exits',
-];
-
 export function tipsList(): string {
   const c = getColors();
   const header = c.dim("Tips for getting started:");
-  const lines = TIPS.map(
+  const lines = STARTUP_TIPS.map(
     (t, i) => `  ${c.apollo(`${i + 1}.`)} ${c.dim(t)}`,
   );
   return [header, ...lines].join("\n");
@@ -270,6 +264,10 @@ export function welcomeBox(greetingLine: string, cols?: number): string {
   const mode = cols === undefined ? "wide" : pickLayout(cols);
   const c = getColors();
   const boldLight = c.apolloLight.bold;
+  const tipRows = [
+    c.apolloLight.bold("Tips for getting started"),
+    ...STARTUP_TIPS.map((tip, idx) => `${c.apollo(`${idx + 1}.`)} ${c.dim(tip)}`),
+  ];
 
   if (mode === "very-narrow") {
     const innerRows: string[] = [
@@ -277,6 +275,8 @@ export function welcomeBox(greetingLine: string, cols?: number): string {
       boldLight("Drexler International™"),
       "",
       c.apolloLight(greetingLine),
+      "",
+      ...tipRows,
     ];
     const widest = innerRows.reduce(
       (max, r) => Math.max(max, visibleLength(r)),
@@ -299,6 +299,8 @@ export function welcomeBox(greetingLine: string, cols?: number): string {
       boldLight("Drexler International™"),
       "",
       c.apolloLight(greetingLine),
+      "",
+      ...tipRows,
     ];
     const innerRows: string[] = [...mascot, "", ...text];
     const widest = innerRows.reduce(
@@ -317,7 +319,7 @@ export function welcomeBox(greetingLine: string, cols?: number): string {
 
   // wide (default): existing side-by-side layout
   const left = MASCOT_LINES.map((l) => c.apollo(l));
-  const right = [
+  const middle = [
     "",
     boldLight("Welcome to"),
     boldLight("Drexler International™"),
@@ -326,13 +328,26 @@ export function welcomeBox(greetingLine: string, cols?: number): string {
     "",
     "",
   ];
-  while (right.length < left.length) right.push("");
-  while (left.length < right.length) left.push(MASCOT_PAD);
+  const right = [...tipRows];
+  const totalRows = Math.max(left.length, middle.length, right.length);
+  while (left.length < totalRows) left.push(MASCOT_PAD);
+  while (middle.length < totalRows) middle.push("");
+  while (right.length < totalRows) right.push("");
 
-  // Build inner rows: mascot · gap · text. Then wrap in rounded border.
+  // Build inner rows: mascot · greeting · divider · tips.
   const innerRows: string[] = [];
-  for (let i = 0; i < left.length; i++) {
-    innerRows.push(`${left[i]}    ${right[i] ?? ""}`);
+  const leftWidth = left.reduce((max, r) => Math.max(max, visibleLength(r)), 0);
+  const middleWidth = middle.reduce(
+    (max, r) => Math.max(max, visibleLength(r)),
+    0,
+  );
+  const rightWidth = right.reduce((max, r) => Math.max(max, visibleLength(r)), 0);
+  for (let i = 0; i < totalRows; i++) {
+    innerRows.push(
+      `${padVisible(left[i] ?? "", leftWidth)}    ${
+        padVisible(middle[i] ?? "", middleWidth)
+      }  ${c.apolloDim("│")}  ${padVisible(right[i] ?? "", rightWidth)}`,
+    );
   }
   const innerWidth = innerRows.reduce(
     (max, r) => Math.max(max, visibleLength(r)),

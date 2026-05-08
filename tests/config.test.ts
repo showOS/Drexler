@@ -47,6 +47,12 @@ describe("parseFlags", () => {
   test("parses --theme=value", () => {
     expect(parseFlags(["--theme=mono"])).toEqual({ theme: "mono" });
   });
+
+  test("does not consume another flag as a missing value", () => {
+    expect(parseFlags(["--model", "--theme", "amber"])).toEqual({
+      theme: "amber",
+    });
+  });
 });
 
 describe("resolveModel", () => {
@@ -182,16 +188,21 @@ describe("XDG_CONFIG_HOME respected", () => {
 
 describe("loadConfigFile / saveConfig", () => {
   let origHome: string | undefined;
+  let origXdg: string | undefined;
   let dir: string;
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "drexler-cfg-"));
     origHome = process.env.HOME;
+    origXdg = process.env.XDG_CONFIG_HOME;
     process.env.HOME = dir;
+    delete process.env.XDG_CONFIG_HOME;
   });
 
   afterEach(async () => {
     if (origHome !== undefined) process.env.HOME = origHome;
+    if (origXdg !== undefined) process.env.XDG_CONFIG_HOME = origXdg;
+    else delete process.env.XDG_CONFIG_HOME;
     await rm(dir, { recursive: true, force: true });
   });
 
@@ -277,6 +288,7 @@ describe("ensureApiKey + resolveConfig (no-prompt paths)", () => {
   let origHome: string | undefined;
   let origEnvKey: string | undefined;
   let origEnvModel: string | undefined;
+  let origXdg: string | undefined;
   let dir: string;
 
   beforeEach(async () => {
@@ -284,9 +296,11 @@ describe("ensureApiKey + resolveConfig (no-prompt paths)", () => {
     origHome = process.env.HOME;
     origEnvKey = process.env.OPENROUTER_API_KEY;
     origEnvModel = process.env.DREXLER_MODEL;
+    origXdg = process.env.XDG_CONFIG_HOME;
     process.env.HOME = dir;
     delete process.env.OPENROUTER_API_KEY;
     delete process.env.DREXLER_MODEL;
+    delete process.env.XDG_CONFIG_HOME;
   });
 
   afterEach(async () => {
@@ -296,6 +310,8 @@ describe("ensureApiKey + resolveConfig (no-prompt paths)", () => {
     else delete process.env.OPENROUTER_API_KEY;
     if (origEnvModel !== undefined) process.env.DREXLER_MODEL = origEnvModel;
     else delete process.env.DREXLER_MODEL;
+    if (origXdg !== undefined) process.env.XDG_CONFIG_HOME = origXdg;
+    else delete process.env.XDG_CONFIG_HOME;
     await rm(dir, { recursive: true, force: true });
   });
 
@@ -365,6 +381,15 @@ describe("ensureApiKey + resolveConfig (no-prompt paths)", () => {
     await saveConfig({ apiKey: "sk-or-key-padding1234567890ab", maxHistory: 25 });
     const cfg = await resolveConfig([]);
     expect(cfg.maxHistory).toBe(25);
+  });
+
+  test("resolveConfig defaults maxHistory when file value cannot satisfy Conversation", async () => {
+    process.env.OPENROUTER_API_KEY = "sk-or-key-padding1234567890ab";
+    for (const maxHistory of [1, 0, -1, 2.5]) {
+      await saveConfig({ apiKey: "sk-or-key-padding1234567890ab", maxHistory });
+      const cfg = await resolveConfig([]);
+      expect(cfg.maxHistory).toBe(50);
+    }
   });
 
   test("resolveConfig defaults maxHistory to 50 when missing", async () => {

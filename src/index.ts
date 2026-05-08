@@ -14,12 +14,12 @@ import {
   resetMarkedTheme,
   tagline,
   termCols,
-  tipsList,
   typewriterBanner,
   welcomeBox,
 } from "./renderer.ts";
 import { startRepl } from "./repl.ts";
 import { App } from "./ui/App.tsx";
+import { MascotIntro } from "./ui/MascotIntro.tsx";
 import { ThemeProvider } from "./ui/ThemeContext.tsx";
 import { getActiveTheme, selectTheme, setActiveTheme } from "./ui/themes.ts";
 
@@ -116,9 +116,17 @@ async function main(): Promise<void> {
     await typewriterBanner();
     console.log(tagline());
     console.log("");
-    console.log(tipsList());
-    console.log("");
-    console.log(welcomeBox(greeting, termCols()));
+    // Animated welcome card via transient Ink instance.
+    const intro = render(
+      React.createElement(ThemeProvider, {
+        value: getActiveTheme(),
+        children: React.createElement(MascotIntro, { greeting }),
+      }),
+      { exitOnCtrlC: false },
+    );
+    await intro.waitUntilExit();
+    intro.unmount();
+
     console.log("");
     console.log("  " + infoLine() + "  ·  mood: " + mood);
     console.log("");
@@ -138,8 +146,6 @@ async function main(): Promise<void> {
   console.log("");
   console.log(banner());
   console.log(tagline());
-  console.log("");
-  console.log(tipsList());
   console.log("");
   console.log(welcomeBox(greeting, termCols()));
   console.log("");

@@ -1,4 +1,4 @@
-import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
+import { Box, Text, useApp, useInput, useStdout } from "ink";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { dispatch, isSlash } from "../commands.ts";
 import type { Conversation } from "../conversation.ts";
@@ -7,7 +7,7 @@ import { pickLayout } from "../renderer.ts";
 import { detectPersonaDrift } from "../repl.ts";
 import { MODEL_FALLBACK, MODEL_PRIMARY, type Config } from "../types.ts";
 import { useTheme } from "./ThemeContext.tsx";
-import { InputBox, InputHint } from "./InputBox.tsx";
+import { InputBox } from "./InputBox.tsx";
 import { Message, StreamingMessage } from "./Message.tsx";
 import { Spinner } from "./Spinner.tsx";
 import { StatusBar } from "./StatusBar.tsx";
@@ -150,16 +150,20 @@ export function App({ conversation, config, fetchFn }: AppProps) {
     };
   }, [stdout]);
   const mode = pickLayout(cols);
-  const inputWidth =
-    mode === "very-narrow"
-      ? Math.max(20, cols - 2)
-      : Math.min(cols - 4, 100);
+  const inputWidth = Math.max(20, cols);
 
   const [items, setItems] = useState<ChatItem[]>([]);
   const itemIdRef = useRef(0);
   const addItem = useCallback((role: ChatItem["role"], content: string) => {
     itemIdRef.current += 1;
     setItems((prev) => [...prev, { id: itemIdRef.current, role, content }]);
+  }, []);
+  const removeLastAssistantItem = useCallback(() => {
+    setItems((prev) => {
+      const idx = prev.findLastIndex((item) => item.role === "assistant");
+      if (idx === -1) return prev;
+      return [...prev.slice(0, idx), ...prev.slice(idx + 1)];
+    });
   }, []);
 
   const [input, setInput] = useState("");
@@ -287,11 +291,12 @@ export function App({ conversation, config, fetchFn }: AppProps) {
         return;
       }
       if (action.type === "regenerate") {
+        removeLastAssistantItem();
         await runLLM();
       }
       setMsgCount(conversation.length);
     },
-    [addItem, conversation, config, model, runLLM, exit],
+    [addItem, conversation, config, model, removeLastAssistantItem, runLLM, exit],
   );
 
   const onSubmit = useCallback(
@@ -433,13 +438,13 @@ export function App({ conversation, config, fetchFn }: AppProps) {
 
   return (
     <Box flexDirection="column">
-      <Static items={items}>
-        {(item) => (
+      <Box flexDirection="column">
+        {items.map((item) => (
           <Box key={item.id} flexDirection="column">
             <Message role={item.role} content={item.content} />
           </Box>
-        )}
-      </Static>
+        ))}
+      </Box>
 
       <Box flexDirection="column">
         {streaming !== null && (
@@ -461,20 +466,13 @@ export function App({ conversation, config, fetchFn }: AppProps) {
         ) : (
           <>
             {mode === "wide" ? (
-              <Box flexDirection="row" alignItems="center">
+              <Box flexDirection="column">
                 <InputBox
                   value={input}
                   cursor={cursor}
                   disabled={isBusy}
                   width={inputWidth}
                 />
-                <Box marginLeft={2}>
-                  <StatusBar
-                    messageCount={msgCount}
-                    witticism={witticism}
-                    status={isBusy ? "streaming" : "idle"}
-                  />
-                </Box>
               </Box>
             ) : mode === "narrow" ? (
               <Box flexDirection="column">
@@ -484,14 +482,6 @@ export function App({ conversation, config, fetchFn }: AppProps) {
                   disabled={isBusy}
                   width={inputWidth}
                 />
-                <Box marginTop={0}>
-                  <StatusBar
-                    messageCount={msgCount}
-                    witticism={witticism}
-                    maxWidth={cols - 2}
-                    status={isBusy ? "streaming" : "idle"}
-                  />
-                </Box>
               </Box>
             ) : (
               <Box flexDirection="column">
@@ -501,18 +491,17 @@ export function App({ conversation, config, fetchFn }: AppProps) {
                   disabled={isBusy}
                   width={inputWidth}
                 />
-                <Box marginTop={0}>
-                  <StatusBar
-                    messageCount={msgCount}
-                    witticism={witticism}
-                    maxWidth={cols - 2}
-                    status={isBusy ? "streaming" : "idle"}
-                    compact={true}
-                  />
-                </Box>
               </Box>
             )}
-            <InputHint />
+            <Box paddingLeft={2}>
+              <StatusBar
+                messageCount={msgCount}
+                witticism={witticism}
+                maxWidth={Math.max(1, inputWidth - 2)}
+                status={isBusy ? "streaming" : "idle"}
+                compact={mode === "very-narrow"}
+              />
+            </Box>
           </>
         )}
       </Box>

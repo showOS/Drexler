@@ -182,6 +182,24 @@ describe("/save", () => {
     }
   });
 
+  test("writes to path containing spaces", async () => {
+    const { mkdtemp, rm, readFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = await mkdtemp(join(tmpdir(), "drexler-save-"));
+    try {
+      const target = join(dir, "my chat archive.md");
+      const { ctx } = makeCtx();
+      ctx.conversation.push("user", "space path");
+      const action = dispatch(`/save "${target}"`, ctx);
+      expect(action.type).toBe("continue");
+      const md = await readFile(target, "utf-8");
+      expect(md).toContain("space path");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("with no args, writes to drexler-<timestamp>.md in cwd", async () => {
     const { rm, readFile } = await import("node:fs/promises");
     const { mkdtemp } = await import("node:fs/promises");

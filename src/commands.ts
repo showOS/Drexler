@@ -40,6 +40,21 @@ export function parseSlash(input: string): { name: string; args: string[] } {
   };
 }
 
+function commandRemainder(input: string, name: string): string {
+  const body = input.slice(1).trim();
+  return body.slice(name.length).trim();
+}
+
+function stripMatchingQuotes(input: string): string {
+  if (
+    (input.startsWith('"') && input.endsWith('"')) ||
+    (input.startsWith("'") && input.endsWith("'"))
+  ) {
+    return input.slice(1, -1);
+  }
+  return input;
+}
+
 export function dispatch(input: string, ctx: CommandContext): CommandAction {
   const { name, args } = parseSlash(input);
   switch (name) {
@@ -89,8 +104,9 @@ export function dispatch(input: string, ctx: CommandContext): CommandAction {
     }
 
     case "save": {
-      const target = args[0]
-        ? pathResolve(args[0])
+      const pathArg = stripMatchingQuotes(commandRemainder(input, name));
+      const target = pathArg
+        ? pathResolve(pathArg)
         : pathResolve(`drexler-${Date.now()}.md`);
       if (existsSync(target)) {
         ctx.print(

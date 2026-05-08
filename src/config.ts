@@ -27,13 +27,17 @@ const MODEL_ID_PATTERN = /^[a-z0-9._-]+\/[a-z0-9._-]+(?::[a-z0-9]+)?$/i;
 
 export function parseFlags(argv: string[]): CliFlags {
   const flags: CliFlags = {};
+  const valueAfter = (i: number): string | undefined => {
+    const value = argv[i + 1];
+    return value !== undefined && !value.startsWith("--") ? value : undefined;
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--model" && argv[i + 1] !== undefined) {
+    if (a === "--model" && valueAfter(i) !== undefined) {
       flags.model = argv[++i];
-    } else if (a === "--persona" && argv[i + 1] !== undefined) {
+    } else if (a === "--persona" && valueAfter(i) !== undefined) {
       flags.persona = argv[++i];
-    } else if (a === "--theme" && argv[i + 1] !== undefined) {
+    } else if (a === "--theme" && valueAfter(i) !== undefined) {
       flags.theme = argv[++i];
     } else if (a !== undefined && a.startsWith("--model=")) {
       flags.model = a.slice("--model=".length);
@@ -122,12 +126,13 @@ export async function ensureApiKey(): Promise<string> {
   console.log("Get free key at: https://openrouter.ai/keys");
 
   const entered = await readApiKeyFromStdin();
-  if (!entered) {
-    console.error("No API key provided. Drexler refuse to work pro bono.");
+  if (!isValidApiKey(entered)) {
+    console.error("No valid API key provided. Drexler refuse to work pro bono.");
     process.exit(1);
   }
-  await saveConfig({ apiKey: entered });
-  return entered;
+  const apiKey = entered.trim();
+  await saveConfig({ apiKey });
+  return apiKey;
 }
 
 export async function resolveConfig(argv: string[]): Promise<Config> {
@@ -156,7 +161,9 @@ export async function resolveConfig(argv: string[]): Promise<Config> {
     : fileCfg.personaPath ?? defaultPersonaPath();
 
   const maxHistory =
-    typeof fileCfg.maxHistory === "number" && fileCfg.maxHistory > 0
+    typeof fileCfg.maxHistory === "number" &&
+    Number.isInteger(fileCfg.maxHistory) &&
+    fileCfg.maxHistory >= 2
       ? fileCfg.maxHistory
       : DEFAULT_MAX_HISTORY;
 

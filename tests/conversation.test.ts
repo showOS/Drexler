@@ -32,11 +32,15 @@ describe("Conversation (V1, V2, V16)", () => {
     c.push("user", "u2");
     c.push("assistant", "a2"); // overflow, drop u1
     const snap = c.snapshot();
-    expect(snap.length).toBe(4);
-    expect(snap[0]?.content).toBe("SYS");
-    expect(snap[1]?.content).toBe("a1");
-    expect(snap[2]?.content).toBe("u2");
-    expect(snap[3]?.content).toBe("a2");
+    expect(snap.map((m) => m.content)).toEqual(["SYS", "u2", "a2"]);
+  });
+
+  test("trim does not leave an orphan assistant at the start of history", () => {
+    const c = new Conversation("SYS", 3);
+    c.push("user", "u1");
+    c.push("assistant", "a1");
+    c.push("user", "u2");
+    expect(c.snapshot().map((m) => m.content)).toEqual(["SYS", "u2"]);
   });
 
   test("V2: system never trimmed even under heavy overflow", () => {

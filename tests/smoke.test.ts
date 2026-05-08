@@ -71,8 +71,9 @@ describe("smoke: full REPL flow with mocked OpenRouter", () => {
     // V1: system at idx 0
     expect(snap[0]?.role).toBe("system");
     expect(snap[0]?.content).toBe("DREXLER_PERSONA");
-    // V2: total length capped at maxHistory
-    expect(snap.length).toBe(maxHistory);
+    // V2: total length capped at maxHistory, without orphaned assistant replies.
+    expect(snap.length).toBeLessThanOrEqual(maxHistory);
+    expect(snap[1]?.role).not.toBe("assistant");
     // System never duplicated
     const systemCount = snap.filter((m) => m.role === "system").length;
     expect(systemCount).toBe(1);

@@ -33,14 +33,3 @@ export function InputBox({ value, cursor, disabled, width }: Props) {
     </Box>
   );
 }
-
-export function InputHint() {
-  const t = useTheme();
-  return (
-    <Box paddingLeft={2}>
-      <Text color={t.dim}>
-        /help · /clear · /regenerate · /save · /exit
-      </Text>
-    </Box>
-  );
-}

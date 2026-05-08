@@ -25,6 +25,9 @@ export class Conversation {
   private trim(): void {
     while (this.messages.length > this.maxHistory) {
       this.messages.splice(1, 1);
+      if (this.messages[1]?.role === "assistant") {
+        this.messages.splice(1, 1);
+      }
     }
   }
 

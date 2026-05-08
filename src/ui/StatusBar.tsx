@@ -13,6 +13,13 @@ interface Props {
 
 const MAX_WITTICISM_LEN = 60;
 
+function clampText(input: string, max: number): string {
+  if (input.length <= max) return input;
+  if (max <= 0) return "";
+  if (max === 1) return "…";
+  return input.slice(0, max - 1) + "…";
+}
+
 export function StatusBar({
   messageCount,
   witticism,
@@ -26,23 +33,21 @@ export function StatusBar({
     streaming: t.warning,
     error: t.error,
   };
-  const safe =
-    witticism.length > MAX_WITTICISM_LEN
-      ? witticism.slice(0, MAX_WITTICISM_LEN - 1) + "…"
-      : witticism;
+  const countLabel = `${messageCount} message${messageCount === 1 ? "" : "s"}`;
+  const quoteWidth =
+    typeof maxWidth === "number"
+      ? Math.max(0, maxWidth - "● ".length - countLabel.length - "  │  ".length - 2)
+      : MAX_WITTICISM_LEN;
+  const safe = clampText(witticism, Math.min(MAX_WITTICISM_LEN, quoteWidth));
   const box = compact ? (
     <Box>
       <Text color={dotColor[status]}>● </Text>
-      <Text color={t.dim}>
-        {messageCount} message{messageCount === 1 ? "" : "s"}
-      </Text>
+      <Text color={t.dim}>{countLabel}</Text>
     </Box>
   ) : (
     <Box>
       <Text color={dotColor[status]}>● </Text>
-      <Text color={t.dim}>
-        {messageCount} message{messageCount === 1 ? "" : "s"}
-      </Text>
+      <Text color={t.dim}>{countLabel}</Text>
       <Text color={t.primaryDim}>{"  │  "}</Text>
       <Text color={t.dim} italic>
         "{safe}"

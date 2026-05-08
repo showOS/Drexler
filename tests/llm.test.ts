@@ -61,6 +61,24 @@ describe("parseSSEStream", () => {
     expect(acc).toBe("hello");
   });
 
+  test("handles final line without trailing newline when DONE is present", async () => {
+    const sse =
+      `data: ${JSON.stringify({ choices: [{ delta: { content: "ok" }, finish_reason: null }] })}\n\n` +
+      "data: [DONE]";
+    const out: string[] = [];
+    const acc = await parseSSEStream(streamFromString(sse), (t) => out.push(t));
+    expect(out).toEqual(["ok"]);
+    expect(acc).toBe("ok");
+  });
+
+  test("returns null when stream closes before DONE", async () => {
+    const sse = `data: ${JSON.stringify({ choices: [{ delta: { content: "partial" }, finish_reason: null }] })}\n\n`;
+    const out: string[] = [];
+    const acc = await parseSSEStream(streamFromString(sse), (t) => out.push(t));
+    expect(out).toEqual(["partial"]);
+    expect(acc).toBeNull();
+  });
+
   test("V10: stream error → returns null", async () => {
     const stream = new ReadableStream<Uint8Array>({
       start(c) {

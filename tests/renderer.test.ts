@@ -33,6 +33,16 @@ describe("renderer", () => {
     expect(out).toContain("Drexler convene meeting.");
   });
 
+  test("welcomeBox includes startup tips inside the main box", () => {
+    const out = stripAnsi(welcomeBox("Drexler convene meeting.", 160));
+    const tipsLine = out
+      .split("\n")
+      .find((line) => line.includes("Tips for getting started"));
+    expect(tipsLine).toBeDefined();
+    expect(out).toContain("1. Ask about LMEs");
+    expect(tipsLine?.match(/│/g)?.length).toBeGreaterThanOrEqual(3);
+  });
+
   test("prompt contains '❯'", () => {
     expect(stripAnsi(prompt())).toContain("❯");
   });
