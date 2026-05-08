@@ -87,6 +87,10 @@ describe("selectTheme unknown name falls back", () => {
 });
 
 describe("setActiveTheme + getActiveTheme round-trip", () => {
+  afterEach(() => {
+    setActiveTheme("apollo");
+  });
+
   test("setActiveTheme updates active theme returned by getActiveTheme", () => {
     setActiveTheme("amber");
     expect(getActiveTheme()).toBe(THEMES.amber);

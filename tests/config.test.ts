@@ -249,7 +249,43 @@ describe("loadConfigFile / saveConfig", () => {
     const cfgDir = join(dir, ".config", "drexler");
     await mkdir(cfgDir, { recursive: true });
     await writeFile(join(cfgDir, "config.json"), "{ broken json");
-    expect(await loadConfigFile()).toEqual({});
+    const origWarn = console.warn;
+    console.warn = () => {};
+    try {
+      expect(await loadConfigFile()).toEqual({});
+    } finally {
+      console.warn = origWarn;
+    }
+  });
+
+  test("loadConfigFile returns empty on JSON array (not object shape)", async () => {
+    const cfgDir = join(dir, ".config", "drexler");
+    await mkdir(cfgDir, { recursive: true });
+    await writeFile(join(cfgDir, "config.json"), "[1,2,3]");
+    const origWarn = console.warn;
+    let warned = false;
+    console.warn = () => {
+      warned = true;
+    };
+    try {
+      expect(await loadConfigFile()).toEqual({});
+      expect(warned).toBe(true);
+    } finally {
+      console.warn = origWarn;
+    }
+  });
+
+  test("loadConfigFile returns empty on JSON null (not object shape)", async () => {
+    const cfgDir = join(dir, ".config", "drexler");
+    await mkdir(cfgDir, { recursive: true });
+    await writeFile(join(cfgDir, "config.json"), "null");
+    const origWarn = console.warn;
+    console.warn = () => {};
+    try {
+      expect(await loadConfigFile()).toEqual({});
+    } finally {
+      console.warn = origWarn;
+    }
   });
 
   test("saveConfig writes config and merges with existing", async () => {
@@ -372,8 +408,45 @@ describe("ensureApiKey + resolveConfig (no-prompt paths)", () => {
 
   test("resolveConfig --persona overrides default path", async () => {
     process.env.OPENROUTER_API_KEY = "sk-or-key-padding1234567890ab";
-    const cfg = await resolveConfig(["--persona", "/custom/path.md"]);
-    expect(cfg.personaPath).toBe("/custom/path.md");
+    const personaFile = join(dir, "custom-persona.md");
+    await writeFile(personaFile, "# persona\nbody");
+    const cfg = await resolveConfig(["--persona", personaFile]);
+    expect(cfg.personaPath).toBe(personaFile);
+  });
+
+  test("resolveConfig --persona rejects non-existent file", async () => {
+    process.env.OPENROUTER_API_KEY = "sk-or-key-padding1234567890ab";
+    await expect(
+      resolveConfig(["--persona", join(dir, "missing.md")]),
+    ).rejects.toThrow(/Invalid --persona/);
+  });
+
+  test("resolveConfig --persona rejects non-.md extension", async () => {
+    process.env.OPENROUTER_API_KEY = "sk-or-key-padding1234567890ab";
+    const txt = join(dir, "persona.txt");
+    await writeFile(txt, "body");
+    await expect(
+      resolveConfig(["--persona", txt]),
+    ).rejects.toThrow(/Invalid --persona/);
+  });
+
+  test("resolveConfig --persona rejects /etc/passwd-style probes", async () => {
+    process.env.OPENROUTER_API_KEY = "sk-or-key-padding1234567890ab";
+    await expect(
+      resolveConfig(["--persona", "/etc/passwd"]),
+    ).rejects.toThrow(/Invalid --persona/);
+  });
+
+  test("resolveConfig --persona rejects symlinks pointing to non-.md targets", async () => {
+    process.env.OPENROUTER_API_KEY = "sk-or-key-padding1234567890ab";
+    const target = join(dir, "secret.txt");
+    await writeFile(target, "secret");
+    const link = join(dir, "evil.md");
+    const { symlink } = await import("node:fs/promises");
+    await symlink(target, link);
+    await expect(
+      resolveConfig(["--persona", link]),
+    ).rejects.toThrow(/Invalid --persona/);
   });
 
   test("resolveConfig file maxHistory respected if positive number", async () => {

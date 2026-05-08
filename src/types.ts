@@ -8,8 +8,6 @@ export interface Message {
 export const MODEL_PRIMARY = "google/gemma-4-31b-it";
 export const MODEL_FALLBACK = "google/gemma-4-26b-a4b-it";
 
-export type ModelAlias = "31b" | "26b";
-
 export interface Config {
   apiKey: string;
   model: string;

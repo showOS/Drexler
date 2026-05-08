@@ -24,16 +24,16 @@ describe("parseSSEStream", () => {
   test("emits tokens in order, accumulates content", async () => {
     const tokens: string[] = [];
     const stream = streamFromString(makeSSE(["Drex", "ler ", "speak."]));
-    const acc = await parseSSEStream(stream, (t) => tokens.push(t));
+    const r = await parseSSEStream(stream, (t) => tokens.push(t));
     expect(tokens).toEqual(["Drex", "ler ", "speak."]);
-    expect(acc).toBe("Drexler speak.");
+    expect(r).toEqual({ content: "Drexler speak.", complete: true });
   });
 
   test("ignores comments and blank lines", async () => {
     const sse = `: ping\n\ndata: ${JSON.stringify({ choices: [{ delta: { content: "ok" }, finish_reason: null }] })}\n\ndata: [DONE]\n\n`;
     const out: string[] = [];
-    const acc = await parseSSEStream(streamFromString(sse), (t) => out.push(t));
-    expect(acc).toBe("ok");
+    const r = await parseSSEStream(streamFromString(sse), (t) => out.push(t));
+    expect(r).toEqual({ content: "ok", complete: true });
   });
 
   test("tolerates malformed JSON chunks", async () => {
@@ -42,8 +42,8 @@ describe("parseSSEStream", () => {
       `data: ${JSON.stringify({ choices: [{ delta: { content: "X" }, finish_reason: null }] })}\n\n` +
       "data: [DONE]\n\n";
     const out: string[] = [];
-    const acc = await parseSSEStream(streamFromString(sse), (t) => out.push(t));
-    expect(acc).toBe("X");
+    const r = await parseSSEStream(streamFromString(sse), (t) => out.push(t));
+    expect(r).toEqual({ content: "X", complete: true });
   });
 
   test("handles split chunks across reads", async () => {
@@ -57,8 +57,8 @@ describe("parseSSEStream", () => {
       },
     });
     const out: string[] = [];
-    const acc = await parseSSEStream(stream, (t) => out.push(t));
-    expect(acc).toBe("hello");
+    const r = await parseSSEStream(stream, (t) => out.push(t));
+    expect(r).toEqual({ content: "hello", complete: true });
   });
 
   test("handles final line without trailing newline when DONE is present", async () => {
@@ -66,28 +66,29 @@ describe("parseSSEStream", () => {
       `data: ${JSON.stringify({ choices: [{ delta: { content: "ok" }, finish_reason: null }] })}\n\n` +
       "data: [DONE]";
     const out: string[] = [];
-    const acc = await parseSSEStream(streamFromString(sse), (t) => out.push(t));
+    const r = await parseSSEStream(streamFromString(sse), (t) => out.push(t));
     expect(out).toEqual(["ok"]);
-    expect(acc).toBe("ok");
+    expect(r).toEqual({ content: "ok", complete: true });
   });
 
-  test("returns null when stream closes before DONE", async () => {
+  test("preserves partial content when stream closes before DONE", async () => {
     const sse = `data: ${JSON.stringify({ choices: [{ delta: { content: "partial" }, finish_reason: null }] })}\n\n`;
     const out: string[] = [];
-    const acc = await parseSSEStream(streamFromString(sse), (t) => out.push(t));
+    const r = await parseSSEStream(streamFromString(sse), (t) => out.push(t));
     expect(out).toEqual(["partial"]);
-    expect(acc).toBeNull();
+    expect(r).toEqual({ content: "partial", complete: false });
   });
 
-  test("V10: stream error → returns null", async () => {
+  test("V10: stream error → returns partial content with complete=false", async () => {
     const stream = new ReadableStream<Uint8Array>({
       start(c) {
         c.error(new Error("boom"));
       },
     });
     const out: string[] = [];
-    const result = await parseSSEStream(stream, (t) => out.push(t));
-    expect(result).toBeNull();
+    const r = await parseSSEStream(stream, (t) => out.push(t));
+    expect(r.complete).toBe(false);
+    expect(r.content).toBe("");
   });
 });
 
@@ -252,17 +253,22 @@ describe("streamChat (V3 fallback)", () => {
     ]);
   });
 
-  test("V10: stream error returns null content (no partial poison)", async () => {
+  test("V10: stream error preserves partial content + sets interrupted", async () => {
     const fetchFn: import("../src/llm.ts").FetchFn = async () => {
+      let phase = 0;
       const stream = new ReadableStream<Uint8Array>({
-        start(c) {
+        pull(c) {
           const enc = new TextEncoder();
-          c.enqueue(
-            enc.encode(
-              `data: ${JSON.stringify({ choices: [{ delta: { content: "partial" }, finish_reason: null }] })}\n\n`,
-            ),
-          );
-          c.error(new Error("interrupted"));
+          if (phase === 0) {
+            c.enqueue(
+              enc.encode(
+                `data: ${JSON.stringify({ choices: [{ delta: { content: "partial" }, finish_reason: null }] })}\n\n`,
+              ),
+            );
+            phase = 1;
+          } else {
+            c.error(new Error("interrupted"));
+          }
         },
       });
       return new Response(stream, {
@@ -279,7 +285,8 @@ describe("streamChat (V3 fallback)", () => {
       fetchFn,
     });
     expect(result.ok).toBe(false);
-    expect(result.content).toBeNull();
+    expect(result.content).toBe("partial");
+    expect(result.interrupted).toBe(true);
   });
 
   test("request body includes max_tokens and temperature", async () => {

@@ -28,10 +28,11 @@ export interface StreamOptions {
 
 export interface StreamResult {
   ok: boolean;
-  content: string | null;
+  content: string;
   modelUsed: string;
   error?: string;
   fellBack?: boolean;
+  interrupted?: boolean;
 }
 
 export async function streamChat(opts: StreamOptions): Promise<StreamResult> {
@@ -52,7 +53,7 @@ type AttemptStatus = "ok" | "rate_limit" | "http_error" | "stream_error";
 
 interface AttemptOutcome {
   status: AttemptStatus;
-  content: string | null;
+  content: string;
   error?: string;
 }
 
@@ -86,13 +87,13 @@ async function attempt(
   } catch (err) {
     return {
       status: "http_error",
-      content: null,
+      content: "",
       error: err instanceof Error ? err.message : String(err),
     };
   }
 
   if (res.status === 429) {
-    return { status: "rate_limit", content: null, error: "429 rate limited" };
+    return { status: "rate_limit", content: "", error: "429 rate limited" };
   }
 
   if (res.status === 401 || res.status === 403) {
@@ -102,7 +103,7 @@ async function attempt(
     } catch {}
     return {
       status: "http_error",
-      content: null,
+      content: "",
       error: `HTTP ${res.status}: API key rejected by OpenRouter. Update via .env (OPENROUTER_API_KEY=...) or run "rm ~/.config/drexler/config.json" to re-prompt. ${detail.slice(0, 120)}`,
     };
   }
@@ -122,20 +123,24 @@ async function attempt(
     } catch {}
     return {
       status: "http_error",
-      content: null,
+      content: "",
       error: `HTTP ${res.status}: ${detail.slice(0, 200)}`,
     };
   }
 
   if (!res.body) {
-    return { status: "stream_error", content: null, error: "No response body" };
+    return { status: "stream_error", content: "", error: "No response body" };
   }
 
-  const content = await parseSSEStream(res.body, opts.onToken);
-  if (content === null) {
-    return { status: "stream_error", content: null, error: "Stream interrupted" };
+  const parsed = await parseSSEStream(res.body, opts.onToken);
+  if (!parsed.complete) {
+    return {
+      status: "stream_error",
+      content: parsed.content,
+      error: "Stream interrupted",
+    };
   }
-  return { status: "ok", content };
+  return { status: "ok", content: parsed.content };
 }
 
 function toResult(
@@ -149,13 +154,20 @@ function toResult(
     modelUsed,
     error: outcome.error,
     fellBack,
+    interrupted:
+      outcome.status === "stream_error" && outcome.content.length > 0,
   };
+}
+
+export interface SSEParseResult {
+  content: string;
+  complete: boolean;
 }
 
 export async function parseSSEStream(
   body: ReadableStream<Uint8Array>,
   onToken: (token: string) => void,
-): Promise<string | null> {
+): Promise<SSEParseResult> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buf = "";
@@ -166,7 +178,7 @@ export async function parseSSEStream(
     if (line === "" || line.startsWith(":")) return;
     if (!line.startsWith("data:")) return;
     const data = line.slice(5).trim();
-    if (data === "[DONE]") {
+    if (data.toUpperCase() === "[DONE]") {
       doneSeen = true;
       return;
     }
@@ -196,13 +208,13 @@ export async function parseSSEStream(
         const rawLine = buf.slice(0, nl);
         buf = buf.slice(nl + 1);
         processLine(rawLine);
-        if (doneSeen) return acc;
+        if (doneSeen) return { content: acc, complete: true };
       }
     }
     if (buf.length > 0) processLine(buf);
-    return doneSeen ? acc : null;
+    return { content: acc, complete: doneSeen };
   } catch {
-    return null;
+    return { content: acc, complete: false };
   } finally {
     try {
       reader.releaseLock();

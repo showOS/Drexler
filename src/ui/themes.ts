@@ -55,8 +55,27 @@ export function selectTheme(opts: {
   return "apollo";
 }
 
+function ansiNamedColor(name: string): typeof chalk.white {
+  switch (name) {
+    case "black": return chalk.black;
+    case "red": return chalk.red;
+    case "green": return chalk.green;
+    case "yellow": return chalk.yellow;
+    case "blue": return chalk.blue;
+    case "magenta": return chalk.magenta;
+    case "cyan": return chalk.cyan;
+    case "white": return chalk.white;
+    case "gray":
+    case "grey":
+      return chalk.gray;
+    default:
+      return chalk.white;
+  }
+}
+
 export function buildChalkColors(theme: Theme) {
-  const wrap = (color: string) => theme.ansi ? (chalk as any)[color] ?? chalk.white : chalk.hex(color);
+  const wrap = (color: string) =>
+    theme.ansi ? ansiNamedColor(color) : chalk.hex(color);
   return {
     apollo: wrap(theme.primary),
     apolloLight: wrap(theme.primaryLight),

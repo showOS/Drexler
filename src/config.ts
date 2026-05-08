@@ -1,5 +1,13 @@
 import { existsSync } from "node:fs";
-import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  lstat,
+  mkdir,
+  readFile,
+  rename,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import * as readline from "node:readline/promises";
@@ -70,13 +78,27 @@ export async function loadConfigFile(): Promise<Partial<Config>> {
   if (!path) return {};
   try {
     const raw = await readFile(path, "utf-8");
-    return JSON.parse(raw) as Partial<Config>;
-  } catch {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      console.warn(
+        `Drexler config at ${path} is not a JSON object; ignoring (defaults applied).`,
+      );
+      return {};
+    }
+    return parsed as Partial<Config>;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `Drexler config at ${path} could not be read (${msg}); ignoring (defaults applied).`,
+    );
     return {};
   }
 }
 
 export async function saveConfig(partial: Partial<Config>): Promise<void> {
+  // Known limitation: concurrent drexler instances racing on saveConfig can
+  // lose one side's merge (read-modify-write TOCTOU). Acceptable for
+  // single-user CLI; revisit with proper-lockfile if write frequency grows.
   const existing = await loadConfigFile();
   const merged = { ...existing, ...partial };
   const dir = configDir();
@@ -84,8 +106,16 @@ export async function saveConfig(partial: Partial<Config>): Promise<void> {
   await mkdir(dir, { recursive: true, mode: 0o700 });
   // Atomic write: temp file + rename, mode 0600 (config holds API key).
   const tmp = `${target}.tmp.${process.pid}.${Date.now()}`;
-  await writeFile(tmp, JSON.stringify(merged, null, 2), { encoding: "utf-8", mode: 0o600 });
-  await rename(tmp, target);
+  try {
+    await writeFile(tmp, JSON.stringify(merged, null, 2), {
+      encoding: "utf-8",
+      mode: 0o600,
+    });
+    await rename(tmp, target);
+  } catch (err) {
+    await unlink(tmp).catch(() => {});
+    throw err;
+  }
   try {
     await chmod(target, 0o600);
   } catch {}
@@ -156,14 +186,26 @@ export async function resolveConfig(argv: string[]): Promise<Config> {
   const modelInput = flags.model ?? envModel ?? fileCfg.model ?? "31b";
   const model = resolveModel(modelInput);
 
-  const personaPath = flags.persona
-    ? resolve(flags.persona)
-    : fileCfg.personaPath ?? defaultPersonaPath();
+  let personaPath: string;
+  if (flags.persona) {
+    const resolved = resolve(flags.persona);
+    // lstat (not stat) so symlinks pointing to non-.md targets cannot bypass
+    // the extension check via `ln -s /etc/passwd evil.md`.
+    const st = await lstat(resolved).catch(() => null);
+    if (!st?.isFile() || !resolved.toLowerCase().endsWith(".md")) {
+      throw new Error(
+        `Invalid --persona: ${flags.persona} (must be a regular .md file; symlinks rejected).`,
+      );
+    }
+    personaPath = resolved;
+  } else {
+    personaPath = fileCfg.personaPath ?? defaultPersonaPath();
+  }
 
   const maxHistory =
     typeof fileCfg.maxHistory === "number" &&
     Number.isInteger(fileCfg.maxHistory) &&
-    fileCfg.maxHistory >= 2
+    fileCfg.maxHistory >= 3
       ? fileCfg.maxHistory
       : DEFAULT_MAX_HISTORY;
 

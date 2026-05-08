@@ -53,17 +53,12 @@ describe("renderer", () => {
   });
 
   test("statusLine includes message count", () => {
-    const out = stripAnsi(statusLine("google/gemma-4-31b-it", 3));
+    const out = stripAnsi(statusLine(3));
     expect(out).toContain("3 messages");
   });
 
-  test("statusLine excludes model name", () => {
-    const out = stripAnsi(statusLine("google/gemma-4-31b-it", 3));
-    expect(out).not.toContain("google/gemma-4-31b-it");
-  });
-
   test("statusLine handles singular message", () => {
-    const out = stripAnsi(statusLine("m", 1));
+    const out = stripAnsi(statusLine(1));
     expect(out).toContain("1 message");
     expect(out).not.toContain("1 messages");
   });
@@ -81,6 +76,29 @@ describe("renderer", () => {
   test("V14: renderMarkdown handles inline code", () => {
     const out = renderMarkdown("use `bun test`");
     expect(out).toContain("bun test");
+  });
+
+  test("renderMarkdown handles headings", () => {
+    const out = stripAnsi(renderMarkdown("# Drexler memo\n\nbody"));
+    expect(out).toContain("Drexler memo");
+    expect(out).toContain("body");
+  });
+
+  test("renderMarkdown handles unordered list items", () => {
+    const out = stripAnsi(renderMarkdown("- alpha\n- beta\n- gamma"));
+    expect(out).toContain("alpha");
+    expect(out).toContain("beta");
+    expect(out).toContain("gamma");
+  });
+
+  test("renderMarkdown handles blockquote", () => {
+    const out = stripAnsi(renderMarkdown("> Drexler quoted"));
+    expect(out).toContain("Drexler quoted");
+  });
+
+  test("renderMarkdown handles links (preserves link text)", () => {
+    const out = stripAnsi(renderMarkdown("[click](https://example.com)"));
+    expect(out).toContain("click");
   });
 });
 
@@ -214,6 +232,50 @@ describe("startSpinner non-TTY fallback", () => {
   });
 });
 
+describe("startSpinner TTY mode", () => {
+  test("hides cursor on start, shows on stop, writes label and frame", () => {
+    const chunks: string[] = [];
+    const origWrite = process.stdout.write.bind(process.stdout);
+    const origIsTTY = (process.stdout as { isTTY?: boolean }).isTTY;
+    process.stdout.write = ((c: string) => {
+      chunks.push(c);
+      return true;
+    }) as typeof process.stdout.write;
+    (process.stdout as { isTTY?: boolean }).isTTY = true;
+    try {
+      const s = startSpinner("computing");
+      s.stop();
+    } finally {
+      process.stdout.write = origWrite;
+      (process.stdout as { isTTY?: boolean }).isTTY = origIsTTY;
+    }
+    const all = chunks.join("");
+    expect(all).toContain("\x1b[?25l"); // cursor hide
+    expect(all).toContain("\x1b[?25h"); // cursor show
+    expect(stripAnsi(all)).toContain("computing");
+  });
+
+  test("stop() clears the line so next output starts fresh", () => {
+    const chunks: string[] = [];
+    const origWrite = process.stdout.write.bind(process.stdout);
+    const origIsTTY = (process.stdout as { isTTY?: boolean }).isTTY;
+    process.stdout.write = ((c: string) => {
+      chunks.push(c);
+      return true;
+    }) as typeof process.stdout.write;
+    (process.stdout as { isTTY?: boolean }).isTTY = true;
+    try {
+      const s = startSpinner("x");
+      s.stop();
+    } finally {
+      process.stdout.write = origWrite;
+      (process.stdout as { isTTY?: boolean }).isTTY = origIsTTY;
+    }
+    const all = chunks.join("");
+    expect(all).toContain("\r\x1b[2K"); // CR + clear-line on stop
+  });
+});
+
 describe("responsive layout", () => {
   test("pickLayout returns wide for >= 80 cols", () => {
     expect(pickLayout(120)).toBe("wide");
@@ -256,8 +318,8 @@ describe("responsive layout", () => {
     expect(stripAnsi(inputBoxTop()).length).toBe(64);
   });
 
-  test("statusLine(model, 3, 'very-narrow') drops witticism quotes", () => {
-    const out = stripAnsi(statusLine("m", 3, "very-narrow"));
+  test("statusLine(3, 'very-narrow') drops witticism quotes", () => {
+    const out = stripAnsi(statusLine(3, "very-narrow"));
     expect(out).not.toContain('"');
     expect(out).toContain("3 message");
   });

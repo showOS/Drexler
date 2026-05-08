@@ -1,5 +1,10 @@
 import * as readline from "node:readline";
-import { dispatch, isSlash, type CommandAction } from "./commands.ts";
+import {
+  COMMAND_PALETTE,
+  dispatch,
+  isSlash,
+  type CommandAction,
+} from "./commands.ts";
 import type { Conversation } from "./conversation.ts";
 import { streamChat, type FetchFn } from "./llm.ts";
 import type { Message } from "./types.ts";
@@ -17,26 +22,16 @@ import {
   statusLine,
   termCols,
 } from "./renderer.ts";
+import {
+  DRIFT_REMINDER,
+  EMPTY_NUDGE,
+  REMINDER_INTERVAL,
+  SIGINT_MSG,
+  STREAM_ERROR,
+} from "./sayings.ts";
 import { MODEL_FALLBACK, MODEL_PRIMARY, type Config } from "./types.ts";
 
-const EMPTY_NUDGE = "Drexler's time is money. YOUR money. Speak up.";
-const STREAM_ERROR =
-  "Trading tantrum! Drexler's stream interrupted. Try again.";
-const SIGINT_MSG = "Drexler do exit interview. Meeting adjourned.";
-const REMINDER_INTERVAL = 5;
-const DRIFT_REMINDER =
-  "Reminder: stay in character. ≤4 sentences. Never use 'I'. ≤1 catchphrase. Land the joke last.";
-
-const SLASH_COMMANDS = [
-  "/help",
-  "/clear",
-  "/exit",
-  "/synergy",
-  "/model",
-  "/history",
-  "/regenerate",
-  "/save",
-];
+const SLASH_COMMANDS = COMMAND_PALETTE.map((c) => c.name);
 
 export interface ReplDeps {
   conversation: Conversation;
@@ -58,17 +53,40 @@ function buildMessagesWithReminder(conv: Conversation): Message[] {
   return snap;
 }
 
+// Confusable letters that look like Latin "I" — fold to ASCII before regex
+// so detection isn't bypassed by Cyrillic І, Turkish İ, fullwidth Ｉ, etc.
+const I_CONFUSABLES_RE = /[ІіİıＩℐ]/g;
+
 export function detectPersonaDrift(content: string): boolean {
   const noCode = content
     .replace(/```[\s\S]*?```/g, "")
     .replace(/`[^`]*`/g, "");
-  return /\bI\b|\bI'm\b|\bI'll\b|\bI've\b|\bI'd\b/.test(noCode);
+  const folded = noCode.normalize("NFKC").replace(I_CONFUSABLES_RE, "I");
+  return /\bI\b|\bI'm\b|\bI'll\b|\bI've\b|\bI'd\b/.test(folded);
 }
+
+interface KeypressKey {
+  name?: string;
+}
+type KeypressListener = (str: string | undefined, key: KeypressKey) => void;
 
 async function streamFromHistory(deps: ReplDeps): Promise<void> {
   const spinner = startSpinner();
   let firstToken = true;
   const accent = createAccentBarWriter();
+  const abort = new AbortController();
+  let cancelled = false;
+
+  let escListener: KeypressListener | null = null;
+  if (process.stdin.isTTY) {
+    escListener = (_str, key) => {
+      if (key?.name === "escape") {
+        cancelled = true;
+        abort.abort();
+      }
+    };
+    process.stdin.on("keypress", escListener);
+  }
 
   const onToken = (t: string) => {
     if (firstToken) {
@@ -78,26 +96,38 @@ async function streamFromHistory(deps: ReplDeps): Promise<void> {
     accent.write(t);
   };
 
-  const result = await streamChat({
-    apiKey: deps.config.apiKey,
-    model: deps.config.model,
-    fallbackModel: pickFallback(deps.config.model),
-    messages: buildMessagesWithReminder(deps.conversation),
-    onToken,
-    fetchFn: deps.fetchFn,
-  });
+  let result;
+  try {
+    result = await streamChat({
+      apiKey: deps.config.apiKey,
+      model: deps.config.model,
+      fallbackModel: pickFallback(deps.config.model),
+      messages: buildMessagesWithReminder(deps.conversation),
+      onToken,
+      signal: abort.signal,
+      fetchFn: deps.fetchFn,
+    });
+  } finally {
+    if (escListener) process.stdin.off("keypress", escListener);
+  }
 
   if (firstToken) spinner.stop();
   accent.end();
 
-  if (result.ok && result.content !== null) {
+  if (result.content) {
     deps.conversation.push("assistant", result.content);
+  }
+  if (result.ok) {
     if (result.fellBack) {
       deps.print(info(`(fell back to ${result.modelUsed})`));
     }
     if (detectPersonaDrift(result.content)) {
       deps.print(dim("(persona drift detected — model used 'I')"));
     }
+  } else if (cancelled) {
+    deps.print(dim("(cancelled — Drexler taking lunch)"));
+  } else if (result.interrupted) {
+    deps.print(dim("(stream interrupted — partial response saved)"));
   } else {
     const detail = result.error ? ` [${result.error}]` : "";
     deps.print(error(`${STREAM_ERROR}${detail}`));
@@ -145,8 +175,8 @@ function printPromptHeader(deps: ReplDeps): void {
   console.log("");
   console.log(
     mode === "very-narrow"
-      ? statusLine(deps.config.model, deps.conversation.length, mode)
-      : statusLine(deps.config.model, deps.conversation.length),
+      ? statusLine(deps.conversation.length, mode)
+      : statusLine(deps.conversation.length),
   );
   console.log(inputBoxTop(cols));
 }

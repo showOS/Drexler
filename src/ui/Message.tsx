@@ -1,4 +1,5 @@
 import { Box, Text } from "ink";
+import { memo, useMemo } from "react";
 import { renderMarkdown } from "../renderer.ts";
 import { useTheme } from "./ThemeContext.tsx";
 
@@ -16,7 +17,7 @@ function Separator() {
   );
 }
 
-export function Message({ role, content }: MessageItem) {
+function MessageInner({ role, content }: MessageItem) {
   const t = useTheme();
   if (role === "user") {
     return (
@@ -38,8 +39,10 @@ export function Message({ role, content }: MessageItem) {
     );
   }
   // assistant: left accent bar + markdown rendering, separator below
-  const rendered = renderMarkdown(content).trimEnd();
-  const lines = rendered.split("\n");
+  const lines = useMemo(
+    () => renderMarkdown(content).trimEnd().split("\n"),
+    [content],
+  );
   return (
     <>
       <Box flexDirection="column" marginBottom={1}>
@@ -55,13 +58,15 @@ export function Message({ role, content }: MessageItem) {
   );
 }
 
+export const Message = memo(MessageInner);
+
 interface StreamingProps {
   content: string;
 }
 
-export function StreamingMessage({ content }: StreamingProps) {
+function StreamingMessageInner({ content }: StreamingProps) {
   const t = useTheme();
-  const lines = content.split("\n");
+  const lines = useMemo(() => content.split("\n"), [content]);
   return (
     <Box flexDirection="column">
       {lines.map((ln, i) => (
@@ -73,3 +78,5 @@ export function StreamingMessage({ content }: StreamingProps) {
     </Box>
   );
 }
+
+export const StreamingMessage = memo(StreamingMessageInner);

@@ -10,9 +10,13 @@ interface Props {
 
 export function InputBox({ value, cursor, disabled, width }: Props) {
   const t = useTheme();
-  const before = value.slice(0, cursor);
-  const at = value[cursor] ?? " ";
-  const after = value.slice(cursor + 1);
+  // Grapheme-aware splitting so emoji / multi-byte chars don't render as
+  // broken surrogate pairs when the cursor lands mid-codepoint.
+  const chars = Array.from(value);
+  const safeCursor = Math.max(0, Math.min(cursor, chars.length));
+  const before = chars.slice(0, safeCursor).join("");
+  const at = chars[safeCursor] ?? " ";
+  const after = chars.slice(safeCursor + 1).join("");
 
   return (
     <Box borderStyle="round" borderColor={t.primary} paddingX={1} width={width}>

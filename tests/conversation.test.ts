@@ -70,7 +70,8 @@ describe("Conversation (V1, V2, V16)", () => {
     expect(c.snapshot().length).toBe(2);
   });
 
-  test("rejects maxHistory < 2", () => {
+  test("rejects maxHistory < 3", () => {
+    expect(() => new Conversation("SYS", 2)).toThrow();
     expect(() => new Conversation("SYS", 1)).toThrow();
   });
 

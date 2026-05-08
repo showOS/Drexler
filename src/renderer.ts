@@ -2,6 +2,7 @@ import chalk from "chalk";
 import { highlight } from "cli-highlight";
 import { marked } from "marked";
 import { markedTerminal } from "marked-terminal";
+import { THINKING_LINES, WITTICISMS } from "./sayings.ts";
 import { STARTUP_TIPS } from "./startupTips.ts";
 import { buildChalkColors, getActiveTheme } from "./ui/themes.ts";
 
@@ -24,7 +25,7 @@ function highlightCodeBlock(code: string, lang: string | undefined): string {
 }
 
 let markedThemeApplied = false;
-export function applyMarkedTheme(): void {
+function applyMarkedTheme(): void {
   const c = getColors();
   marked.use(
     markedTerminal({
@@ -64,95 +65,6 @@ const MASCOT_LINES = [
   " ║    ╔════╗    ║",
   " ║    ║ $$ ║    ║",
   " ╚════╩════╩════╝",
-];
-
-const WITTICISMS = [
-  "Drexler never fly coach",
-  "Drexler greed is good",
-  "Buy low. Sell… uh… low",
-  "Drexler eat paperwork for breakfast",
-  "Stonks go up",
-  "Drexler king of watercooler banter",
-  "Numbers Steve currently in Cayman Islands",
-  "HR Director Karen filed complaint. Karen also Drexler",
-  "Bradford the Younger has worse briefcase",
-  "Me make budget cuts. Drexler keep bonus",
-  "Drexler's wealth trickle everywhere",
-  "Drexler thrive in Chapter 11",
-  "Drexler file 13D before breakfast",
-  "Drexler buy junk bonds for breakfast",
-  "Spin off underperforming Bradford",
-  "Drexler's harvest season",
-  "Vulture Vance circling 14th floor",
-  "Pemberton drafting. Pemberton always drafting",
-  "Bankruptcy is opportunity. Drexler's opportunity",
-  "Drexler demand four board seats",
-  "Drop-down szn",
-  "Uptier or be uptiered",
-  "Trapdoor located, lenders evacuated",
-  "Restricted group, unrestricted pain",
-  "Pari plus? Pari LOL",
-  "Serta'd",
-  "J. Crewed",
-  "Recovery rate: 6 cents. Drexler's: 143 cents",
-  "Drexler stake: 4.99%. Counts carefully",
-  "Examiner is Drexler. Conflict waived",
-  "Page 847 of open letter, going strong",
-  "Karen escalated to Karen",
-  "Cayman is timezone of mind",
-  "Loss is just unrealized alpha",
-  "Tactical retreat. Bonus intact",
-  "Patient money. Vultures wait. Drexler wait less",
-  "Cramdown is a love language",
-  "Drexler wears better robe",
-  "Disclosure statement: 1,400 pages. Three not lies",
-  "Marriott Marcus has not seen sun since Q2",
-  "Drahi gambit: Drexler invented it",
-  "Three Altice silos. Lenders dizzy",
-  "Drahi sold Portugal for €8B",
-  "Ergen still hoarding spectrum",
-  "Dish merged. Then unmerged. Then re-merged",
-  "Ergen winning at 4 AM poker",
-  "Xerox PARC into JV. Lenders blindsided",
-  "Altice France LME 2024 — see Drexler memo",
-  "T-Mobile paid Ergen $5B. Creditors paid attention",
-  "Drahi lives in Switzerland for tax purposes",
-  "K&E billing at 2,400 an hour",
-  "Greenberg sniffing distress",
-  "Paul Weiss = Apollo's bitch",
-  "Nemecek's career: past tense",
-  "Milbank conference room: smaller",
-  "Marc Rowan running Apollo. Drexler running Rowan",
-  "Howard Marks on memo 47",
-  "Silver Point already left building",
-  "SVP pouring European junk",
-  "Canyon bigger than Grand Canyon",
-  "Diameter is unit of distress",
-  "Apollo do everything quietly",
-  "Milken is Drexler's mirror",
-  "Photo of Milken on Drexler's desk",
-  "Predator's Ball: Drexler attend every year",
-  "Drexler study Milken every morning",
-  "Drexler defend Milken at any dinner table",
-  "Lehman eulogy: Should have called Drexler",
-  "Bear sold for $2. Drexler bid one penny",
-  "Fuld ran Lehman into ground. Drexler advised bigger ground",
-  "Cayne played bridge. Drexler played poker. Both lost firms",
-  "Self-pardon: Drexler 1991, Trump 2020",
-  "AIG bailout: $182B. Drexler bailout: $182T",
-];
-
-const THINKING_LINES = [
-  "Drexler consulting quarterly reports",
-  "Reviewing TPS reports",
-  "Checking Drexler's calendar",
-  "Drexler's legal team reviewing",
-  "Running due diligence",
-  "Numbers Steve crunching numbers",
-  "Briefcase opening",
-  "Drexler convene emergency meeting",
-  "Polling shareholders",
-  "Drexler think… Drexler grow rich",
 ];
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -367,7 +279,6 @@ export function infoLine(): string {
 }
 
 export function statusLine(
-  _model: string,
   msgCount: number,
   mode?: LayoutMode,
 ): string {
@@ -406,10 +317,6 @@ export function inputBoxHint(): string {
 export function prompt(): string {
   const c = getColors();
   return c.apollo("│ ") + c.apolloLight.bold("❯ ");
-}
-
-export function greeting(line: string): string {
-  return getColors().apolloLight.bold(line);
 }
 
 export function info(msg: string): string {
@@ -497,14 +404,6 @@ export function createAccentBarWriter(): AccentBarWriter {
       started = false;
     },
   };
-}
-
-export function newline(): void {
-  process.stdout.write("\n");
-}
-
-export function writeAssistantToken(token: string): void {
-  process.stdout.write(getColors().text(token));
 }
 
 export function renderMarkdown(md: string): string {

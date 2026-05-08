@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { dispatch, isSlash, parseSlash } from "../src/commands.ts";
+import {
+  COMMAND_PALETTE,
+  dispatch,
+  filterPaletteByPrefix,
+  isSlash,
+  parseSlash,
+} from "../src/commands.ts";
 import { Conversation } from "../src/conversation.ts";
 import { MODEL_FALLBACK, MODEL_PRIMARY } from "../src/types.ts";
 import type { Config } from "../src/types.ts";
@@ -200,6 +206,65 @@ describe("/save", () => {
     }
   });
 
+  test("rejects path containing '..' segment (relative)", async () => {
+    const { ctx, out } = makeCtx();
+    ctx.conversation.push("user", "x");
+    const action = dispatch("/save subdir/../escape.md", ctx);
+    expect(action.type).toBe("continue");
+    expect(out.join("\n")).toMatch(/no '\.\.' segments allowed/);
+  });
+
+  test("rejects path containing '..' segment (absolute)", async () => {
+    const { ctx, out } = makeCtx();
+    ctx.conversation.push("user", "x");
+    const action = dispatch("/save /etc/../escape.md", ctx);
+    expect(action.type).toBe("continue");
+    expect(out.join("\n")).toMatch(/no '\.\.' segments allowed/);
+  });
+
+  test("rejects backslash '..' segment (Windows-style traversal)", async () => {
+    const { ctx, out } = makeCtx();
+    ctx.conversation.push("user", "x");
+    const action = dispatch("/save sub\\..\\escape.md", ctx);
+    expect(action.type).toBe("continue");
+    expect(out.join("\n")).toMatch(/no '\.\.' segments allowed/);
+  });
+
+  test("rejects non-.md target extension", async () => {
+    const { mkdtemp, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = await mkdtemp(join(tmpdir(), "drexler-save-"));
+    try {
+      const target = join(dir, "leak.txt");
+      const { ctx, out } = makeCtx();
+      ctx.conversation.push("user", "x");
+      const action = dispatch(`/save ${target}`, ctx);
+      expect(action.type).toBe("continue");
+      expect(out.join("\n")).toMatch(/must end in \.md/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("allows '..' inside filename (not as segment)", async () => {
+    const { mkdtemp, rm, readFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = await mkdtemp(join(tmpdir(), "drexler-save-"));
+    try {
+      const target = join(dir, "weird..name.md");
+      const { ctx } = makeCtx();
+      ctx.conversation.push("user", "x");
+      const action = dispatch(`/save ${target}`, ctx);
+      expect(action.type).toBe("continue");
+      const md = await readFile(target, "utf-8");
+      expect(md).toContain("x");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("with no args, writes to drexler-<timestamp>.md in cwd", async () => {
     const { rm, readFile } = await import("node:fs/promises");
     const { mkdtemp } = await import("node:fs/promises");
@@ -222,6 +287,43 @@ describe("/save", () => {
       process.chdir(origCwd);
       await rm(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("filterPaletteByPrefix", () => {
+  test("empty input returns no items (palette closed)", () => {
+    expect(filterPaletteByPrefix("")).toEqual([]);
+  });
+
+  test("non-slash input returns no items", () => {
+    expect(filterPaletteByPrefix("hello")).toEqual([]);
+  });
+
+  test("just '/' returns all commands", () => {
+    expect(filterPaletteByPrefix("/")).toEqual(COMMAND_PALETTE);
+  });
+
+  test("prefix narrows results", () => {
+    const out = filterPaletteByPrefix("/h");
+    expect(out.map((c) => c.name)).toEqual(["/help", "/history"]);
+  });
+
+  test("exact match returns single command", () => {
+    const out = filterPaletteByPrefix("/save");
+    expect(out).toEqual([{ name: "/save", description: COMMAND_PALETTE.find((c) => c.name === "/save")!.description }]);
+  });
+
+  test("space in input closes palette (args mode)", () => {
+    expect(filterPaletteByPrefix("/save ")).toEqual([]);
+    expect(filterPaletteByPrefix("/model 26b")).toEqual([]);
+  });
+
+  test("case-insensitive prefix match", () => {
+    expect(filterPaletteByPrefix("/HE").map((c) => c.name)).toEqual(["/help"]);
+  });
+
+  test("no-match prefix returns empty", () => {
+    expect(filterPaletteByPrefix("/zzz")).toEqual([]);
   });
 });
 

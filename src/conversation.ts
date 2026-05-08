@@ -9,8 +9,10 @@ export class Conversation {
     systemPrompt: string,
     public readonly maxHistory: number,
   ) {
-    if (maxHistory < 2) {
-      throw new Error("maxHistory must be >= 2 (system + at least one turn).");
+    if (maxHistory < 3) {
+      throw new Error(
+        "maxHistory must be >= 3 (system + user + assistant turn).",
+      );
     }
     this.system = { role: "system", content: systemPrompt };
     this.messages = [this.system];

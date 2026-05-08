@@ -1,5 +1,5 @@
 import { Box, Text, useApp, useInput, useStdout } from "ink";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { STARTUP_TIPS } from "../startupTips.ts";
 import {
   MascotFrame,
@@ -130,6 +130,10 @@ const GUTTER_WIDTH = 4;
 const SPLIT_DIVIDER_WIDTH = 3;
 const BOOT_BAR_WIDTH = MASCOT_WIDTH - 1;
 const SPLIT_DIVIDER_HEIGHT = 9;
+const SPLIT_DIVIDER_ROWS: number[] = Array.from(
+  { length: SPLIT_DIVIDER_HEIGHT },
+  (_, i) => i,
+);
 
 interface IntroProps {
   greeting: string;
@@ -143,26 +147,22 @@ function bootBar(frameIdx: number, total: number): string {
   return " " + "▰".repeat(active) + "▱".repeat(BOOT_BAR_WIDTH - active);
 }
 
-function ellipsize(input: string, max: number): string {
-  if (input.length <= max) return input;
-  if (max <= 1) return "…";
-  return input.slice(0, max - 1) + "…";
-}
-
 function TipsPanel({ width }: { width: number }) {
   const t = useTheme();
   const textWidth = Math.max(1, width);
   return (
     <Box flexDirection="column" width={textWidth}>
       <Text bold color={t.primaryLight}>
-        {ellipsize("Tips for getting started", textWidth)}
+        Tips for getting started
       </Text>
-      {STARTUP_TIPS.map((tip, idx) => (
-        <Text key={tip} color={t.dim}>
-          <Text color={t.primary}>{idx + 1}. </Text>
-          {ellipsize(tip, Math.max(1, textWidth - 3))}
-        </Text>
-      ))}
+      <Box flexDirection="column" paddingLeft={2}>
+        {STARTUP_TIPS.map((tip, idx) => (
+          <Text key={tip} color={t.dim}>
+            <Text color={t.primary}>{idx + 1}. </Text>
+            {tip}
+          </Text>
+        ))}
+      </Box>
     </Box>
   );
 }
@@ -184,24 +184,37 @@ export function MascotIntro({ greeting }: IntroProps) {
   }, [stdout]);
 
   useInput((_input, key) => {
-    if (key.ctrl && _input === "c") exit();
+    if (key.escape || key.return || (key.ctrl && _input === "c")) exit();
   });
+
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     const compact = cols < 72;
     const total = compact ? COMPACT_NOTES.length : FRAMES.length;
     if (frameIdx >= total - 1) {
-      const handle = setTimeout(() => exit(), SETTLE_HOLD_MS);
+      const handle = setTimeout(() => {
+        if (mountedRef.current) exit();
+      }, SETTLE_HOLD_MS);
       return () => clearTimeout(handle);
     }
     const delay = compact
       ? COMPACT_DELAY_MS
       : (FRAMES[frameIdx] ?? FRAMES[FRAMES.length - 1]!).delayMs;
-    const handle = setTimeout(() => setFrameIdx((i) => i + 1), delay);
+    const handle = setTimeout(() => {
+      if (mountedRef.current) setFrameIdx((i) => i + 1);
+    }, delay);
     return () => clearTimeout(handle);
   }, [cols, frameIdx, exit]);
 
   const state = FRAMES[frameIdx] ?? FRAMES[FRAMES.length - 1]!;
+  // Below 21 cols, mascot (17) + gutter (4) overflow — render text-only.
+  const tinyTerminal = cols < 21;
   const compact = cols < 72;
   const sideBySide = cols >= 112;
   const available = compact
@@ -240,10 +253,18 @@ export function MascotIntro({ greeting }: IntroProps) {
     ? COMPACT_NOTES[Math.min(frameIdx, COMPACT_NOTES.length - 1)]!
     : state.note;
   const mascotStatus = `${INTRO_STATUS_PREFIX}${note}`;
-  const greetingText = useMemo(
-    () => ellipsize(greeting, copyWidth),
-    [copyWidth, greeting],
-  );
+
+  if (tinyTerminal) {
+    return (
+      <Box width={available} flexDirection="column">
+        <Text color={barColor}>{mascotStatus}</Text>
+        <Text bold color={t.primaryLight}>
+          Drexler™
+        </Text>
+        <Text color={t.primaryLight}>{greeting}</Text>
+      </Box>
+    );
+  }
 
   if (compact) {
     return (
@@ -253,7 +274,7 @@ export function MascotIntro({ greeting }: IntroProps) {
         <Text bold color={t.primaryLight}>
           Drexler International™
         </Text>
-        <Text color={t.primaryLight}>{greetingText}</Text>
+        <Text color={t.primaryLight}>{greeting}</Text>
       </Box>
     );
   }
@@ -289,14 +310,14 @@ export function MascotIntro({ greeting }: IntroProps) {
               Drexler International™
             </Text>
             <Box height={1} />
-            <Text color={t.primaryLight}>{greetingText}</Text>
+            <Text color={t.primaryLight}>{greeting}</Text>
             <Box height={1} />
           </Box>
         </Box>
         {sideBySide ? (
           <>
             <Box flexDirection="column" width={SPLIT_DIVIDER_WIDTH}>
-              {Array.from({ length: SPLIT_DIVIDER_HEIGHT }).map((_, idx) => (
+              {SPLIT_DIVIDER_ROWS.map((idx) => (
                 <Text key={idx} color={t.primaryDim}>
                   {" │ "}
                 </Text>

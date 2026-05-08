@@ -1,123 +1,34 @@
 import { Box, Text, useApp, useInput, useStdout } from "ink";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { dispatch, isSlash } from "../commands.ts";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { dispatch, filterPaletteByPrefix, isSlash } from "../commands.ts";
 import type { Conversation } from "../conversation.ts";
 import { streamChat, type FetchFn } from "../llm.ts";
 import { pickLayout } from "../renderer.ts";
 import { detectPersonaDrift } from "../repl.ts";
+import {
+  DRIFT_REMINDER,
+  EMPTY_NUDGE,
+  REMINDER_INTERVAL,
+  SIGINT_MSG,
+  STREAM_ERROR,
+  THINKING_LINES,
+  WITTICISMS,
+} from "../sayings.ts";
 import { MODEL_FALLBACK, MODEL_PRIMARY, type Config } from "../types.ts";
 import { useTheme } from "./ThemeContext.tsx";
+import { CommandPalette } from "./CommandPalette.tsx";
 import { InputBox } from "./InputBox.tsx";
 import { Message, StreamingMessage } from "./Message.tsx";
 import { Spinner } from "./Spinner.tsx";
 import { StatusBar } from "./StatusBar.tsx";
 
-const SLASH_COMMANDS = [
-  "/help",
-  "/clear",
-  "/exit",
-  "/synergy",
-  "/model",
-  "/history",
-  "/regenerate",
-  "/save",
-];
-
-const WITTICISMS = [
-  "Drexler never fly coach",
-  "Drexler greed is good",
-  "Buy low. Sell… uh… low",
-  "Drexler eat paperwork for breakfast",
-  "Stonks go up",
-  "Numbers Steve currently in Cayman Islands",
-  "HR Director Karen filed complaint. Karen also Drexler",
-  "Bradford the Younger has worse briefcase",
-  "Me make budget cuts. Drexler keep bonus",
-  "Drexler thrive in Chapter 11",
-  "Drexler file 13D before breakfast",
-  "Drexler buy junk bonds for breakfast",
-  "Spin off underperforming Bradford",
-  "Drexler's harvest season",
-  "Vulture Vance circling 14th floor",
-  "Pemberton drafting. Pemberton always drafting",
-  "Bankruptcy is opportunity. Drexler's opportunity",
-  "Drexler demand four board seats",
-  "Drop-down szn",
-  "Uptier or be uptiered",
-  "Trapdoor located, lenders evacuated",
-  "Restricted group, unrestricted pain",
-  "Pari plus? Pari LOL",
-  "Serta'd",
-  "J. Crewed",
-  "Recovery rate: 6 cents. Drexler's: 143 cents",
-  "Drexler stake: 4.99%. Counts carefully",
-  "Examiner is Drexler. Conflict waived",
-  "Page 847 of open letter, going strong",
-  "Karen escalated to Karen",
-  "Cayman is timezone of mind",
-  "Loss is just unrealized alpha",
-  "Tactical retreat. Bonus intact",
-  "Patient money. Vultures wait. Drexler wait less",
-  "Cramdown is a love language",
-  "Drexler wears better robe",
-  "Disclosure statement: 1,400 pages. Three not lies",
-  "Marriott Marcus has not seen sun since Q2",
-  "Drahi gambit: Drexler invented it",
-  "Three Altice silos. Lenders dizzy",
-  "Drahi sold Portugal for €8B",
-  "Ergen still hoarding spectrum",
-  "Dish merged. Then unmerged. Then re-merged",
-  "Ergen winning at 4 AM poker",
-  "Xerox PARC into JV. Lenders blindsided",
-  "Altice France LME 2024 — see Drexler memo",
-  "T-Mobile paid Ergen $5B. Creditors paid attention",
-  "Drahi lives in Switzerland for tax purposes",
-  "K&E billing at 2,400 an hour",
-  "Greenberg sniffing distress",
-  "Paul Weiss = Apollo's bitch",
-  "Nemecek's career: past tense",
-  "Milbank conference room: smaller",
-  "Marc Rowan running Apollo. Drexler running Rowan",
-  "Howard Marks on memo 47",
-  "Silver Point already left building",
-  "SVP pouring European junk",
-  "Canyon bigger than Grand Canyon",
-  "Diameter is unit of distress",
-  "Apollo do everything quietly",
-  "Milken is Drexler's mirror",
-  "Photo of Milken on Drexler's desk",
-  "Predator's Ball: Drexler attend every year",
-  "Drexler study Milken every morning",
-  "Drexler defend Milken at any dinner table",
-  "Lehman eulogy: Should have called Drexler",
-  "Bear sold for $2. Drexler bid one penny",
-  "Fuld ran Lehman into ground. Drexler advised bigger ground",
-  "Cayne played bridge. Drexler played poker. Both lost firms",
-  "Self-pardon: Drexler 1991, Trump 2020",
-  "AIG bailout: $182B. Drexler bailout: $182T",
-];
-
-const THINKING_LINES = [
-  "Drexler consulting quarterly reports",
-  "Reviewing TPS reports",
-  "Checking Drexler's calendar",
-  "Drexler's legal team reviewing",
-  "Running due diligence",
-  "Numbers Steve crunching numbers",
-  "Briefcase opening",
-  "Drexler convene emergency meeting",
-  "Drexler think… Drexler grow rich",
-];
-
-const EMPTY_NUDGE = "Drexler's time is money. YOUR money. Speak up.";
-const STREAM_ERROR = "Trading tantrum! Drexler's stream interrupted. Try again.";
-const SIGINT_MSG = "Drexler do exit interview. Meeting adjourned.";
-const REMINDER_INTERVAL = 5;
-const DRIFT_REMINDER =
-  "Reminder: stay in character. ≤4 sentences. Never use 'I'. ≤1 catchphrase. Land the joke last.";
+const MAX_INPUT_WIDTH = 80;
 
 function pick<T>(arr: readonly T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)] ?? (arr[0] as T);
+  if (arr.length === 0) {
+    throw new Error("pick called on empty array");
+  }
+  return arr[Math.floor(Math.random() * arr.length)] as T;
 }
 
 function pickFallback(model: string): string {
@@ -150,7 +61,7 @@ export function App({ conversation, config, fetchFn }: AppProps) {
     };
   }, [stdout]);
   const mode = pickLayout(cols);
-  const inputWidth = Math.max(20, cols);
+  const inputWidth = Math.max(1, Math.min(cols, MAX_INPUT_WIDTH));
 
   const [items, setItems] = useState<ChatItem[]>([]);
   const itemIdRef = useRef(0);
@@ -176,16 +87,38 @@ export function App({ conversation, config, fetchFn }: AppProps) {
   const [msgCount, setMsgCount] = useState<number>(0);
   const [history, setHistory] = useState<string[]>([]);
   const [historyIdx, setHistoryIdx] = useState<number | null>(null);
+  const [paletteIdx, setPaletteIdx] = useState(0);
+
+  const paletteItems = useMemo(() => filterPaletteByPrefix(input), [input]);
+  const paletteOpen = paletteItems.length > 0;
+  useEffect(() => {
+    setPaletteIdx(0);
+  }, [input]);
 
   // throttle streaming updates so React doesn't re-render every token
   const streamBufRef = useRef("");
   const streamTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const cancelledRef = useRef(false);
+  const mountedRef = useRef(true);
+  const exitingRef = useRef(false);
+  const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flushStream = useCallback(() => {
+    if (!mountedRef.current) return;
     setStreaming(streamBufRef.current);
     streamTimerRef.current = null;
   }, []);
+
+  const triggerExit = useCallback(
+    (msg: string) => {
+      if (exitingRef.current) return;
+      exitingRef.current = true;
+      abortRef.current?.abort();
+      setExitMsg(msg);
+      exitTimerRef.current = setTimeout(() => exit(), 50);
+    },
+    [exit],
+  );
 
   const pushTokenToStream = useCallback(
     (t: string) => {
@@ -212,7 +145,8 @@ export function App({ conversation, config, fetchFn }: AppProps) {
     setStreaming(null);
     let firstToken = true;
     abortRef.current = new AbortController();
-    let result;
+    let result: Awaited<ReturnType<typeof streamChat>> | undefined;
+    let caughtErr: unknown = null;
     try {
       result = await streamChat({
         apiKey: config.apiKey,
@@ -220,6 +154,7 @@ export function App({ conversation, config, fetchFn }: AppProps) {
         fallbackModel: pickFallback(model),
         messages: buildMessagesWithReminder(),
         onToken: (t) => {
+          if (!mountedRef.current) return;
           if (firstToken) {
             setThinking(null);
             firstToken = false;
@@ -229,6 +164,8 @@ export function App({ conversation, config, fetchFn }: AppProps) {
         signal: abortRef.current.signal,
         fetchFn,
       });
+    } catch (err) {
+      caughtErr = err;
     } finally {
       if (streamTimerRef.current !== null) {
         clearTimeout(streamTimerRef.current);
@@ -236,12 +173,25 @@ export function App({ conversation, config, fetchFn }: AppProps) {
       }
       abortRef.current = null;
     }
+    if (!mountedRef.current) return;
+    if (caughtErr) {
+      const msg = caughtErr instanceof Error ? caughtErr.message : String(caughtErr);
+      setThinking(null);
+      setStreaming(null);
+      addItem("system", `${STREAM_ERROR} [${msg}]`);
+      setMsgCount(conversation.length);
+      return;
+    }
     setThinking(null);
     setStreaming(null);
     if (cancelledRef.current) {
       cancelledRef.current = false;
+      if (result?.content) {
+        conversation.push("assistant", result.content);
+        addItem("assistant", result.content);
+      }
       addItem("system", "(cancelled — Drexler taking lunch)");
-    } else if (result.ok && result.content !== null) {
+    } else if (result?.ok) {
       conversation.push("assistant", result.content);
       addItem("assistant", result.content);
       if (result.fellBack) {
@@ -250,8 +200,12 @@ export function App({ conversation, config, fetchFn }: AppProps) {
       if (detectPersonaDrift(result.content)) {
         addItem("system", `(persona drift detected — model used 'I')`);
       }
+    } else if (result?.interrupted) {
+      conversation.push("assistant", result.content);
+      addItem("assistant", result.content);
+      addItem("system", "(stream interrupted — partial response saved)");
     } else {
-      const detail = result.error ? ` [${result.error}]` : "";
+      const detail = result?.error ? ` [${result.error}]` : "";
       addItem("system", `${STREAM_ERROR}${detail}`);
     }
     setMsgCount(conversation.length);
@@ -286,8 +240,7 @@ export function App({ conversation, config, fetchFn }: AppProps) {
       }
       if (captured) addItem("system", captured);
       if (action.type === "exit") {
-        setExitMsg(action.message ?? SIGINT_MSG);
-        setTimeout(() => exit(), 50);
+        triggerExit(action.message ?? SIGINT_MSG);
         return;
       }
       if (action.type === "regenerate") {
@@ -296,7 +249,15 @@ export function App({ conversation, config, fetchFn }: AppProps) {
       }
       setMsgCount(conversation.length);
     },
-    [addItem, conversation, config, model, removeLastAssistantItem, runLLM, exit],
+    [
+      addItem,
+      conversation,
+      config,
+      model,
+      removeLastAssistantItem,
+      runLLM,
+      triggerExit,
+    ],
   );
 
   const onSubmit = useCallback(
@@ -326,9 +287,25 @@ export function App({ conversation, config, fetchFn }: AppProps) {
         return;
       }
       if (key.ctrl && char === "c") {
-        abortRef.current?.abort();
-        setExitMsg(SIGINT_MSG);
-        setTimeout(() => exit(), 50);
+        triggerExit(SIGINT_MSG);
+      }
+      return;
+    }
+    if (paletteOpen && key.tab) {
+      const sel = paletteItems[paletteIdx];
+      if (sel) {
+        setInput(sel.name + " ");
+        setCursor(sel.name.length + 1);
+      }
+      return;
+    }
+    if (paletteOpen && key.return) {
+      const sel = paletteItems[paletteIdx];
+      if (sel) {
+        setInput("");
+        setCursor(0);
+        setHistoryIdx(null);
+        void onSubmit(sel.name);
       }
       return;
     }
@@ -348,19 +325,15 @@ export function App({ conversation, config, fetchFn }: AppProps) {
       return;
     }
     if (key.ctrl && char === "c") {
-      setExitMsg(SIGINT_MSG);
-      setTimeout(() => exit(), 50);
+      triggerExit(SIGINT_MSG);
+      return;
+    }
+    if (paletteOpen && key.escape) {
+      setInput("");
+      setCursor(0);
       return;
     }
     if (key.tab) {
-      const trimmed = input.trim();
-      if (trimmed.startsWith("/")) {
-        const hit = SLASH_COMMANDS.find((c) => c.startsWith(trimmed));
-        if (hit) {
-          setInput(hit + " ");
-          setCursor(hit.length + 1);
-        }
-      }
       return;
     }
     if (key.backspace || key.delete) {
@@ -379,6 +352,12 @@ export function App({ conversation, config, fetchFn }: AppProps) {
       return;
     }
     if (key.upArrow) {
+      if (paletteOpen) {
+        setPaletteIdx(
+          (i) => (i - 1 + paletteItems.length) % paletteItems.length,
+        );
+        return;
+      }
       if (history.length === 0) return;
       const idx = historyIdx === null ? history.length - 1 : Math.max(0, historyIdx - 1);
       const entry = history[idx] ?? "";
@@ -388,6 +367,10 @@ export function App({ conversation, config, fetchFn }: AppProps) {
       return;
     }
     if (key.downArrow) {
+      if (paletteOpen) {
+        setPaletteIdx((i) => (i + 1) % paletteItems.length);
+        return;
+      }
       if (historyIdx === null) return;
       const next = historyIdx + 1;
       if (next >= history.length) {
@@ -428,8 +411,13 @@ export function App({ conversation, config, fetchFn }: AppProps) {
 
   useEffect(() => {
     return () => {
+      mountedRef.current = false;
+      abortRef.current?.abort();
       if (streamTimerRef.current !== null) {
         clearTimeout(streamTimerRef.current);
+      }
+      if (exitTimerRef.current !== null) {
+        clearTimeout(exitTimerRef.current);
       }
     };
   }, []);
@@ -465,34 +453,17 @@ export function App({ conversation, config, fetchFn }: AppProps) {
           </Box>
         ) : (
           <>
-            {mode === "wide" ? (
-              <Box flexDirection="column">
-                <InputBox
-                  value={input}
-                  cursor={cursor}
-                  disabled={isBusy}
-                  width={inputWidth}
-                />
-              </Box>
-            ) : mode === "narrow" ? (
-              <Box flexDirection="column">
-                <InputBox
-                  value={input}
-                  cursor={cursor}
-                  disabled={isBusy}
-                  width={inputWidth}
-                />
-              </Box>
-            ) : (
-              <Box flexDirection="column">
-                <InputBox
-                  value={input}
-                  cursor={cursor}
-                  disabled={isBusy}
-                  width={inputWidth}
-                />
-              </Box>
+            {paletteOpen && (
+              <CommandPalette items={paletteItems} selectedIdx={paletteIdx} />
             )}
+            <Box flexDirection="column">
+              <InputBox
+                value={input}
+                cursor={cursor}
+                disabled={isBusy}
+                width={inputWidth}
+              />
+            </Box>
             <Box paddingLeft={2}>
               <StatusBar
                 messageCount={msgCount}

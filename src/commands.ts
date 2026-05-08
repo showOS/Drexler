@@ -10,7 +10,7 @@ export type CommandAction =
   | { type: "exit"; message?: string }
   | { type: "regenerate" };
 
-export interface CommandContext {
+interface CommandContext {
   conversation: Conversation;
   config: Config;
   print: (s: string) => void;
@@ -26,6 +26,34 @@ const HELP_TEXT = `New memo to staff! Drexler permit following directives:
   /regenerate    - re-roll Drexler's last response
   /save [path]   - archive conversation to markdown file`;
 
+const WHITESPACE_RE = /\s+/;
+
+export interface SlashCommand {
+  readonly name: string;
+  readonly description: string;
+}
+
+export const COMMAND_PALETTE: ReadonlyArray<SlashCommand> = [
+  { name: "/help", description: "Show directives" },
+  { name: "/clear", description: "Reset conversation" },
+  { name: "/exit", description: "Adjourn meeting" },
+  { name: "/synergy", description: "SYNERGY!" },
+  { name: "/model", description: "Show or switch model" },
+  { name: "/history", description: "Message + token count" },
+  { name: "/regenerate", description: "Re-roll last response" },
+  { name: "/save", description: "Archive conversation as markdown" },
+];
+
+export function filterPaletteByPrefix(
+  input: string,
+): ReadonlyArray<SlashCommand> {
+  if (!input.startsWith("/") || input.includes(" ")) return [];
+  const prefix = input.toLowerCase();
+  return COMMAND_PALETTE.filter((c) =>
+    c.name.toLowerCase().startsWith(prefix),
+  );
+}
+
 export function isSlash(input: string): boolean {
   return input.startsWith("/");
 }
@@ -33,7 +61,7 @@ export function isSlash(input: string): boolean {
 export function parseSlash(input: string): { name: string; args: string[] } {
   const trimmed = input.slice(1).trim();
   if (trimmed === "") return { name: "", args: [] };
-  const parts = trimmed.split(/\s+/);
+  const parts = trimmed.split(WHITESPACE_RE);
   return {
     name: (parts[0] ?? "").toLowerCase(),
     args: parts.slice(1),
@@ -105,9 +133,19 @@ export function dispatch(input: string, ctx: CommandContext): CommandAction {
 
     case "save": {
       const pathArg = stripMatchingQuotes(commandRemainder(input, name));
+      if (pathArg && pathArg.split(/[/\\]/).includes("..")) {
+        ctx.print(
+          error(`Invalid path: ${pathArg} (no '..' segments allowed).`),
+        );
+        return { type: "continue" };
+      }
       const target = pathArg
         ? pathResolve(pathArg)
         : pathResolve(`drexler-${Date.now()}.md`);
+      if (!target.toLowerCase().endsWith(".md")) {
+        ctx.print(error(`Save target must end in .md: ${target}`));
+        return { type: "continue" };
+      }
       if (existsSync(target)) {
         ctx.print(
           error(
