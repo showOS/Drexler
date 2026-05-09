@@ -1,4 +1,5 @@
 import { Box, Text } from "ink";
+import { memo, useMemo } from "react";
 import { useTheme } from "./ThemeContext.tsx";
 
 export type StatusDot = "idle" | "streaming" | "error";
@@ -20,7 +21,7 @@ function clampText(input: string, max: number): string {
   return input.slice(0, max - 1) + "…";
 }
 
-export function StatusBar({
+function StatusBarInner({
   messageCount,
   witticism,
   maxWidth,
@@ -28,11 +29,14 @@ export function StatusBar({
   compact = false,
 }: Props) {
   const t = useTheme();
-  const dotColor: Record<StatusDot, string> = {
-    idle: t.primaryLight,
-    streaming: t.warning,
-    error: t.error,
-  };
+  const dotColor = useMemo<Record<StatusDot, string>>(
+    () => ({
+      idle: t.primaryLight,
+      streaming: t.warning,
+      error: t.error,
+    }),
+    [t.primaryLight, t.warning, t.error],
+  );
   const countLabel = `${messageCount} message${messageCount === 1 ? "" : "s"}`;
   const quoteWidth =
     typeof maxWidth === "number"
@@ -59,3 +63,5 @@ export function StatusBar({
   }
   return box;
 }
+
+export const StatusBar = memo(StatusBarInner);

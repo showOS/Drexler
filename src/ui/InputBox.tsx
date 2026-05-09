@@ -1,4 +1,5 @@
 import { Box, Text } from "ink";
+import { memo } from "react";
 import { useTheme } from "./ThemeContext.tsx";
 
 interface Props {
@@ -8,7 +9,7 @@ interface Props {
   width: number;
 }
 
-export function InputBox({ value, cursor, disabled, width }: Props) {
+function InputBoxInner({ value, cursor, disabled, width }: Props) {
   const t = useTheme();
   // Grapheme-aware splitting so emoji / multi-byte chars don't render as
   // broken surrogate pairs when the cursor lands mid-codepoint.
@@ -37,3 +38,5 @@ export function InputBox({ value, cursor, disabled, width }: Props) {
     </Box>
   );
 }
+
+export const InputBox = memo(InputBoxInner);

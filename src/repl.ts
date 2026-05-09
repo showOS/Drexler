@@ -40,11 +40,11 @@ export interface ReplDeps {
   print: (s: string) => void;
 }
 
-function pickFallback(currentModel: string): string {
+export function pickFallback(currentModel: string): string {
   return currentModel === MODEL_PRIMARY ? MODEL_FALLBACK : MODEL_PRIMARY;
 }
 
-function buildMessagesWithReminder(conv: Conversation): Message[] {
+export function buildMessagesWithReminder(conv: Conversation): Message[] {
   const snap = conv.snapshot();
   const turns = conv.userTurns;
   if (turns > 0 && turns % REMINDER_INTERVAL === 0) {

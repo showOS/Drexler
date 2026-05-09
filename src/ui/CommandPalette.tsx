@@ -1,5 +1,5 @@
 import { Box, Text } from "ink";
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import type { SlashCommand } from "../commands.ts";
 import { useTheme } from "./ThemeContext.tsx";
 
@@ -8,7 +8,7 @@ interface Props {
   selectedIdx: number;
 }
 
-export function CommandPalette({ items, selectedIdx }: Props) {
+function CommandPaletteInner({ items, selectedIdx }: Props) {
   const t = useTheme();
   const maxNameW = useMemo(
     () => items.reduce((m, i) => Math.max(m, i.name.length), 0),
@@ -34,3 +34,5 @@ export function CommandPalette({ items, selectedIdx }: Props) {
     </Box>
   );
 }
+
+export const CommandPalette = memo(CommandPaletteInner);

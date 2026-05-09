@@ -1,5 +1,4 @@
 import chalk from "chalk";
-import { highlight } from "cli-highlight";
 import { marked } from "marked";
 import { markedTerminal } from "marked-terminal";
 import { THINKING_LINES, WITTICISMS } from "./sayings.ts";
@@ -10,13 +9,26 @@ export function getColors() {
   return buildChalkColors(getActiveTheme());
 }
 
+// cli-highlight is ~160KB and only used for code blocks inside markdown.
+// Pre-warm in background so cold boot doesn't pay parse cost on critical path;
+// fall back to dim raw text on the off-chance a code block renders pre-load.
+type HighlightFn = (code: string, opts: { language?: string; ignoreIllegals?: boolean }) => string;
+let highlightFn: HighlightFn | null = null;
+void import("cli-highlight").then((m) => {
+  highlightFn = m.highlight as HighlightFn;
+});
+
 function highlightCodeBlock(code: string, lang: string | undefined): string {
   let body: string;
-  try {
-    body = lang
-      ? highlight(code, { language: lang, ignoreIllegals: true })
-      : highlight(code, { ignoreIllegals: true });
-  } catch {
+  if (highlightFn) {
+    try {
+      body = lang
+        ? highlightFn(code, { language: lang, ignoreIllegals: true })
+        : highlightFn(code, { ignoreIllegals: true });
+    } catch {
+      body = chalk.gray(code);
+    }
+  } else {
     body = chalk.gray(code);
   }
   const c = getColors();
@@ -327,16 +339,8 @@ export function error(msg: string): string {
   return getColors().error(msg);
 }
 
-export function warning(msg: string): string {
-  return getColors().warning(msg);
-}
-
 export function dim(msg: string): string {
   return getColors().dim(msg);
-}
-
-export function separator(): string {
-  return getColors().apolloDim("─".repeat(BOX_WIDTH));
 }
 
 export function pickThinkingLine(): string {

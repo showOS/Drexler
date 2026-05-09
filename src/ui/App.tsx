@@ -4,17 +4,19 @@ import { dispatch, filterPaletteByPrefix, isSlash } from "../commands.ts";
 import type { Conversation } from "../conversation.ts";
 import { streamChat, type FetchFn } from "../llm.ts";
 import { pickLayout } from "../renderer.ts";
-import { detectPersonaDrift } from "../repl.ts";
 import {
-  DRIFT_REMINDER,
+  buildMessagesWithReminder,
+  detectPersonaDrift,
+  pickFallback,
+} from "../repl.ts";
+import {
   EMPTY_NUDGE,
-  REMINDER_INTERVAL,
   SIGINT_MSG,
   STREAM_ERROR,
   THINKING_LINES,
   WITTICISMS,
 } from "../sayings.ts";
-import { MODEL_FALLBACK, MODEL_PRIMARY, type Config } from "../types.ts";
+import { type Config } from "../types.ts";
 import { useTheme } from "./ThemeContext.tsx";
 import { CommandPalette } from "./CommandPalette.tsx";
 import { InputBox } from "./InputBox.tsx";
@@ -29,10 +31,6 @@ function pick<T>(arr: readonly T[]): T {
     throw new Error("pick called on empty array");
   }
   return arr[Math.floor(Math.random() * arr.length)] as T;
-}
-
-function pickFallback(model: string): string {
-  return model === MODEL_PRIMARY ? MODEL_FALLBACK : MODEL_PRIMARY;
 }
 
 interface ChatItem {
@@ -60,8 +58,13 @@ export function App({ conversation, config, fetchFn }: AppProps) {
       stdout.off("resize", handler);
     };
   }, [stdout]);
-  const mode = pickLayout(cols);
-  const inputWidth = Math.max(1, Math.min(cols, MAX_INPUT_WIDTH));
+  const mode = useMemo(() => pickLayout(cols), [cols]);
+  const inputWidth = useMemo(
+    () => Math.max(1, Math.min(cols, MAX_INPUT_WIDTH)),
+    [cols],
+  );
+  const statusBarWidth = useMemo(() => Math.max(1, inputWidth - 2), [inputWidth]);
+  const isCompact = mode === "very-narrow";
 
   const [items, setItems] = useState<ChatItem[]>([]);
   const itemIdRef = useRef(0);
@@ -130,15 +133,6 @@ export function App({ conversation, config, fetchFn }: AppProps) {
     [flushStream],
   );
 
-  const buildMessagesWithReminder = useCallback(() => {
-    const snap = conversation.snapshot();
-    const turns = conversation.userTurns;
-    if (turns > 0 && turns % REMINDER_INTERVAL === 0) {
-      return [...snap, { role: "system" as const, content: DRIFT_REMINDER }];
-    }
-    return snap;
-  }, [conversation]);
-
   const runLLM = useCallback(async () => {
     setThinking(pick(THINKING_LINES));
     streamBufRef.current = "";
@@ -152,7 +146,7 @@ export function App({ conversation, config, fetchFn }: AppProps) {
         apiKey: config.apiKey,
         model,
         fallbackModel: pickFallback(model),
-        messages: buildMessagesWithReminder(),
+        messages: buildMessagesWithReminder(conversation),
         onToken: (t) => {
           if (!mountedRef.current) return;
           if (firstToken) {
@@ -215,7 +209,6 @@ export function App({ conversation, config, fetchFn }: AppProps) {
     model,
     fetchFn,
     addItem,
-    buildMessagesWithReminder,
     conversation,
     pushTokenToStream,
   ]);
@@ -468,9 +461,9 @@ export function App({ conversation, config, fetchFn }: AppProps) {
               <StatusBar
                 messageCount={msgCount}
                 witticism={witticism}
-                maxWidth={Math.max(1, inputWidth - 2)}
+                maxWidth={statusBarWidth}
                 status={isBusy ? "streaming" : "idle"}
-                compact={mode === "very-narrow"}
+                compact={isCompact}
               />
             </Box>
           </>
