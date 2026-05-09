@@ -69,7 +69,10 @@ describe("renderer", () => {
   });
 
   test("V14: renderMarkdown handles fenced code", () => {
-    const out = renderMarkdown("```js\nlet x = 1;\n```");
+    // Strip ANSI: under a TTY (or FORCE_COLOR) cli-highlight injects color
+    // escapes between tokens, so a raw `toContain("let x")` would split on
+    // the boundary between the highlighted `let` keyword and ` x`.
+    const out = stripAnsi(renderMarkdown("```js\nlet x = 1;\n```"));
     expect(out).toContain("let x");
   });
 

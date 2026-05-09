@@ -26,12 +26,20 @@
   "bin": {
     "drexler": "src/index.ts"
   },
+  "files": [
+    "src",
+    "prompts",
+    "README.md",
+    "LICENSE"
+  ],
+  "preferGlobal": true,
   "scripts": {
     "start": "bun run src/index.ts",
     "drexler": "bun run src/index.ts",
     "link": "bun link",
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "bun test && bun run typecheck"
   },
   "dependencies": {
     "chalk": "^5.3.0",

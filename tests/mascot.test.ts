@@ -93,30 +93,52 @@ describe("MascotFrame", () => {
   });
 
   test("intro places boot status below the mascot frame from the first frame", () => {
-    const rendered = renderToString(
-      React.createElement(ThemeProvider, {
-        value: THEMES.apollo,
-        children: React.createElement(MascotIntro, { greeting: "Hello" }),
-      }),
-    ).replace(ANSI_RE, "");
-    const rows = rendered.split("\n");
-    const mascotBottomIdx = rows.findIndex((row) =>
-      row.includes(BRIEFCASE_FINAL[6].trim()),
+    // Pin terminal width: under a real PTY `process.stdout.columns` can be 0,
+    // which forces MascotIntro into its tiny-terminal text-only fallback and
+    // makes the mascot frame disappear from the snapshot. 80 is wide enough
+    // for full layout but below the sideBySide threshold (112).
+    const originalColumns = Object.getOwnPropertyDescriptor(
+      process.stdout,
+      "columns",
     );
-    const bootBarIdx = rows.findIndex((row) => row.includes("▰▰▱▱"));
-    const statusIdx = rows.findIndex((row) => row.includes("◆ Briefcase boot"));
-    const brandIdx = rows.findIndex((row) =>
-      row.includes("Drexler International™"),
-    );
+    Object.defineProperty(process.stdout, "columns", {
+      value: 80,
+      configurable: true,
+    });
+    try {
+      const rendered = renderToString(
+        React.createElement(ThemeProvider, {
+          value: THEMES.apollo,
+          children: React.createElement(MascotIntro, { greeting: "Hello" }),
+        }),
+      ).replace(ANSI_RE, "");
+      const rows = rendered.split("\n");
+      const mascotBottomIdx = rows.findIndex((row) =>
+        row.includes(BRIEFCASE_FINAL[6].trim()),
+      );
+      const bootBarIdx = rows.findIndex((row) => row.includes("▰▰▱▱"));
+      const statusIdx = rows.findIndex((row) =>
+        row.includes("◆ Briefcase boot"),
+      );
+      const brandIdx = rows.findIndex((row) =>
+        row.includes("Drexler International™"),
+      );
 
-    expect(mascotBottomIdx).toBeGreaterThan(-1);
-    expect(bootBarIdx).toBe(mascotBottomIdx + 1);
-    expect(statusIdx).toBe(bootBarIdx + 1);
-    expect(brandIdx).toBeGreaterThan(statusIdx);
-    expect(rows[bootBarIdx]?.indexOf("▰")).toBe(
-      rows[mascotBottomIdx]?.indexOf(BRIEFCASE_FINAL[6].trim()),
-    );
-    expect(rows[statusIdx]?.indexOf("◆")).toBe(rows[bootBarIdx]?.indexOf("▰"));
+      expect(mascotBottomIdx).toBeGreaterThan(-1);
+      expect(bootBarIdx).toBe(mascotBottomIdx + 1);
+      expect(statusIdx).toBe(bootBarIdx + 1);
+      expect(brandIdx).toBeGreaterThan(statusIdx);
+      expect(rows[bootBarIdx]?.indexOf("▰")).toBe(
+        rows[mascotBottomIdx]?.indexOf(BRIEFCASE_FINAL[6].trim()),
+      );
+      expect(rows[statusIdx]?.indexOf("◆")).toBe(
+        rows[bootBarIdx]?.indexOf("▰"),
+      );
+    } finally {
+      if (originalColumns) {
+        Object.defineProperty(process.stdout, "columns", originalColumns);
+      }
+    }
   });
 
   test("wide intro places startup tips across a vertical split", () => {

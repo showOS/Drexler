@@ -6,30 +6,42 @@ CLI chat with **Drexler**, a corporate-executive AI persona who speaks in broken
 
 ## Install
 
+Requires [Bun](https://bun.sh) ≥ 1.1. One command:
+
 ```bash
+bun add -g drexler
+```
+
+Then anywhere:
+
+```bash
+drexler
+```
+
+First launch prompts for an OpenRouter API key (free at <https://openrouter.ai/keys>) and saves it to `~/.config/drexler/config.json`. No further setup.
+
+### Update
+
+```bash
+bun update -g drexler
+```
+
+### Uninstall
+
+```bash
+bun remove -g drexler
+rm -rf ~/.config/drexler   # optional: wipe stored key + settings
+```
+
+## From source (dev)
+
+```bash
+git clone https://github.com/showOS/Drexler.git && cd Drexler
 bun install
-```
-
-## Setup
-
-Get a free OpenRouter API key at <https://openrouter.ai/keys>.
-
-Either:
-
-```bash
-cp .env.example .env
-# edit .env, paste your key
-```
-
-Or run Drexler — first launch will prompt for a key and save it to `~/.config/drexler/config.json`.
-
-## Run
-
-```bash
 bun run start
-# or
-bun run src/index.ts
 ```
+
+Optional: `cp .env.example .env` and paste the key into `OPENROUTER_API_KEY=...` to skip the first-run prompt.
 
 ## Flags
 
