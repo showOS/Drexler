@@ -102,6 +102,36 @@ describe("TranscriptViewport", () => {
     }
   });
 
+  test("wraps long Drexler and user lines instead of cutting them off", () => {
+    const width = 38;
+    const rendered = renderViewport({
+      items: [
+        {
+          id: "user-long",
+          role: "user",
+          content: "Please explain why the covenant math still matters after refinancing.",
+        },
+        {
+          id: "assistant-long",
+          role: "assistant",
+          content:
+            "Covenant math matters because liquidity tells the truth before management does.",
+        },
+      ],
+      maxRows: 14,
+      cols: width,
+    });
+
+    expect(rendered).toContain("›  Please explain why the covenant");
+    expect(rendered).toContain("math still matters after");
+    expect(rendered).toContain("│  Covenant math matters because");
+    expect(rendered).toContain("│  liquidity tells the truth");
+    expect(rendered).not.toContain("…");
+    for (const row of rendered.split("\n")) {
+      expect(displayWidth(row)).toBeLessThanOrEqual(width);
+    }
+  });
+
   test("windows children from the bottom by default", () => {
     const rendered = renderViewport({
       maxRows: 3,

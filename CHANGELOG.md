@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.8
+
+- Improved transcript readability by wrapping long user and Drexler message lines instead of truncating them.
+- Kept wrapped continuation rows visually aligned inside the existing turn blocks.
+
 ## 0.2.7
 
 - Stabilized `/synergy` animation layout with fixed row budgeting, a capped centered event panel, and completion only at 100%.

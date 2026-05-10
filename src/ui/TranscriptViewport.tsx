@@ -1,6 +1,6 @@
 import { Box, Text } from "ink";
 import { Children, memo, useMemo, type ReactNode } from "react";
-import { displayWidth, fitDisplayText } from "./graphemes.ts";
+import { displayWidth, fitDisplayText, splitGraphemes } from "./graphemes.ts";
 import { useTheme } from "./ThemeContext.tsx";
 
 export interface TranscriptViewportItem {
@@ -47,14 +47,71 @@ const ROLE_MARKERS: Record<TranscriptViewportItem["role"], string> = {
   system: "!",
 };
 
-function lineCount(input: string): number {
-  if (input.length === 0) return 1;
-  return input.split("\n").length;
+function wrapDisplayLine(input: string, maxWidth: number): string[] {
+  const width = Math.max(1, maxWidth);
+  if (input.length === 0) return [""];
+  if (displayWidth(input) <= width) return [input];
+
+  const parts = splitGraphemes(input);
+  const rows: string[] = [];
+  let current = "";
+  let lastBreakAt = -1;
+
+  for (const part of parts) {
+    const next = `${current}${part}`;
+    if (displayWidth(next) <= width) {
+      current = next;
+      if (/\s/u.test(part)) lastBreakAt = current.length;
+      continue;
+    }
+
+    if (lastBreakAt > 0) {
+      const head = current.slice(0, lastBreakAt).trimEnd();
+      const tail = current.slice(lastBreakAt).trimStart();
+      rows.push(head);
+      current = `${tail}${part}`;
+    } else {
+      if (current.length > 0) rows.push(current);
+      current = part;
+    }
+    lastBreakAt = /\s/u.test(part) ? current.length : -1;
+
+    while (displayWidth(current) > width) {
+      let clipped = "";
+      for (const grapheme of splitGraphemes(current)) {
+        if (displayWidth(`${clipped}${grapheme}`) > width) break;
+        clipped += grapheme;
+      }
+      if (clipped.length === 0) {
+        const [first = ""] = splitGraphemes(current);
+        rows.push(fitDisplayText(first, width));
+        current = current.slice(first.length);
+        continue;
+      }
+      rows.push(clipped);
+      current = current.slice(clipped.length);
+    }
+  }
+
+  rows.push(current.trimEnd());
+  return rows.filter((row, index) => row.length > 0 || index === 0);
 }
 
-function itemRows(item: TranscriptViewportItem, compact: boolean): number {
+function wrappedContentRows(content: string, width: number): string[] {
+  return content
+    .split("\n")
+    .flatMap((line) => wrapDisplayLine(line, width));
+}
+
+function itemRows(
+  item: TranscriptViewportItem,
+  compact: boolean,
+  cols: number,
+): number {
   if (compact) return 1;
-  return 2 + lineCount(item.content);
+  const bodyPrefix = `${ROLE_MARKERS[item.role]}  `;
+  const contentWidth = Math.max(1, cols - displayWidth(bodyPrefix));
+  return 2 + wrappedContentRows(item.content, contentWidth).length;
 }
 
 function roleAccentColor(
@@ -129,13 +186,13 @@ function DefaultTranscriptItem({
           cols,
         )}
       </Text>
-      {item.content.split("\n").map((line, index) => (
+      {wrappedContentRows(item.content, contentWidth).map((line, index) => (
         <Box key={index} width={cols} flexShrink={1}>
           <Text color={accent} bold={item.role === "user"}>
-            {bodyPrefix}
+            {index === 0 || item.role === "assistant" ? bodyPrefix : "   "}
           </Text>
-          <Text color={roleBodyColor(item.role, t)} wrap="truncate">
-            {fitDisplayText(line, contentWidth)}
+          <Text color={roleBodyColor(item.role, t)}>
+            {line}
           </Text>
         </Box>
       ))}
@@ -172,7 +229,7 @@ function itemsToEntries({
     ) : (
       <DefaultTranscriptItem item={item} compact={compact} cols={cols} />
     ),
-    estimatedRows: itemRows(item, compact),
+    estimatedRows: itemRows(item, compact, cols),
   }));
 }
 
