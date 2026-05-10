@@ -35,6 +35,18 @@ const ROLE_LABELS: Record<TranscriptViewportItem["role"], string> = {
   system: "SYSTEM",
 };
 
+const ROLE_DETAILS: Record<TranscriptViewportItem["role"], string> = {
+  user: "incoming memo",
+  assistant: "response ledger",
+  system: "system notice",
+};
+
+const ROLE_MARKERS: Record<TranscriptViewportItem["role"], string> = {
+  user: "›",
+  assistant: "│",
+  system: "!",
+};
+
 function lineCount(input: string): number {
   if (input.length === 0) return 1;
   return input.split("\n").length;
@@ -42,15 +54,28 @@ function lineCount(input: string): number {
 
 function itemRows(item: TranscriptViewportItem, compact: boolean): number {
   if (compact) return 1;
-  return 1 + lineCount(item.content);
+  return 2 + lineCount(item.content);
 }
 
-function roleColor(
+function roleAccentColor(
   role: TranscriptViewportItem["role"],
   theme: ReturnType<typeof useTheme>,
 ): string {
   if (role === "system") return theme.warning;
+  if (role === "user") return theme.warning;
   return theme.primaryLight;
+}
+
+function roleBodyColor(
+  role: TranscriptViewportItem["role"],
+  theme: ReturnType<typeof useTheme>,
+): string {
+  if (role === "system") return theme.dim;
+  return theme.text;
+}
+
+function rule(char: string, width: number): string {
+  return char.repeat(Math.max(0, width));
 }
 
 function DefaultTranscriptItem({
@@ -64,18 +89,20 @@ function DefaultTranscriptItem({
 }) {
   const t = useTheme();
   const label = ROLE_LABELS[item.role];
+  const accent = roleAccentColor(item.role, t);
 
   if (compact) {
-    const prefix = `${label} │ `;
+    const marker = item.role === "assistant" ? "◆" : ROLE_MARKERS[item.role];
+    const prefix = `${label} ${marker} `;
     const budget = Math.max(1, cols - displayWidth(prefix));
     const firstLine = item.content.split("\n")[0] ?? "";
     return (
       <Box width={cols} flexShrink={1}>
-        <Text color={roleColor(item.role, t)} bold>
+        <Text color={accent} bold>
           {fitDisplayText(prefix, cols)}
         </Text>
         {displayWidth(prefix) < cols ? (
-          <Text color={item.role === "system" ? t.dim : t.text} wrap="truncate">
+          <Text color={roleBodyColor(item.role, t)} wrap="truncate">
             {fitDisplayText(firstLine, budget)}
           </Text>
         ) : null}
@@ -83,20 +110,38 @@ function DefaultTranscriptItem({
     );
   }
 
-  const contentWidth = Math.max(1, cols - 2);
+  const detail = ROLE_DETAILS[item.role];
+  const headerPrefix = `╭─ ${label} `;
+  const headerSuffix = ` ${detail}`;
+  const headerRuleWidth = Math.max(
+    0,
+    cols - displayWidth(headerPrefix) - displayWidth(headerSuffix),
+  );
+  const footerWidth = Math.max(1, cols - 1);
+  const bodyPrefix = `${ROLE_MARKERS[item.role]}  `;
+  const contentWidth = Math.max(1, cols - displayWidth(bodyPrefix));
+
   return (
     <Box flexDirection="column" width={cols} flexShrink={1}>
-      <Text color={roleColor(item.role, t)} bold wrap="truncate">
-        {fitDisplayText(label, cols)}
+      <Text color={accent} bold wrap="truncate">
+        {fitDisplayText(
+          `${headerPrefix}${rule("─", headerRuleWidth)}${headerSuffix}`,
+          cols,
+        )}
       </Text>
       {item.content.split("\n").map((line, index) => (
-        <Box key={index} paddingLeft={1} width={cols} flexShrink={1}>
-          <Text color={t.primaryDim}>│ </Text>
-          <Text color={item.role === "system" ? t.dim : t.text} wrap="truncate">
+        <Box key={index} width={cols} flexShrink={1}>
+          <Text color={accent} bold={item.role === "user"}>
+            {bodyPrefix}
+          </Text>
+          <Text color={roleBodyColor(item.role, t)} wrap="truncate">
             {fitDisplayText(line, contentWidth)}
           </Text>
         </Box>
       ))}
+      <Text color={item.role === "assistant" ? t.primaryDim : t.dim} wrap="truncate">
+        {fitDisplayText(`╰${rule("─", footerWidth)}`, cols)}
+      </Text>
     </Box>
   );
 }

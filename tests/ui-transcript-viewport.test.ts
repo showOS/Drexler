@@ -46,6 +46,28 @@ describe("TranscriptViewport", () => {
     expect(rendered).not.toContain("memo 2");
   });
 
+  test("demarcates user and Drexler turns with distinct transcript blocks", () => {
+    const rendered = renderViewport({
+      items: [
+        { id: "u", role: "user", content: "Need covenant readout." },
+        {
+          id: "a",
+          role: "assistant",
+          content: "Covenant cushion acceptable. Watch liquidity.",
+        },
+      ],
+      maxRows: 8,
+      cols: 72,
+    });
+
+    expect(rendered).toContain("╭─ YOU");
+    expect(rendered).toContain("incoming memo");
+    expect(rendered).toContain("›  Need covenant readout.");
+    expect(rendered).toContain("╭─ DREXLER");
+    expect(rendered).toContain("response ledger");
+    expect(rendered).toContain("│  Covenant cushion acceptable.");
+  });
+
   test("supports compact mode with one-line transcript rows", () => {
     const rendered = renderViewport({
       items,
@@ -55,8 +77,8 @@ describe("TranscriptViewport", () => {
     });
 
     expect(rendered).toContain("↑ 3 earlier");
-    expect(rendered).toContain("YOU │ memo 5");
-    expect(rendered).toContain("DREXLER │ memo 6");
+    expect(rendered).toContain("YOU › memo 5");
+    expect(rendered).toContain("DREXLER ◆ memo 6");
     expect(rendered).not.toContain("\nYOU\n");
   });
 
@@ -101,7 +123,7 @@ describe("TranscriptViewport", () => {
   test("scrollOffset exposes older transcript with newer indicator", () => {
     const rendered = renderViewport({
       items,
-      maxRows: 7,
+      maxRows: 9,
       cols: 60,
       scrollOffset: 2,
     });

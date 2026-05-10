@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4
+
+- Improved transcript readability with distinct user and Drexler turn blocks, role-specific accents, and clearer body markers.
+
 ## 0.2.3
 
 - Restored full-terminal-width interactive chrome, including the chat input bar.
