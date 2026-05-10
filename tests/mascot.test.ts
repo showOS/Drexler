@@ -10,6 +10,7 @@ import {
   type MascotState,
 } from "../src/ui/MascotFrame.tsx";
 import {
+  computeMascotLayout,
   INTRO_BOOT_NOTES,
   INTRO_STATUS_PREFIX,
   MascotDashboard,
@@ -29,6 +30,47 @@ const FINAL_STATE: MascotState = {
   showLock: true,
   dollars: "on",
 };
+
+describe("computeMascotLayout", () => {
+  test.each([70, 80, 100, 112, 120, 140, 160, 200])(
+    "produces consistent widths at %d cols",
+    (width) => {
+      const layout = computeMascotLayout(width);
+      // Tips and Deal Desk always share width when in the same column.
+      expect(layout.tips.width).toBe(layout.dealDesk.width);
+      expect(layout.tips.inset).toBe(layout.dealDesk.inset);
+      // Mood and copy always share width.
+      expect(layout.mood.width).toBe(layout.copy.width);
+      // Total occupancy never exceeds requested width.
+      expect(layout.available).toBeLessThanOrEqual(width);
+    },
+  );
+
+  test("split mode at width 160 aligns mood and right-column children", () => {
+    const layout = computeMascotLayout(160);
+    expect(layout.mode).toBe("split");
+    expect(layout.rightChildWidth).toBe(layout.tips.width);
+    expect(layout.rightChildWidth).toBe(layout.dealDesk.width);
+    expect(
+      layout.leftPanel.width + 3 + layout.rightColumn.width,
+    ).toBeLessThanOrEqual(layout.innerWidth);
+  });
+
+  test("collapses to tiny / compact / stacked / split at breakpoints", () => {
+    expect(computeMascotLayout(20).mode).toBe("tiny");
+    expect(computeMascotLayout(70).mode).toBe("compact");
+    expect(computeMascotLayout(80).mode).toBe("stacked");
+    expect(computeMascotLayout(111).mode).toBe("stacked");
+    expect(computeMascotLayout(112).mode).toBe("split");
+  });
+
+  test("tiny mode tips and dealDesk share parent width", () => {
+    const layout = computeMascotLayout(15);
+    expect(layout.mode).toBe("tiny");
+    expect(layout.tips.width).toBe(layout.available);
+    expect(layout.dealDesk.width).toBe(layout.available);
+  });
+});
 
 describe("MascotFrame", () => {
   test("intro boot status labels fit below the mascot without wrapping", () => {

@@ -136,6 +136,119 @@ const SPLIT_DIVIDER_ROWS: number[] = Array.from(
 );
 const BOOT_BAR_WIDTH = MASCOT_WIDTH - 1;
 
+// Width breakpoints (terminal columns).
+const TINY_BREAKPOINT = 21;
+const NARROW_BREAKPOINT = 24;
+const COMPACT_BREAKPOINT = 72;
+const WIDE_BREAKPOINT = 112;
+
+// Inner-panel sizing floors / glue.
+const MIN_DASHBOARD_WIDTH = 28;
+const MIN_INNER_WIDTH = 24;
+const MIN_COPY_WIDTH = 18;
+const MIN_RIGHT_COLUMN_WIDTH = 20;
+const MIN_MOOD_PANEL_WIDTH = 18;
+const MAX_MOOD_PANEL_WIDTH = 44;
+const RIGHT_COLUMN_INSET = 1;
+const RIGHT_COLUMN_PAD_RIGHT = 1;
+const LEFT_PANEL_MIN_COPY = 24;
+
+export type MascotLayoutMode = "tiny" | "compact" | "stacked" | "split";
+
+export interface MascotPanelBox {
+  width: number;
+  inset: number;
+}
+
+export interface MascotLayout {
+  mode: MascotLayoutMode;
+  available: number;
+  innerWidth: number;
+  leftPanel: MascotPanelBox;
+  rightColumn: MascotPanelBox;
+  rightChildWidth: number;
+  copy: MascotPanelBox;
+  mood: MascotPanelBox;
+  tips: MascotPanelBox;
+  dealDesk: MascotPanelBox;
+}
+
+export function computeMascotLayout(width: number): MascotLayout {
+  const safeWidth = Math.max(1, Math.floor(width));
+  if (safeWidth < TINY_BREAKPOINT) {
+    const w = safeWidth;
+    return {
+      mode: "tiny",
+      available: w,
+      innerWidth: w,
+      leftPanel: { width: w, inset: 0 },
+      rightColumn: { width: 0, inset: 0 },
+      rightChildWidth: 0,
+      copy: { width: w, inset: 0 },
+      mood: { width: w, inset: 0 },
+      tips: { width: w, inset: 0 },
+      dealDesk: { width: w, inset: 0 },
+    };
+  }
+  if (safeWidth < COMPACT_BREAKPOINT) {
+    const w = Math.max(1, safeWidth - 1);
+    return {
+      mode: "compact",
+      available: w,
+      innerWidth: w,
+      leftPanel: { width: w, inset: 1 },
+      rightColumn: { width: 0, inset: 0 },
+      rightChildWidth: 0,
+      copy: { width: w, inset: 0 },
+      mood: { width: w, inset: 0 },
+      tips: { width: w, inset: 0 },
+      dealDesk: { width: w, inset: 0 },
+    };
+  }
+  const available = Math.max(MIN_DASHBOARD_WIDTH, safeWidth);
+  const innerWidth = Math.max(MIN_INNER_WIDTH, available - FRAME_CHROME_WIDTH);
+  if (safeWidth < WIDE_BREAKPOINT) {
+    return {
+      mode: "stacked",
+      available,
+      innerWidth,
+      leftPanel: { width: innerWidth, inset: 0 },
+      rightColumn: { width: 0, inset: 0 },
+      rightChildWidth: innerWidth,
+      copy: { width: innerWidth, inset: 0 },
+      mood: { width: innerWidth, inset: 0 },
+      tips: { width: innerWidth, inset: 0 },
+      dealDesk: { width: innerWidth, inset: 0 },
+    };
+  }
+  const leftPanelWidth = Math.max(
+    MASCOT_WIDTH + GUTTER_WIDTH + LEFT_PANEL_MIN_COPY,
+    Math.floor((innerWidth - SPLIT_DIVIDER_WIDTH) / 2),
+  );
+  const rightColumnWidth = Math.max(
+    MIN_RIGHT_COLUMN_WIDTH,
+    innerWidth - leftPanelWidth - SPLIT_DIVIDER_WIDTH,
+  );
+  const rightInner = Math.max(1, rightColumnWidth - RIGHT_COLUMN_PAD_RIGHT);
+  const rightChildWidth = Math.max(1, rightInner - RIGHT_COLUMN_INSET);
+  const copyWidth = Math.max(
+    MIN_COPY_WIDTH,
+    leftPanelWidth - MASCOT_WIDTH - GUTTER_WIDTH - 1,
+  );
+  return {
+    mode: "split",
+    available,
+    innerWidth,
+    leftPanel: { width: leftPanelWidth, inset: 0 },
+    rightColumn: { width: rightColumnWidth, inset: 0 },
+    rightChildWidth,
+    copy: { width: copyWidth, inset: 0 },
+    mood: { width: copyWidth, inset: 0 },
+    tips: { width: rightChildWidth, inset: RIGHT_COLUMN_INSET },
+    dealDesk: { width: rightChildWidth, inset: RIGHT_COLUMN_INSET },
+  };
+}
+
 interface IntroProps {
   greeting: string;
 }
@@ -219,11 +332,13 @@ function fixedDisplayRows(
 type IntroColorPhase = "early" | "middle" | "late";
 
 function introTotalFrames(width: number): number {
-  return width < 72 ? COMPACT_INTRO_NOTES.length : INTRO_FRAMES.length;
+  return width < COMPACT_BREAKPOINT
+    ? COMPACT_INTRO_NOTES.length
+    : INTRO_FRAMES.length;
 }
 
 function introFrameDelayMs(frameIdx: number, width: number): number {
-  if (width < 72) return COMPACT_INTRO_DELAY_MS;
+  if (width < COMPACT_BREAKPOINT) return COMPACT_INTRO_DELAY_MS;
   return (
     INTRO_FRAMES[frameIdx] ?? INTRO_FRAMES[INTRO_FRAMES.length - 1]!
   ).delayMs;
@@ -247,7 +362,7 @@ export function introPhaseColor(
 }
 
 function introSnapshot(frameIdx: number, width: number) {
-  const compact = width < 72;
+  const compact = width < COMPACT_BREAKPOINT;
   const total = introTotalFrames(width);
   const boundedFrameIdx = Math.min(frameIdx, total - 1);
   const state =
@@ -545,7 +660,7 @@ function MoodReadout({
     .toString()
     .padStart(3, " ")}%`;
 
-  if (width < 24) {
+  if (width < NARROW_BREAKPOINT) {
     const tinyText =
       boundedProgress >= 1
         ? `${normalizedMood} / ${posture.badge}`
@@ -563,7 +678,7 @@ function MoodReadout({
     );
   }
 
-  const panelWidth = Math.max(18, Math.min(44, width));
+  const panelWidth = Math.max(MIN_MOOD_PANEL_WIDTH, Math.min(MAX_MOOD_PANEL_WIDTH, width));
   const innerWidth = Math.max(1, panelWidth - 4);
   const title = "Mood";
   const isSettled = boundedProgress >= 1;
@@ -678,42 +793,15 @@ export function MascotDashboard({
 }: MascotDashboardProps) {
   const t = useTheme();
   const resolvedBarColor = barColor ?? t.primaryLight;
-  const tinyTerminal = width < 21;
-  const compact = width < 72;
-  const sideBySide = width >= 112;
-  const available = compact ? Math.max(1, width - 1) : Math.max(28, width);
-  const innerWidth = compact
-    ? available
-    : Math.max(24, available - FRAME_CHROME_WIDTH);
-  const leftPanelWidth = compact
-    ? available
-    : sideBySide
-    ? Math.max(
-        MASCOT_WIDTH + GUTTER_WIDTH + 24,
-        Math.floor((innerWidth - SPLIT_DIVIDER_WIDTH) / 2),
-      )
-    : innerWidth;
-  const rightColumnWidth = sideBySide
-    ? Math.max(20, innerWidth - leftPanelWidth - SPLIT_DIVIDER_WIDTH)
-    : innerWidth;
-  const rightInnerWidth = sideBySide
-    ? Math.max(1, rightColumnWidth - 1)
-    : rightColumnWidth;
-  const tipsWidth = sideBySide
-    ? rightInnerWidth
-    : innerWidth;
-  const copyWidth = compact
-    ? available
-    : sideBySide
-    ? Math.max(18, leftPanelWidth - MASCOT_WIDTH - GUTTER_WIDTH - 1)
-    : innerWidth;
+  const layout = computeMascotLayout(width);
+  const sideBySide = layout.mode === "split";
   const wideGreetingRows = sideBySide
-    ? fixedDisplayRows(greeting, copyWidth, 2)
+    ? fixedDisplayRows(greeting, layout.copy.width, 2)
     : [];
 
-  if (tinyTerminal) {
+  if (layout.mode === "tiny") {
     return (
-      <Box width={available} flexDirection="column">
+      <Box width={layout.available} flexDirection="column">
         <Text color={resolvedBarColor}>{mascotStatus}</Text>
         <Text bold color={t.primaryLight}>
           Drexler™
@@ -724,17 +812,23 @@ export function MascotDashboard({
             mood={mood}
             progress={bootProgress}
             progressColor={resolvedBarColor}
-            width={available}
+            width={layout.mood.width}
           />
         </Box>
-        {dealDesk ? <Box marginTop={1}>{dealDesk(Math.max(1, available))}</Box> : null}
+        {dealDesk ? (
+          <Box marginTop={1}>{dealDesk(layout.dealDesk.width)}</Box>
+        ) : null}
       </Box>
     );
   }
 
-  if (compact) {
+  if (layout.mode === "compact") {
     return (
-      <Box marginLeft={1} width={available} flexDirection="column">
+      <Box
+        marginLeft={layout.leftPanel.inset}
+        width={layout.available}
+        flexDirection="column"
+      >
         <Text color={resolvedBarColor}>{bar}</Text>
         <Text color={resolvedBarColor}>{mascotStatus}</Text>
         <Text bold color={t.primaryLight}>
@@ -746,25 +840,30 @@ export function MascotDashboard({
             mood={mood}
             progress={bootProgress}
             progressColor={resolvedBarColor}
-            width={available}
+            width={layout.mood.width}
           />
         </Box>
-        {dealDesk ? <Box marginTop={1}>{dealDesk(Math.max(1, available))}</Box> : null}
+        {dealDesk ? (
+          <Box marginTop={1}>{dealDesk(layout.dealDesk.width)}</Box>
+        ) : null}
       </Box>
     );
   }
 
   return (
-    <Box width={available}>
+    <Box width={layout.available}>
       <Box
-        width={available}
+        width={layout.available}
         borderStyle="round"
         borderColor={t.primary}
         paddingX={1}
         flexDirection={sideBySide ? "row" : "column"}
         alignItems={sideBySide ? "flex-start" : "center"}
       >
-        <Box flexDirection={sideBySide ? "row" : "column"} width={leftPanelWidth}>
+        <Box
+          flexDirection={sideBySide ? "row" : "column"}
+          width={layout.leftPanel.width}
+        >
           <Box
             width={MASCOT_WIDTH}
             flexShrink={0}
@@ -778,7 +877,7 @@ export function MascotDashboard({
           <Box
             flexDirection="column"
             justifyContent="center"
-            width={copyWidth}
+            width={layout.copy.width}
             marginTop={sideBySide ? 1 : 0}
           >
             <Text bold color={t.primaryLight}>
@@ -799,7 +898,7 @@ export function MascotDashboard({
               mood={mood}
               progress={bootProgress}
               progressColor={resolvedBarColor}
-              width={copyWidth}
+              width={layout.mood.width}
             />
           </Box>
         </Box>
@@ -814,23 +913,25 @@ export function MascotDashboard({
             </Box>
             <Box
               flexDirection="column"
-              width={rightColumnWidth}
-              paddingRight={1}
+              width={layout.rightColumn.width}
+              paddingRight={RIGHT_COLUMN_PAD_RIGHT}
             >
-              <Box marginLeft={1}>
-                <TipsPanel width={Math.max(1, rightInnerWidth - 1)} />
+              <Box marginLeft={layout.tips.inset}>
+                <TipsPanel width={layout.tips.width} />
               </Box>
               {dealDesk ? (
-                <Box marginLeft={1}>
-                  {dealDesk(Math.max(1, rightInnerWidth - 1))}
+                <Box marginLeft={layout.dealDesk.inset}>
+                  {dealDesk(layout.dealDesk.width)}
                 </Box>
               ) : null}
             </Box>
           </>
         ) : (
-          <Box marginTop={1} width={tipsWidth} flexDirection="column">
-            <TipsPanel width={tipsWidth} />
-            {dealDesk ? <Box marginTop={1}>{dealDesk(tipsWidth)}</Box> : null}
+          <Box marginTop={1} width={layout.tips.width} flexDirection="column">
+            <TipsPanel width={layout.tips.width} />
+            {dealDesk ? (
+              <Box marginTop={1}>{dealDesk(layout.dealDesk.width)}</Box>
+            ) : null}
           </Box>
         )}
       </Box>
