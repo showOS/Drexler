@@ -76,10 +76,74 @@ export const COMMAND_PALETTE: ReadonlyArray<SlashCommand> = [
   { name: "/copy-last", description: "Copy last response" },
 ];
 
+const ARGUMENT_PALETTE: ReadonlyArray<{
+  readonly command: string;
+  readonly values: ReadonlyArray<SlashCommand>;
+}> = [
+  {
+    command: "/theme",
+    values: [
+      ...THEME_NAMES.map((name) => ({
+        name: `/theme ${name}`,
+        description: `Switch to ${name} theme`,
+      })),
+      { name: "/theme save", description: "Save current theme as default" },
+    ],
+  },
+  {
+    command: "/startup",
+    values: [
+      { name: "/startup fast", description: "Persist fast startup" },
+      { name: "/startup no-intro", description: "Skip intro on launch" },
+      { name: "/startup normal", description: "Restore full intro" },
+    ],
+  },
+  {
+    command: "/retry",
+    values: [
+      { name: "/retry terse", description: "Retry in two sentences" },
+      { name: "/retry brutal", description: "Retry more forcefully" },
+    ],
+  },
+  {
+    command: "/export",
+    values: [
+      { name: "/export md", description: "Export markdown transcript" },
+      { name: "/export txt", description: "Export plain text transcript" },
+      { name: "/export json", description: "Export structured JSON" },
+      { name: "/export html", description: "Export printable HTML" },
+    ],
+  },
+  {
+    command: "/model",
+    values: [
+      { name: "/model 31b", description: "Use primary 31b model" },
+      { name: "/model 26b", description: "Use fallback 26b model" },
+    ],
+  },
+];
+
+function filterArgumentPalette(input: string): ReadonlyArray<SlashCommand> {
+  const lower = input.toLowerCase();
+  for (const group of ARGUMENT_PALETTE) {
+    const prefix = `${group.command} `;
+    if (!lower.startsWith(prefix)) continue;
+    const argPrefix = lower.slice(prefix.length);
+    return group.values.filter((item) =>
+      item.name.toLowerCase().startsWith(lower),
+    ).filter((item) => {
+      if (argPrefix.trim() === "") return true;
+      return item.name.toLowerCase().slice(prefix.length).startsWith(argPrefix);
+    });
+  }
+  return [];
+}
+
 export function filterPaletteByPrefix(
   input: string,
 ): ReadonlyArray<SlashCommand> {
-  if (!input.startsWith("/") || input.includes(" ")) return [];
+  if (!input.startsWith("/")) return [];
+  if (input.includes(" ")) return filterArgumentPalette(input);
   const prefix = input.toLowerCase();
   return COMMAND_PALETTE.filter((c) =>
     c.name.toLowerCase().startsWith(prefix),

@@ -90,7 +90,10 @@ function CommandPaletteInner({ items, selectedIdx, width = 80 }: Props) {
       </Box>
       {items.map((item, idx) => {
         const sel = idx === selectedIdx;
-        const hint = COMMAND_HINTS[item.name] ?? item.description;
+        const isArgumentSuggestion = item.name.includes(" ");
+        const hint = isArgumentSuggestion
+          ? ""
+          : COMMAND_HINTS[item.name] ?? item.description;
         const name = item.name.padEnd(maxNameW + 1);
         const desc = fitDisplayText(item.description, descBudget);
         const clippedHint =

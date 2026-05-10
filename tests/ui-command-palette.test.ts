@@ -63,4 +63,20 @@ describe("CommandPalette", () => {
       expect(displayWidth(row)).toBeLessThanOrEqual(width);
     }
   });
+
+  test("renders argument suggestions without duplicated hint copy", () => {
+    const rendered = renderPalette(
+      [
+        {
+          name: "/theme midnight",
+          description: "Switch to midnight theme",
+        },
+      ],
+      72,
+    );
+
+    expect(rendered).toContain("/theme midnight");
+    expect(rendered).toContain("Switch to midnight theme");
+    expect(rendered.match(/Switch to midnight theme/g)?.length).toBe(1);
+  });
 });

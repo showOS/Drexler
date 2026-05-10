@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2
+
+- Added argument suggestions in the slash command palette for `/theme`, `/startup`, `/retry`, `/export`, and `/model`.
+- Kept argument suggestion rows concise by avoiding duplicated hint copy.
+
 ## 0.2.1
 
 - Fixed slash command help and palette coverage so every implemented command is discoverable.

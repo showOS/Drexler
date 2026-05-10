@@ -695,9 +695,33 @@ describe("filterPaletteByPrefix", () => {
     expect(out).toEqual([{ name: "/copy-last", description: "Copy last response" }]);
   });
 
-  test("space in input closes palette (args mode)", () => {
+  test("known commands with constrained args show argument suggestions", () => {
+    expect(filterPaletteByPrefix("/theme ").map((c) => c.name)).toContain(
+      "/theme midnight",
+    );
+    expect(filterPaletteByPrefix("/theme m").map((c) => c.name)).toEqual([
+      "/theme mono",
+      "/theme midnight",
+    ]);
+    expect(filterPaletteByPrefix("/startup ").map((c) => c.name)).toEqual([
+      "/startup fast",
+      "/startup no-intro",
+      "/startup normal",
+    ]);
+    expect(filterPaletteByPrefix("/retry b").map((c) => c.name)).toEqual([
+      "/retry brutal",
+    ]);
+    expect(filterPaletteByPrefix("/export j").map((c) => c.name)).toEqual([
+      "/export json",
+    ]);
+    expect(filterPaletteByPrefix("/model 2").map((c) => c.name)).toEqual([
+      "/model 26b",
+    ]);
+  });
+
+  test("free-form commands with args close palette", () => {
     expect(filterPaletteByPrefix("/save ")).toEqual([]);
-    expect(filterPaletteByPrefix("/model 26b")).toEqual([]);
+    expect(filterPaletteByPrefix("/search covenant")).toEqual([]);
   });
 
   test("case-insensitive prefix match", () => {
