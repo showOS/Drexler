@@ -34,7 +34,11 @@ import {
   insertAtCursor,
 } from "./graphemes.ts";
 import { InputBox } from "./InputBox.tsx";
-import { MascotDashboard } from "./MascotIntro.tsx";
+import {
+  introPhaseColor,
+  MascotDashboard,
+  useIntroAnimation,
+} from "./MascotIntro.tsx";
 import { StreamingMessage } from "./Message.tsx";
 import { Spinner } from "./Spinner.tsx";
 import { StatusBar } from "./StatusBar.tsx";
@@ -204,6 +208,7 @@ export function App({
   const [historyIdx, setHistoryIdx] = useState<number | null>(null);
   const [paletteIdx, setPaletteIdx] = useState(0);
   const [scrollOffset, setScrollOffset] = useState(0);
+  const intro = useIntroAnimation(chromeWidth, integratedIntro);
 
   const paletteItems = useMemo(() => filterPaletteByPrefix(input), [input]);
   const paletteOpen = paletteItems.length > 0;
@@ -731,7 +736,7 @@ export function App({
       status={headerStatus}
       compact={isCompact}
       notice={!integratedIntro ? deskNotice ?? undefined : undefined}
-      maxWidth={integratedIntro ? Math.min(72, Math.max(1, width)) : width}
+      maxWidth={Math.max(1, width)}
       marginBottom={integratedIntro ? 0 : 1}
     />
   );
@@ -739,6 +744,7 @@ export function App({
   const visibleTranscriptRows = synergyEvent
     ? Math.max(1, maxTranscriptRows - synergyEventRows(chromeWidth, isCompact))
     : maxTranscriptRows;
+  const introBarColor = introPhaseColor(intro.colorPhase, t);
 
   return (
     <ThemeProvider value={activeTheme}>
@@ -748,6 +754,10 @@ export function App({
             <MascotDashboard
               greeting={greeting}
               width={chromeWidth}
+              state={intro.state}
+              bar={intro.bar}
+              barColor={introBarColor}
+              mascotStatus={intro.status}
               dealDesk={renderDealDeskHeader}
             />
           </Box>
@@ -809,11 +819,11 @@ export function App({
                   width={inputWidth}
                 />
               </Box>
-              <Box>
+              <Box paddingLeft={2}>
                 <StatusBar
                   messageCount={msgCount}
                   witticism={witticism}
-                  maxWidth={statusBarWidth}
+                  maxWidth={Math.max(1, statusBarWidth - 2)}
                   status={isBusy ? "streaming" : deskStatus}
                   compact={isCompact}
                   scrollHint={scrollHint}

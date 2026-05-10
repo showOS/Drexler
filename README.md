@@ -4,7 +4,7 @@
 [![license](https://img.shields.io/npm/l/drexler.svg)](./LICENSE)
 [![bun](https://img.shields.io/badge/runtime-bun%20%E2%89%A5%201.1-black)](https://bun.sh)
 
-CLI chat with **Drexler**, a corporate-executive AI persona who speaks in broken third-person and treats every conversation like a hostile takeover. Built with Bun + TypeScript. Talks to OpenRouter's Gemma 4 31B model (paid).
+CLI chat with **Drexler**, a corporate-executive AI persona who speaks in broken third-person and treats every conversation like a hostile takeover. Built with Bun + TypeScript, Ink, and OpenRouter-compatible Gemma models.
 
 > "Drexler usually charge consulting fee for this. Today, pro bono. You welcome."
 
@@ -13,7 +13,7 @@ CLI chat with **Drexler**, a corporate-executive AI persona who speaks in broken
 ## Quickstart
 
 ```bash
-bun add -g drexler
+bun install -g drexler@latest
 drexler
 ```
 
@@ -39,7 +39,7 @@ Verify: `bun --version` → should print `1.1.0` or higher.
 ### 2. Install Drexler globally
 
 ```bash
-bun add -g drexler
+bun install -g drexler@latest
 ```
 
 This installs the `drexler` command into `~/.bun/bin/drexler`. Make sure `~/.bun/bin` is on your `$PATH` (Bun's installer does this automatically; if not, add `export PATH="$HOME/.bun/bin:$PATH"` to your shell rc).
@@ -65,8 +65,10 @@ Paste the key, hit return. Drexler saves it to `~/.config/drexler/config.json` (
 ## Update
 
 ```bash
-bun update -g drexler
+bun install -g drexler@latest
 ```
+
+Global installs replace the existing `drexler` package in Bun's global install location; they do not keep stacking duplicate app copies.
 
 ## Uninstall
 
@@ -78,6 +80,22 @@ rm -rf ~/.config/drexler   # optional: wipe stored key + settings
 ---
 
 ## Usage
+
+### Interactive UI
+
+Drexler runs as an Ink terminal UI when both stdin and stdout are TTYs. The normal launch shows the mascot startup panel, tips, and a compact **Drexler Deal Desk** status box. Short terminals automatically suppress oversized startup chrome so the chat stays usable.
+
+Conversation turns render as bordered cards aligned to the chat input width. User and Drexler responses use separate accents, wrapped text, and fixed-width borders so long responses stay inside the terminal instead of clipping at the right edge.
+
+Typing `/` opens the directive palette. Use `Tab`, `Enter`, or `↑`/`↓` to select. Commands with fixed arguments open smoother option choosers:
+
+- `/theme` previews all themes with descriptions.
+- `/startup` offers `fast`, `no-intro`, and `normal`.
+- `/retry` offers `terse` and `brutal`.
+- `/export` offers `md`, `txt`, `json`, and `html`.
+- `/model` offers `31b` and `26b`.
+
+`/synergy` runs a rotating animated corporate event in the live UI, then returns control to the chat when the animation completes.
 
 ### Flags
 
@@ -93,12 +111,12 @@ rm -rf ~/.config/drexler   # optional: wipe stored key + settings
 
 ### Slash commands (inside the REPL)
 
-| cmd            | what it do                                       |
+| cmd            | what it does                                     |
 | -------------- | ------------------------------------------------ |
 | `/help`        | list directives                                  |
 | `/clear`       | shred conversation history (system prompt pinned) |
 | `/exit`        | meeting adjourned                                |
-| `/synergy`     | SYNERGY!                                         |
+| `/synergy`     | run a rotating animated morale event             |
 | `/model`       | show current model, or `/model 26b` to switch   |
 | `/theme`       | show/switch theme; append `save` to persist, e.g. `/theme midnight save` |
 | `/startup fast\|no-intro\|normal` | persist startup behavior for future launches |
@@ -125,6 +143,8 @@ Drexler reads config in this priority (later wins):
 1. `~/.config/drexler/config.json` — written on first run
 2. Environment variables
 3. CLI flags
+
+If the current config file does not exist, Drexler also checks the legacy `~/.drexlerrc` path.
 
 ### Environment variables
 
@@ -159,13 +179,26 @@ Default `maxHistory`: 50 messages.
 Available launch/config themes: `apollo`, `amber`, `mono`, `terminal`, `dealroom`, `midnight`, `paper`, and `plasma`.
 `NO_COLOR` always forces `mono`.
 
+Theme notes:
+
+| theme      | character                                  |
+| ---------- | ------------------------------------------ |
+| `apollo`   | signature Drexler green, the default        |
+| `amber`    | warm amber deal glow                        |
+| `mono`     | plain high-contrast ANSI colors             |
+| `terminal` | classic green/cyan terminal                 |
+| `dealroom` | restrained teal boardroom palette           |
+| `midnight` | cool blue late-session desk                 |
+| `paper`    | clean document-style contrast               |
+| `plasma`   | high-energy magenta trading-floor accent    |
+
 ---
 
 ## Models
 
 | alias  | id                                  | notes                          |
 | ------ | ----------------------------------- | ------------------------------ |
-| `31b`  | `google/gemma-4-31b-it`             | primary (paid)                 |
+| `31b`  | `google/gemma-4-31b-it`             | primary default                |
 | `26b`  | `google/gemma-4-26b-a4b-it`         | fallback, auto-retry on 429    |
 
 Pass `--model vendor/name:tag` for any other OpenRouter-compatible model.
@@ -192,11 +225,12 @@ bun run typecheck
 ### Releasing a new version
 
 ```bash
-npm version <patch|minor>  # bumps package.json, commits, tags
-git push --follow-tags     # CI publishes to npm automatically
+bun run prepublishOnly
+npm version <patch|minor>  # bumps package.json, commits, and tags
+git push origin main --follow-tags
 ```
 
-The `.github/workflows/publish.yml` workflow runs typecheck + tests + `npm publish --provenance` on every `v*` tag push.
+The `.github/workflows/publish.yml` workflow runs install, tag/package version verification, typecheck, tests, and `npm publish --provenance` on every `v*` tag push.
 
 ---
 
@@ -210,6 +244,8 @@ The `.github/workflows/publish.yml` workflow runs typecheck + tests + `npm publi
 | Garbled box-drawing characters                             | Use a UTF-8 terminal with a Nerd Font (e.g. iTerm2, Alacritty, WezTerm)                   |
 | Want to switch themes mid-session                          | Use `/theme midnight`, `/theme dealroom`, `/theme amber`, or any listed theme inside the REPL |
 | Want a faster launch                                       | Use `drexler --fast` or set `"fast": true` in config                                     |
+| Startup panel looks cramped                                | Enlarge the terminal, or use `/startup no-intro` or `/startup fast`                      |
+| Slash command options are not visible                      | Type `/`, `/theme`, `/startup`, `/retry`, `/export`, or `/model`; exact fixed-argument commands open their chooser automatically |
 
 ---
 

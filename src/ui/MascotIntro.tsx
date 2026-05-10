@@ -1,11 +1,12 @@
 import { Box, Text, useApp, useInput, useStdout } from "ink";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { STARTUP_TIPS } from "../startupTips.ts";
 import {
   MascotFrame,
   MASCOT_WIDTH,
   type MascotState,
 } from "./MascotFrame.tsx";
+import { displayWidth, fitDisplayText } from "./graphemes.ts";
 import { useTheme } from "./ThemeContext.tsx";
 
 interface IntroFrame extends MascotState {
@@ -29,7 +30,7 @@ export const INTRO_BOOT_NOTES = [
 
 type IntroBootNote = (typeof INTRO_BOOT_NOTES)[number];
 
-const FRAMES: IntroFrame[] = [
+const INTRO_FRAMES: IntroFrame[] = [
   {
     walls: "dim",
     brows: "hidden",
@@ -122,13 +123,18 @@ const FRAMES: IntroFrame[] = [
   },
 ];
 
-const COMPACT_NOTES = ["Booting", "Scanning", "Online"];
-const COMPACT_DELAY_MS = 850;
+const COMPACT_INTRO_NOTES = ["Booting", "Scanning", "Online"];
+const COMPACT_INTRO_DELAY_MS = 850;
 const SETTLE_HOLD_MS = 1200;
 const FRAME_CHROME_WIDTH = 4;
 const GUTTER_WIDTH = 4;
+const SPLIT_DIVIDER_WIDTH = 3;
+const SPLIT_DIVIDER_HEIGHT = 10;
+const SPLIT_DIVIDER_ROWS: number[] = Array.from(
+  { length: SPLIT_DIVIDER_HEIGHT },
+  (_, i) => i,
+);
 const BOOT_BAR_WIDTH = MASCOT_WIDTH - 1;
-const RIGHT_COLUMN_BORDER_WIDTH = 2;
 
 interface IntroProps {
   greeting: string;
@@ -144,7 +150,7 @@ interface MascotDashboardProps {
   dealDesk?: (width: number) => ReactNode;
 }
 
-function bootBar(frameIdx: number, total: number): string {
+function introBootBar(frameIdx: number, total: number): string {
   const active = Math.max(
     1,
     Math.ceil(((frameIdx + 1) / total) * BOOT_BAR_WIDTH),
@@ -152,22 +158,134 @@ function bootBar(frameIdx: number, total: number): string {
   return " " + "▰".repeat(active) + "▱".repeat(BOOT_BAR_WIDTH - active);
 }
 
+function titledPanelBottom(width: number): string {
+  return `╰${"─".repeat(Math.max(0, width - 2))}╯`;
+}
+
+type IntroColorPhase = "early" | "middle" | "late";
+
+function introTotalFrames(width: number): number {
+  return width < 72 ? COMPACT_INTRO_NOTES.length : INTRO_FRAMES.length;
+}
+
+function introFrameDelayMs(frameIdx: number, width: number): number {
+  if (width < 72) return COMPACT_INTRO_DELAY_MS;
+  return (
+    INTRO_FRAMES[frameIdx] ?? INTRO_FRAMES[INTRO_FRAMES.length - 1]!
+  ).delayMs;
+}
+
+function introColorPhase(frameIdx: number, total: number): IntroColorPhase {
+  if (frameIdx < total / 3) return "early";
+  if (frameIdx < (total * 2) / 3) return "middle";
+  return "late";
+}
+
+export function introPhaseColor(
+  phase: IntroColorPhase,
+  colors: { error: string; warning: string; primaryLight: string },
+): string {
+  return phase === "early"
+    ? colors.error
+    : phase === "middle"
+    ? colors.warning
+    : colors.primaryLight;
+}
+
+function introSnapshot(frameIdx: number, width: number) {
+  const compact = width < 72;
+  const total = introTotalFrames(width);
+  const boundedFrameIdx = Math.min(frameIdx, total - 1);
+  const state =
+    INTRO_FRAMES[boundedFrameIdx] ?? INTRO_FRAMES[INTRO_FRAMES.length - 1]!;
+  const note = compact
+    ? COMPACT_INTRO_NOTES[
+        Math.min(boundedFrameIdx, COMPACT_INTRO_NOTES.length - 1)
+      ]!
+    : state.note;
+  return {
+    bar: introBootBar(boundedFrameIdx, total),
+    colorPhase: introColorPhase(frameIdx, total),
+    frameIdx: boundedFrameIdx,
+    note,
+    state,
+    status: `${INTRO_STATUS_PREFIX}${note}`,
+    total,
+  };
+}
+
+export function useIntroAnimation(
+  width: number,
+  active: boolean,
+  onComplete?: () => void,
+) {
+  const [frameIdx, setFrameIdx] = useState(0);
+
+  useEffect(() => {
+    if (!active) {
+      setFrameIdx(0);
+      return;
+    }
+
+    const total = introTotalFrames(width);
+    if (frameIdx >= total - 1) {
+      if (!onComplete) return;
+      const handle = setTimeout(onComplete, SETTLE_HOLD_MS);
+      return () => clearTimeout(handle);
+    }
+
+    const handle = setTimeout(() => {
+      setFrameIdx((idx) => Math.min(idx + 1, total - 1));
+    }, introFrameDelayMs(frameIdx, width));
+    return () => clearTimeout(handle);
+  }, [active, frameIdx, onComplete, width]);
+
+  return useMemo(() => introSnapshot(frameIdx, width), [frameIdx, width]);
+}
+
 function TipsPanel({ width }: { width: number }) {
   const t = useTheme();
   const textWidth = Math.max(1, width);
+  const innerWidth = Math.max(1, textWidth - 4);
+  const title = "Tips";
+  const titlePrefix = "╭─ ";
+  const titleSuffix = " ";
+  const titleRule = "─".repeat(
+    Math.max(
+      0,
+      textWidth -
+        displayWidth(titlePrefix) -
+        displayWidth(title) -
+        displayWidth(titleSuffix) -
+        displayWidth("╮"),
+    ),
+  );
   return (
     <Box flexDirection="column" width={textWidth}>
-      <Text bold color={t.primaryLight}>
-        Tips for getting started
+      <Text color={t.primary}>
+        {titlePrefix}
+        <Text bold color={t.primaryLight}>{title}</Text>
+        {titleSuffix}
+        {titleRule}
+        ╮
       </Text>
-      <Box flexDirection="column" paddingLeft={2}>
-        {STARTUP_TIPS.map((tip, idx) => (
-          <Text key={tip} color={t.dim}>
-            <Text color={t.primary}>{idx + 1}. </Text>
-            {tip}
+      {STARTUP_TIPS.map((tip, idx) => {
+        const label = `${idx + 1}. `;
+        const tipWidth = Math.max(1, innerWidth - displayWidth(label));
+        const clippedTip = fitDisplayText(tip, tipWidth);
+        const content = `${label}${clippedTip}`;
+        return (
+          <Text key={tip}>
+            <Text color={t.primary}>│ </Text>
+            <Text color={t.primaryLight}>{label}</Text>
+            <Text color={t.dim}>{clippedTip}</Text>
+            <Text color={t.primary}>
+              {" ".repeat(Math.max(0, innerWidth - displayWidth(content)))} │
+            </Text>
           </Text>
-        ))}
-      </Box>
+        );
+      })}
+      <Text color={t.primary}>{titledPanelBottom(textWidth)}</Text>
     </Box>
   );
 }
@@ -175,8 +293,8 @@ function TipsPanel({ width }: { width: number }) {
 export function MascotDashboard({
   greeting,
   width,
-  state = FRAMES[FRAMES.length - 1]!,
-  bar = bootBar(FRAMES.length - 1, FRAMES.length),
+  state = INTRO_FRAMES[INTRO_FRAMES.length - 1]!,
+  bar = introBootBar(INTRO_FRAMES.length - 1, INTRO_FRAMES.length),
   barColor,
   mascotStatus = `${INTRO_STATUS_PREFIX}${INTRO_BOOT_NOTES[INTRO_BOOT_NOTES.length - 1]}`,
   dealDesk,
@@ -186,7 +304,7 @@ export function MascotDashboard({
   const tinyTerminal = width < 21;
   const compact = width < 72;
   const sideBySide = width >= 112;
-  const available = compact ? Math.max(1, width - 1) : Math.max(28, width - 1);
+  const available = compact ? Math.max(1, width - 1) : Math.max(28, width);
   const innerWidth = compact
     ? available
     : Math.max(24, available - FRAME_CHROME_WIDTH);
@@ -195,14 +313,14 @@ export function MascotDashboard({
     : sideBySide
     ? Math.max(
         MASCOT_WIDTH + GUTTER_WIDTH + 24,
-        Math.floor((innerWidth - RIGHT_COLUMN_BORDER_WIDTH) / 2),
+        Math.floor((innerWidth - SPLIT_DIVIDER_WIDTH) / 2),
       )
     : innerWidth;
   const rightColumnWidth = sideBySide
-    ? Math.max(20, innerWidth - leftPanelWidth)
+    ? Math.max(20, innerWidth - leftPanelWidth - SPLIT_DIVIDER_WIDTH)
     : innerWidth;
   const rightInnerWidth = sideBySide
-    ? Math.max(1, rightColumnWidth - RIGHT_COLUMN_BORDER_WIDTH)
+    ? Math.max(1, rightColumnWidth - 1)
     : rightColumnWidth;
   const tipsWidth = sideBySide
     ? rightInnerWidth
@@ -210,7 +328,7 @@ export function MascotDashboard({
   const copyWidth = compact
     ? available
     : sideBySide
-    ? Math.max(18, leftPanelWidth - MASCOT_WIDTH - GUTTER_WIDTH)
+    ? Math.max(18, leftPanelWidth - MASCOT_WIDTH - GUTTER_WIDTH - 1)
     : innerWidth;
 
   if (tinyTerminal) {
@@ -276,16 +394,29 @@ export function MascotDashboard({
           </Box>
         </Box>
         {sideBySide ? (
+          <>
+            <Box flexDirection="column" width={SPLIT_DIVIDER_WIDTH} flexShrink={0}>
+              {SPLIT_DIVIDER_ROWS.map((idx) => (
+                <Text key={idx} color={t.primaryDim}>
+                  {" │ "}
+                </Text>
+              ))}
+            </Box>
             <Box
               flexDirection="column"
               width={rightColumnWidth}
-              borderLeft
-              borderColor={t.primaryDim}
-              paddingLeft={1}
+              paddingRight={1}
             >
-              <TipsPanel width={rightInnerWidth} />
-              {dealDesk ? <Box marginTop={1}>{dealDesk(rightInnerWidth)}</Box> : null}
+              <Box marginLeft={1}>
+                <TipsPanel width={Math.max(1, rightInnerWidth - 1)} />
+              </Box>
+              {dealDesk ? (
+                <Box marginLeft={1}>
+                  {dealDesk(Math.max(1, rightInnerWidth - 1))}
+                </Box>
+              ) : null}
             </Box>
+          </>
         ) : (
           <Box marginTop={1} width={tipsWidth} flexDirection="column">
             <TipsPanel width={tipsWidth} />
@@ -302,7 +433,7 @@ export function MascotIntro({ greeting }: IntroProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const [cols, setCols] = useState(stdout?.columns ?? 80);
-  const [frameIdx, setFrameIdx] = useState(0);
+  const intro = useIntroAnimation(cols, true, exit);
 
   useEffect(() => {
     if (!stdout) return;
@@ -317,56 +448,16 @@ export function MascotIntro({ greeting }: IntroProps) {
     if (key.escape || key.return || (key.ctrl && _input === "c")) exit();
   });
 
-  const mountedRef = useRef(true);
-  useEffect(() => {
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    const compact = cols < 72;
-    const total = compact ? COMPACT_NOTES.length : FRAMES.length;
-    if (frameIdx >= total - 1) {
-      const handle = setTimeout(() => {
-        if (mountedRef.current) exit();
-      }, SETTLE_HOLD_MS);
-      return () => clearTimeout(handle);
-    }
-    const delay = compact
-      ? COMPACT_DELAY_MS
-      : (FRAMES[frameIdx] ?? FRAMES[FRAMES.length - 1]!).delayMs;
-    const handle = setTimeout(() => {
-      if (mountedRef.current) setFrameIdx((i) => i + 1);
-    }, delay);
-    return () => clearTimeout(handle);
-  }, [cols, frameIdx, exit]);
-
-  const state = FRAMES[frameIdx] ?? FRAMES[FRAMES.length - 1]!;
-  const compact = cols < 72;
-  const bar = bootBar(
-    Math.min(frameIdx, compact ? COMPACT_NOTES.length - 1 : FRAMES.length - 1),
-    compact ? COMPACT_NOTES.length : FRAMES.length,
-  );
-  const barColor =
-    frameIdx < (compact ? COMPACT_NOTES.length : FRAMES.length) / 3
-      ? t.error
-      : frameIdx < ((compact ? COMPACT_NOTES.length : FRAMES.length) * 2) / 3
-      ? t.warning
-      : t.primaryLight;
-  const note = compact
-    ? COMPACT_NOTES[Math.min(frameIdx, COMPACT_NOTES.length - 1)]!
-    : state.note;
-  const mascotStatus = `${INTRO_STATUS_PREFIX}${note}`;
+  const barColor = introPhaseColor(intro.colorPhase, t);
 
   return (
     <MascotDashboard
       greeting={greeting}
       width={cols}
-      state={state}
-      bar={bar}
+      state={intro.state}
+      bar={intro.bar}
       barColor={barColor}
-      mascotStatus={mascotStatus}
+      mascotStatus={intro.status}
     />
   );
 }

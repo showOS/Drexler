@@ -59,5 +59,6 @@ describe("ui grapheme helpers", () => {
     expect(displayWidth("漢")).toBe(2);
     expect(displayWidth("👩‍💻")).toBe(2);
     expect(displayWidth("e\u0301")).toBe(1);
+    expect(displayWidth("Drexler International™")).toBe(22);
   });
 });

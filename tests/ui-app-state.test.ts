@@ -124,9 +124,9 @@ describe("App state helpers", () => {
     );
 
     expect(rendered).toContain("Drexler Deal Desk");
-    expect(rendered).toContain("ruthless");
-    expect(rendered).toContain("READY");
-    expect(rendered).toContain("0 messages");
+    expect(rendered).toContain("BOARDROOM");
+    expect(rendered).toContain("0 memos");
+    expect(rendered).toContain("fees ");
   });
 
   test("App can embed live deal desk chrome in the startup panel", () => {
@@ -143,11 +143,13 @@ describe("App state helpers", () => {
       40,
     );
 
-    expect(rendered).toContain("Tips for getting started");
+    expect(rendered).toContain("╭─ Tips");
     expect(rendered).toContain("Drexler Deal Desk");
-    expect(rendered).toContain("ruthless");
-    expect(rendered).toContain("0 messages");
-    expect(rendered.match(/Tips for getting started/g)?.length).toBe(1);
+    expect(rendered).toContain("◆ Briefcase boot");
+    expect(rendered).toContain("▰▰");
+    expect(rendered).toContain("BOARDROOM");
+    expect(rendered).toContain("0 memos");
+    expect(rendered.match(/╭─ Tips/g)?.length).toBe(1);
     expect(rendered.match(/Drexler Deal Desk/g)?.length).toBe(1);
     for (const row of rendered.split("\n")) {
       expect(displayWidth(row)).toBeLessThanOrEqual(120);
@@ -173,7 +175,7 @@ describe("App state helpers", () => {
       rows,
     );
 
-    expect(rendered).not.toContain("Tips for getting started");
+    expect(rendered).not.toContain("╭─ Tips");
     expect(rendered).toContain("Drexler Deal Desk");
     for (const row of rendered.split("\n")) {
       expect(displayWidth(row)).toBeLessThanOrEqual(columns);

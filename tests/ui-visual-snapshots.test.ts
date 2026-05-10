@@ -82,7 +82,7 @@ describe("visual chrome snapshots", () => {
   ])("%s layout keeps core UI visible and bounded", (_name, width) => {
     const rendered = renderVisual(width);
 
-    expect(rendered).toContain("Drexler");
+    expect(rendered).toContain("DREXLER");
     expect(rendered).toContain("Covenant");
     expect(rendered).toContain("/export");
     expect(rendered).toContain("PageUp");

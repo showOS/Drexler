@@ -67,6 +67,15 @@ describe("TranscriptViewport", () => {
     expect(rendered).not.toContain("response ledger");
     expect(rendered).toContain("Covenant cushion acceptable.");
     expect(rendered).toContain("╯");
+    const userBody = rendered
+      .split("\n")
+      .find((row) => row.includes("Need covenant readout."));
+    const drexlerBody = rendered
+      .split("\n")
+      .find((row) => row.includes("Covenant cushion acceptable."));
+    expect(userBody?.indexOf("Need")).toBe(drexlerBody?.indexOf("Covenant"));
+    expect(drexlerBody?.startsWith("│ ◆ ")).toBe(true);
+    expect(drexlerBody?.endsWith(" │")).toBe(true);
     for (const row of rendered.split("\n")) {
       expect(displayWidth(row)).toBeLessThanOrEqual(72);
     }

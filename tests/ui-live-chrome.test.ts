@@ -211,4 +211,47 @@ describe("live chrome width handling", () => {
       instance.unmount();
     }
   });
+
+  test("App advances the startup mascot boot animation in-place", async () => {
+    const { stdin, stdout, chunks } = makeInteractiveStreams();
+    stdout.columns = 120;
+    stdout.rows = 40;
+    const config: Config = {
+      apiKey: "k",
+      model: MODEL_PRIMARY,
+      maxHistory: 50,
+      personaPath: "/tmp/p.md",
+    };
+    const instance = render(
+      React.createElement(App, {
+        conversation: new Conversation("SYS", 50),
+        config,
+        greeting: "Hello",
+        showIntroChrome: true,
+      }),
+      {
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+        exitOnCtrlC: false,
+        interactive: true,
+        patchConsole: false,
+        maxFps: 60,
+      },
+    );
+
+    try {
+      await delay(700);
+      await instance.waitUntilRenderFlush();
+
+      const rendered = chunks.join("").replace(ANSI_RE, "");
+      expect(rendered).toContain("◆ Briefcase boot");
+      expect(rendered).toContain("◆ Deal tape live");
+      expect(rendered).toContain("▰▰");
+      expect(rendered).toContain(" │ ");
+      expect(rendered).toContain("╭─ Tips");
+      expect(rendered).toContain("Drexler Deal Desk");
+    } finally {
+      instance.unmount();
+    }
+  });
 });

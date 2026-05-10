@@ -1,7 +1,6 @@
 import { Box, Text } from "ink";
 import { Children, memo, useMemo, type ReactNode } from "react";
 import { displayWidth, fitDisplayText, splitGraphemes } from "./graphemes.ts";
-import { estimateMarkdownRows, MarkdownBody } from "./MarkdownBody.tsx";
 import { useTheme } from "./ThemeContext.tsx";
 
 export interface TranscriptViewportItem {
@@ -41,6 +40,25 @@ const ROLE_MARKERS: Record<TranscriptViewportItem["role"], string> = {
   assistant: "│",
   system: "!",
 };
+
+const BODY_SUFFIX = " │";
+const CONTINUATION_PREFIX = "│   ";
+
+function bodyPrefixForRole(role: TranscriptViewportItem["role"]): string {
+  if (role === "user") return "│ › ";
+  if (role === "assistant") return "│ ◆ ";
+  return CONTINUATION_PREFIX;
+}
+
+function transcriptContentWidth(
+  role: TranscriptViewportItem["role"],
+  cols: number,
+): number {
+  return Math.max(
+    1,
+    cols - displayWidth(bodyPrefixForRole(role)) - displayWidth(BODY_SUFFIX),
+  );
+}
 
 function wrapDisplayLine(input: string, maxWidth: number): string[] {
   const width = Math.max(1, maxWidth);
@@ -104,16 +122,7 @@ function itemRows(
   cols: number,
 ): number {
   if (compact) return 1;
-  if (item.role === "assistant") {
-    const innerWidth = Math.max(1, cols - 2);
-    return 2 + estimateMarkdownRows(item.content, innerWidth);
-  }
-  const bodyPrefix = "│ › ";
-  const bodySuffix = " │";
-  const contentWidth = Math.max(
-    1,
-    cols - displayWidth(bodyPrefix) - displayWidth(bodySuffix),
-  );
+  const contentWidth = transcriptContentWidth(item.role, cols);
   return 2 + wrappedContentRows(item.content, contentWidth).length;
 }
 
@@ -173,40 +182,8 @@ function DefaultTranscriptItem({
   const headerPrefix = `╭─ ${label} `;
   const headerRuleWidth = Math.max(0, cols - displayWidth(headerPrefix) - 1);
   const footerWidth = Math.max(0, cols - 2);
-
-  if (item.role === "assistant") {
-    const innerWidth = Math.max(1, cols - 2);
-    return (
-      <Box flexDirection="column" width={cols} flexShrink={1}>
-        <Text color={accent} bold wrap="truncate">
-          {fitDisplayText(
-            `${headerPrefix}${rule("─", headerRuleWidth)}╮`,
-            cols,
-          )}
-        </Text>
-        <MarkdownBody
-          content={item.content}
-          baseColor={t.text}
-          accentColor={t.primaryLight}
-          dimColor={t.dim}
-          codeColor={t.primaryDim}
-          width={innerWidth}
-          paddingLeft={1}
-        />
-        <Text color={accent} wrap="truncate">
-          {fitDisplayText(`╰${rule("─", footerWidth)}╯`, cols)}
-        </Text>
-      </Box>
-    );
-  }
-
-  const bodyPrefix = item.role === "user" ? "│ › " : "│   ";
-  const continuationPrefix = "│   ";
-  const bodySuffix = " │";
-  const contentWidth = Math.max(
-    1,
-    cols - displayWidth(bodyPrefix) - displayWidth(bodySuffix),
-  );
+  const bodyPrefix = bodyPrefixForRole(item.role);
+  const contentWidth = transcriptContentWidth(item.role, cols);
 
   return (
     <Box flexDirection="column" width={cols} flexShrink={1}>
@@ -219,7 +196,7 @@ function DefaultTranscriptItem({
       {wrappedContentRows(item.content, contentWidth).map((line, index) => (
         <Box key={index} width={cols} flexShrink={1}>
           <Text color={accent} bold={item.role === "user"}>
-            {index === 0 ? bodyPrefix : continuationPrefix}
+            {index === 0 ? bodyPrefix : CONTINUATION_PREFIX}
           </Text>
           <Text color={roleBodyColor(item.role, t)}>
             {fitDisplayText(line, contentWidth)}
@@ -227,7 +204,7 @@ function DefaultTranscriptItem({
           <Text color={accent} bold={item.role === "user"}>
             {`${" ".repeat(
               Math.max(0, contentWidth - displayWidth(line)),
-            )}${bodySuffix}`}
+            )}${BODY_SUFFIX}`}
           </Text>
         </Box>
       ))}

@@ -162,11 +162,11 @@ describe("MascotFrame", () => {
       ).replace(ANSI_RE, "");
       const tipsLine = rendered
         .split("\n")
-        .find((row) => row.includes("Tips for getting started"));
+        .find((row) => row.includes("╭─ Tips"));
 
       expect(tipsLine).toBeDefined();
       expect(tipsLine?.match(/│/g)?.length).toBeGreaterThanOrEqual(2);
-      expect(tipsLine?.indexOf("Tips for getting started")).toBeGreaterThan(
+      expect(tipsLine?.indexOf("╭─ Tips")).toBeGreaterThan(
         tipsLine?.indexOf("│") ?? 0,
       );
     } finally {
@@ -200,14 +200,16 @@ describe("MascotFrame", () => {
       }),
     ).replace(ANSI_RE, "");
     const rows = rendered.split("\n");
-    const tipsIdx = rows.findIndex((row) =>
-      row.includes("Tips for getting started"),
-    );
-    const deskIdx = rows.findIndex((row) => row.includes("┌ Drexler"));
+    const tipsIdx = rows.findIndex((row) => row.includes("╭─ Tips"));
+    const deskIdx = rows.findIndex((row) => row.includes("╭─ Drexler"));
+    const dividerRows = rows.filter((row) => row.includes(" │ "));
 
     expect(tipsIdx).toBeGreaterThan(-1);
     expect(deskIdx).toBeGreaterThan(tipsIdx);
-    expect(rows[deskIdx]).toContain("┌ Drexler");
+    expect(rows[deskIdx]).toContain("╭─ Drexler");
+    expect(dividerRows.length).toBeGreaterThanOrEqual(8);
+    expect(rows[tipsIdx]).toContain(" │ ");
+    expect(rows[deskIdx]).toContain(" │ ");
     for (const row of rows) {
       expect(displayWidth(row)).toBeLessThanOrEqual(160);
     }
@@ -239,10 +241,46 @@ describe("MascotFrame", () => {
       ).replace(ANSI_RE, "");
 
       expect(rendered.match(/Drexler Deal Desk/g)?.length).toBe(1);
-      expect(rendered.match(/Tips for getting started/g)?.length).toBe(1);
+      expect(rendered.match(/╭─ Tips/g)?.length).toBe(1);
       for (const row of rendered.split("\n")) {
         expect(displayWidth(row)).toBeLessThanOrEqual(width);
       }
     },
   );
+
+  test("wide dashboard keeps embedded deal desk inset symmetric", () => {
+    const rendered = renderToString(
+      React.createElement(ThemeProvider, {
+        value: THEMES.apollo,
+        children: React.createElement(MascotDashboard, {
+          greeting: "Hello",
+          width: 200,
+          dealDesk: (dealDeskWidth: number) =>
+            React.createElement(DealDeskHeader, {
+              model: "google/gemma-4-26b-a4b-it",
+              mood: "exhausted",
+              messageCount: 0,
+              themeName: "apollo",
+              approximateTokens: 4776,
+              maxWidth: dealDeskWidth,
+              marginBottom: 0,
+            }),
+        }),
+      }),
+      { columns: 200 },
+    ).replace(ANSI_RE, "");
+    const deskRow = rendered
+      .split("\n")
+      .find((row) => row.includes("Drexler Deal Desk"));
+
+    expect(deskRow).toBeDefined();
+    const centerDivider = deskRow!.indexOf("│", 1);
+    const deskLeft = deskRow!.indexOf("╭");
+    const deskRight = deskRow!.lastIndexOf("╮");
+    const outerRight = deskRow!.lastIndexOf("│");
+
+    expect(deskLeft - centerDivider - 1).toBe(2);
+    expect(outerRight - deskRight - 1).toBe(2);
+    expect(displayWidth(deskRow!)).toBeLessThanOrEqual(200);
+  });
 });

@@ -22,7 +22,7 @@ function visibleLength(input: string): number {
 }
 
 describe("DealDeskHeader", () => {
-  test("renders premium chat chrome with model mood count status and notice", () => {
+  test("renders premium satirical deal chrome with mood-shaped readouts", () => {
     const rendered = renderHeader({
       model: "openrouter/google/gemma-4-31b",
       mood: "distressed",
@@ -33,11 +33,14 @@ describe("DealDeskHeader", () => {
     });
 
     expect(rendered).toContain("Drexler Deal Desk");
-    expect(rendered).toContain("LIVE");
-    expect(rendered).toContain("model openrouter/google/gemma-4-31b");
-    expect(rendered).toContain("mood distressed");
-    expect(rendered).toContain("7 messages");
-    expect(rendered).toContain("notice fallback armed");
+    expect(rendered).toContain("MEMO LIVE");
+    expect(rendered).toContain("7 memos");
+    expect(rendered).toContain("fees ");
+    expect(rendered).toContain("mandate ");
+    expect(rendered).toContain("risk ");
+    expect(rendered).toContain("counsel ");
+    expect(rendered).toContain("memo fallback armed");
+    expect(rendered).not.toContain("model openrouter/google/gemma-4-31b");
   });
 
   test("clamps every rendered row to the requested width", () => {
@@ -69,9 +72,9 @@ describe("DealDeskHeader", () => {
     });
 
     expect(rendered).toContain("Drexler");
-    expect(rendered).toContain("ERROR");
-    expect(rendered).toContain("gemma-4-31b");
-    expect(rendered).toContain("1 msg");
+    expect(rendered).toContain("COUN");
+    expect(rendered).toContain("mood r");
+    expect(rendered).not.toContain("gemma-4-31b");
     expect(rendered).not.toContain("mood ruthless");
     expect(rendered).not.toContain("should not render");
     for (const row of rendered.split("\n")) {
@@ -93,6 +96,32 @@ describe("DealDeskHeader", () => {
     expect(rendered).not.toContain("┌");
     for (const row of rendered.split("\n")) {
       expect(visibleLength(row)).toBeLessThanOrEqual(width);
+    }
+  });
+
+  test("same mood can render different deal desk values across sessions", () => {
+    const originalRandom = Math.random;
+    try {
+      Math.random = () => 0;
+      const first = renderHeader({
+        model: "gemma-4-31b",
+        mood: "angry",
+        messageCount: 2,
+        maxWidth: 96,
+      });
+      Math.random = () => 0.001;
+      const second = renderHeader({
+        model: "gemma-4-31b",
+        mood: "angry",
+        messageCount: 2,
+        maxWidth: 96,
+      });
+
+      expect(first).toContain("Drexler Deal Desk");
+      expect(second).toContain("Drexler Deal Desk");
+      expect(first).not.toBe(second);
+    } finally {
+      Math.random = originalRandom;
     }
   });
 

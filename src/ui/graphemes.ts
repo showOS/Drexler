@@ -35,6 +35,7 @@ function isWideCodePoint(codePoint: number): boolean {
 function graphemeWidth(input: string): number {
   if (input.length === 0) return 0;
   if (/^\p{Mark}+$/u.test(input)) return 0;
+  if (/^[©®™]$/u.test(input)) return 1;
   if (/\p{Extended_Pictographic}/u.test(input)) return 2;
   let width = 0;
   for (const char of input) {
