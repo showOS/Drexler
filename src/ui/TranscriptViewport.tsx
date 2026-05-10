@@ -27,13 +27,25 @@ export interface TranscriptViewportProps {
 
 interface TranscriptEntry {
   key: string;
-  node: ReactNode;
+  node: ReactNode | ((clipTo?: number) => ReactNode);
   estimatedRows: number;
+}
+
+interface VisibleEntry {
+  entry: TranscriptEntry;
+  clipTo?: number;
 }
 
 const DEFAULT_MAX_ROWS = 18;
 const DEFAULT_COLS = 80;
 const MIN_COLS = 1;
+const HEADER_FOOTER_ROWS = 2;
+const TRUNCATION_HINT_ROWS = 1;
+const MIN_TRUNCATED_BODY_ROWS = 1;
+
+function truncationHint(dropped: number): string {
+  return `... ${dropped} line${dropped === 1 ? "" : "s"} truncated — PageUp scrollback to read`;
+}
 
 const ROLE_LABELS: Record<TranscriptViewportItem["role"], string> = {
   user: "YOU",
@@ -333,10 +345,12 @@ function DefaultTranscriptItem({
   item,
   compact,
   cols,
+  maxRows,
 }: {
   item: TranscriptViewportItem;
   compact: boolean;
   cols: number;
+  maxRows?: number;
 }) {
   const t = useTheme();
   const label = ROLE_LABELS[item.role];
@@ -393,7 +407,22 @@ function DefaultTranscriptItem({
   const footerWidth = Math.max(0, cols - 2);
   const bodyPrefix = bodyPrefixForRole(item.role);
   const contentWidth = transcriptContentWidth(item.role, cols);
-  const displayLines = wrappedTranscriptLines(item, contentWidth);
+  const allDisplayLines = wrappedTranscriptLines(item, contentWidth);
+  let displayLines: WrappedTranscriptLine[] = allDisplayLines;
+  if (maxRows !== undefined) {
+    const bodyBudget = Math.max(
+      MIN_TRUNCATED_BODY_ROWS,
+      maxRows - HEADER_FOOTER_ROWS,
+    );
+    if (allDisplayLines.length > bodyBudget) {
+      const keep = Math.max(0, bodyBudget - TRUNCATION_HINT_ROWS);
+      const dropped = allDisplayLines.length - keep;
+      displayLines = [
+        ...allDisplayLines.slice(0, keep),
+        { kind: "text", text: truncationHint(dropped) },
+      ];
+    }
+  }
 
   return (
     <Box flexDirection="column" width={cols} flexShrink={1}>
@@ -467,11 +496,16 @@ function itemsToEntries({
 }): TranscriptEntry[] {
   return items.map((item, index) => ({
     key: String(item.id ?? index),
-    node: renderItem ? (
-      renderItem(item, index)
-    ) : (
-      <DefaultTranscriptItem item={item} compact={compact} cols={cols} />
-    ),
+    node: renderItem
+      ? renderItem(item, index)
+      : (clipTo?: number) => (
+          <DefaultTranscriptItem
+            item={item}
+            compact={compact}
+            cols={cols}
+            maxRows={clipTo}
+          />
+        ),
     estimatedRows: itemRows(item, compact, cols),
   }));
 }
@@ -481,12 +515,20 @@ function selectWindow(
   maxRows: number,
   scrollOffset: number,
 ): {
-  visible: TranscriptEntry[];
+  visible: VisibleEntry[];
   hiddenBefore: number;
   hiddenAfter: number;
+  hiddenRowsBefore: number;
+  hiddenRowsAfter: number;
 } {
   if (entries.length === 0) {
-    return { visible: [], hiddenBefore: 0, hiddenAfter: 0 };
+    return {
+      visible: [],
+      hiddenBefore: 0,
+      hiddenAfter: 0,
+      hiddenRowsBefore: 0,
+      hiddenRowsAfter: 0,
+    };
   }
 
   const safeRows = Math.max(1, Math.floor(maxRows));
@@ -515,37 +557,67 @@ function selectWindow(
     reserveTop = nextReserveTop;
   }
 
-  const visible = entries.slice(start, end);
-  const visibleRows = visible.reduce(
+  const slice = entries.slice(start, end);
+  const visible: VisibleEntry[] = slice.map((entry) => ({ entry }));
+  const totalVisibleRows = slice.reduce(
     (sum, entry) => sum + Math.max(1, entry.estimatedRows),
     0,
   );
   let hiddenBefore = start;
   let hiddenAfter = entries.length - end;
-  if (visibleRows + (hiddenBefore > 0 ? 1 : 0) + (hiddenAfter > 0 ? 1 : 0) > safeRows) {
-    if (hiddenBefore > 0) hiddenBefore = 0;
-    if (visibleRows + (hiddenAfter > 0 ? 1 : 0) > safeRows) hiddenAfter = 0;
+  let hiddenRowsBefore = entries
+    .slice(0, start)
+    .reduce((s, e) => s + Math.max(1, e.estimatedRows), 0);
+  let hiddenRowsAfter = entries
+    .slice(end)
+    .reduce((s, e) => s + Math.max(1, e.estimatedRows), 0);
+  const indicatorRows =
+    (hiddenBefore > 0 ? 1 : 0) + (hiddenAfter > 0 ? 1 : 0);
+  // Minimum render of a single transcript card: header + footer + 1 body row.
+  const MIN_ITEM_ROWS = HEADER_FOOTER_ROWS + MIN_TRUNCATED_BODY_ROWS;
+  const hardBudget = Math.max(MIN_ITEM_ROWS, safeRows - indicatorRows);
+  if (visible.length === 1 && totalVisibleRows > hardBudget) {
+    visible[0]!.clipTo = hardBudget;
+  }
+  const clippedRows = visible[0]?.clipTo ?? totalVisibleRows;
+  if (clippedRows + indicatorRows > safeRows) {
+    if (hiddenBefore > 0) {
+      hiddenBefore = 0;
+      hiddenRowsBefore = 0;
+    }
+    if (clippedRows + (hiddenAfter > 0 ? 1 : 0) > safeRows) {
+      hiddenAfter = 0;
+      hiddenRowsAfter = 0;
+    }
   }
 
-  return { visible, hiddenBefore, hiddenAfter };
+  return {
+    visible,
+    hiddenBefore,
+    hiddenAfter,
+    hiddenRowsBefore,
+    hiddenRowsAfter,
+  };
 }
 
 function ScrollIndicator({
   direction,
   count,
+  rows,
   compact,
   cols,
 }: {
   direction: "earlier" | "newer";
   count: number;
+  rows: number;
   compact: boolean;
   cols: number;
 }) {
   const t = useTheme();
   const arrow = direction === "earlier" ? "↑" : "↓";
   const label = compact
-    ? `${arrow} ${count} ${direction}`
-    : `${arrow} ${count} ${direction} transcript item${count === 1 ? "" : "s"} hidden`;
+    ? `${arrow} ${rows} ${direction}`
+    : `${arrow} ${rows} line${rows === 1 ? "" : "s"} ${direction} (${count} item${count === 1 ? "" : "s"} hidden) — PageUp scrollback`;
 
   return (
     <Box width={cols} flexShrink={1}>
@@ -573,7 +645,13 @@ function TranscriptViewportInner({
         : childrenToEntries(children),
     [children, compact, items, renderItem, width],
   );
-  const { visible, hiddenBefore, hiddenAfter } = useMemo(
+  const {
+    visible,
+    hiddenBefore,
+    hiddenAfter,
+    hiddenRowsBefore,
+    hiddenRowsAfter,
+  } = useMemo(
     () => selectWindow(entries, maxRows, scrollOffset),
     [entries, maxRows, scrollOffset],
   );
@@ -584,19 +662,21 @@ function TranscriptViewportInner({
         <ScrollIndicator
           direction="earlier"
           count={hiddenBefore}
+          rows={hiddenRowsBefore}
           compact={compact}
           cols={width}
         />
       ) : null}
-      {visible.map((entry) => (
+      {visible.map(({ entry, clipTo }) => (
         <Box key={entry.key} flexDirection="column" width={width} flexShrink={1}>
-          {entry.node}
+          {typeof entry.node === "function" ? entry.node(clipTo) : entry.node}
         </Box>
       ))}
       {hiddenAfter > 0 ? (
         <ScrollIndicator
           direction="newer"
           count={hiddenAfter}
+          rows={hiddenRowsAfter}
           compact={compact}
           cols={width}
         />

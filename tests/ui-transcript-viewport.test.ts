@@ -39,7 +39,8 @@ describe("TranscriptViewport", () => {
       cols: 60,
     });
 
-    expect(rendered).toContain("earlier transcript items hidden");
+    expect(rendered).toMatch(/earlier .* PageUp scrollback/);
+    expect(rendered).toContain("items hidden");
     expect(rendered).toContain("memo 5");
     expect(rendered).toContain("memo 6");
     expect(rendered).not.toContain("memo 1");
@@ -363,7 +364,7 @@ describe("TranscriptViewport", () => {
       ],
     });
 
-    expect(rendered).toContain("2 earlier transcript items hidden");
+    expect(rendered).toContain("(2 items hidden)");
     expect(rendered).toContain("child 3");
     expect(rendered).toContain("child 4");
     expect(rendered).not.toContain("child 1");
@@ -381,7 +382,7 @@ describe("TranscriptViewport", () => {
 
     const rows = rendered.split("\n").filter(Boolean);
     expect(rows).toHaveLength(3);
-    expect(rendered).not.toContain("earlier transcript");
+    expect(rendered).not.toContain("earlier");
     expect(rendered).toContain("new memo");
   });
 
@@ -393,9 +394,43 @@ describe("TranscriptViewport", () => {
       scrollOffset: 2,
     });
 
-    expect(rendered).toContain("newer transcript items hidden");
+    expect(rendered).toMatch(/newer .* PageUp scrollback/);
+    expect(rendered).toContain("items hidden");
     expect(rendered).toContain("memo 3");
     expect(rendered).toContain("memo 4");
     expect(rendered).not.toContain("memo 6");
+  });
+
+  test("clips a single oversize assistant response to maxRows with truncation hint", () => {
+    const longContent = Array.from({ length: 60 }, (_, i) => `memo line ${i + 1}`).join("\n");
+    const rendered = renderViewport({
+      items: [{ id: "huge", role: "assistant", content: longContent }],
+      maxRows: 8,
+      cols: 60,
+    });
+    const rows = rendered.split("\n").filter(Boolean);
+    expect(rows.length).toBeLessThanOrEqual(8);
+    expect(rendered).toMatch(/\.\.\. \d+ lines? truncated — PageUp scrollback to read/);
+    expect(rendered).toContain("memo line 1");
+    expect(rendered).not.toContain("memo line 60");
+  });
+
+  test("scroll indicator reports rows in addition to item counts", () => {
+    const tall = {
+      id: "tall",
+      role: "assistant" as const,
+      content: Array.from({ length: 20 }, (_, i) => `tall line ${i + 1}`).join("\n"),
+    };
+    const short = [
+      { id: "s1", role: "user" as const, content: "one" },
+      { id: "s2", role: "assistant" as const, content: "two" },
+    ];
+    const rendered = renderViewport({
+      items: [tall, ...short],
+      maxRows: 10,
+      cols: 60,
+    });
+    expect(rendered).toMatch(/\d+ lines? earlier/);
+    expect(rendered).toContain("PageUp scrollback");
   });
 });
