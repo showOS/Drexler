@@ -15,6 +15,9 @@ export interface SynergyEventDefinition {
 }
 
 export const SYNERGY_EVENT_FRAMES = 28;
+const FULL_EVENT_WIDTH = 88;
+const FULL_EVENT_ROWS = 12;
+const FULL_EVENT_ART_ROWS = 4;
 
 export const SYNERGY_EVENTS: readonly SynergyEventDefinition[] = [
   {
@@ -67,7 +70,7 @@ export const SYNERGY_EVENTS: readonly SynergyEventDefinition[] = [
       "status: billable",
       "decision rights unclear",
     ],
-    finalLine: "Drexler approve synergy. Nobody ask what changed.",
+    finalLine: "Drexler approves synergy. Nobody asks what changed.",
     transcriptLine: "SYNERGY EVENT: boardroom siren produced measurable vibes.",
   },
   {
@@ -156,7 +159,10 @@ function stageAt(event: SynergyEventDefinition, frame: number): string {
 
 function visibleArt(event: SynergyEventDefinition, frame: number): readonly string[] {
   const progress = frameProgress(frame);
-  const count = Math.max(1, Math.ceil(progress * event.art.length));
+  const count = Math.max(
+    1,
+    Math.ceil(progress * Math.min(event.art.length, FULL_EVENT_ART_ROWS)),
+  );
   return event.art.slice(0, count);
 }
 
@@ -180,7 +186,7 @@ function SynergyEventInner({
   const t = useTheme();
   const safeWidth = Math.max(1, Math.floor(width));
   const progress = frameProgress(frame);
-  const done = progress >= 0.94;
+  const done = frame >= SYNERGY_EVENT_FRAMES - 1;
   const tiny = safeWidth < 38 || compact;
 
   if (tiny) {
@@ -196,70 +202,80 @@ function SynergyEventInner({
     );
   }
 
-  const innerWidth = Math.max(1, safeWidth - 4);
+  const panelWidth = Math.min(safeWidth, FULL_EVENT_WIDTH);
+  const innerWidth = Math.max(1, panelWidth - 4);
   const title = `${event.title} · ${event.subtitle}`;
   const progressWidth = Math.max(8, Math.min(34, innerWidth - 18));
   const progressPct = `${Math.round(progress * 100)
     .toString()
     .padStart(3, " ")}%`;
-  const artWidth = Math.max(1, innerWidth - 2);
+  const artWidth = Math.max(1, innerWidth - 4);
   const kpi = kpiAt(event, frame);
 
   return (
-    <Box
-      flexDirection="column"
-      borderStyle="round"
-      borderColor={done ? t.primaryLight : t.warning}
-      paddingX={1}
-      marginBottom={1}
-      width={safeWidth}
-      flexShrink={1}
-    >
-      <Box>
-        <Text color={t.warning} bold>
-          SYNERGY EVENT
-        </Text>
-        <Text color={t.primaryDim}> ─ </Text>
-        <Text color={t.dim} wrap="truncate">
-          {fitDisplayText(title, Math.max(1, innerWidth - 16))}
-        </Text>
-      </Box>
-      <Box marginTop={1} flexDirection="column">
-        {visibleArt(event, frame).map((line, idx) => (
-          <Text key={`${event.id}-${idx}`} color={t.primaryLight} wrap="truncate">
-            {fitDisplayText(line, artWidth)}
+    <Box width={safeWidth} justifyContent="center" flexShrink={1}>
+      <Box
+        flexDirection="column"
+        borderStyle="round"
+        borderColor={done ? t.primaryLight : t.warning}
+        paddingX={1}
+        width={panelWidth}
+        flexShrink={1}
+      >
+        <Box>
+          <Text color={t.warning} bold>
+            SYNERGY EVENT
           </Text>
-        ))}
-      </Box>
-      <Box marginTop={1}>
-        <Text color={t.primaryDim}>[</Text>
-        <Text color={done ? t.primaryLight : t.warning}>
-          {bar(progress, progressWidth)}
-        </Text>
-        <Text color={t.primaryDim}>] </Text>
-        <Text color={t.dim}>{progressPct}</Text>
-      </Box>
-      <Box>
-        <Text color={t.primaryLight} bold>
-          ◆{" "}
-        </Text>
-        <Text color={t.text} wrap="truncate">
-          {fitDisplayText(stageAt(event, frame), Math.max(1, innerWidth - 2))}
-        </Text>
-      </Box>
-      <Box>
-        <Text color={t.primaryDim}>ticker </Text>
-        <Text color={t.warning} wrap="truncate">
-          {fitDisplayText(kpi, Math.max(1, innerWidth - 7))}
-        </Text>
-      </Box>
-      {done ? (
-        <Box marginTop={1}>
-          <Text color={t.primaryLight} bold wrap="truncate">
-            {fitDisplayText(event.finalLine, innerWidth)}
+          <Text color={t.primaryDim}> ─ </Text>
+          <Text color={t.dim} wrap="truncate">
+            {fitDisplayText(title, Math.max(1, innerWidth - 18))}
           </Text>
         </Box>
-      ) : null}
+        <Box flexDirection="column">
+          {event.art.slice(0, FULL_EVENT_ART_ROWS).map((line, idx) => {
+            const revealed = idx < visibleArt(event, frame).length;
+            return (
+              <Text
+                key={`${event.id}-${idx}`}
+                color={revealed ? t.primaryLight : t.primaryDim}
+                wrap="truncate"
+              >
+                {revealed ? fitDisplayText(line, artWidth) : " "}
+              </Text>
+            );
+          })}
+        </Box>
+        <Box>
+          <Text color={t.primaryDim}>[</Text>
+          <Text color={done ? t.primaryLight : t.warning}>
+            {bar(progress, progressWidth)}
+          </Text>
+          <Text color={t.primaryDim}>] </Text>
+          <Text color={t.dim}>{progressPct}</Text>
+        </Box>
+        <Box>
+          <Text color={t.primaryLight} bold>
+            ◆{" "}
+          </Text>
+          <Text color={t.text} wrap="truncate">
+            {fitDisplayText(stageAt(event, frame), Math.max(1, innerWidth - 4))}
+          </Text>
+        </Box>
+        <Box>
+          <Text color={t.primaryDim}>ticker </Text>
+          <Text color={t.warning} wrap="truncate">
+            {fitDisplayText(kpi, Math.max(1, innerWidth - 9))}
+          </Text>
+        </Box>
+        <Box>
+          <Text color={done ? t.primaryLight : t.primaryDim} bold={done} wrap="truncate">
+            {fitDisplayText(
+              done ? event.finalLine : "awaiting committee approval...",
+              Math.max(1, innerWidth - 2),
+            )}
+          </Text>
+        </Box>
+      </Box>
     </Box>
   );
 }
@@ -268,7 +284,7 @@ export const SynergyEvent = memo(SynergyEventInner);
 
 export function synergyEventRows(width: number, compact = false): number {
   if (compact || width < 38) return 1;
-  return 12;
+  return FULL_EVENT_ROWS;
 }
 
 export function synergyEventMaxRowWidth(

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.7
+
+- Stabilized `/synergy` animation layout with fixed row budgeting, a capped centered event panel, and completion only at 100%.
+- Hardened interactive busy-state handling so input stays locked during active LLM requests and synergy events.
+- Added lifecycle and row-budget coverage for the animated synergy flow.
+
 ## 0.2.6
 
 - Upgraded `/synergy` into a rotating animated Ink event with staged reveals, progress, KPI tickers, and themed finale copy.

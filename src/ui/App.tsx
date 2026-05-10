@@ -167,6 +167,7 @@ export function App({ conversation, config, mood = "neutral", fetchFn }: AppProp
   const cursor = draft.cursor;
   const [streaming, setStreaming] = useState<string | null>(null);
   const [thinking, setThinking] = useState<string | null>(null);
+  const [requestInFlight, setRequestInFlight] = useState(false);
   const [synergyEvent, setSynergyEvent] = useState<ActiveSynergyEvent | null>(
     null,
   );
@@ -219,6 +220,8 @@ export function App({ conversation, config, mood = "neutral", fetchFn }: AppProp
   const streamTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const cancelledRef = useRef(false);
+  const requestInFlightRef = useRef(false);
+  const synergyActiveRef = useRef(false);
   const mountedRef = useRef(true);
   const exitingRef = useRef(false);
   const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -234,6 +237,18 @@ export function App({ conversation, config, mood = "neutral", fetchFn }: AppProp
       if (exitingRef.current) return;
       exitingRef.current = true;
       abortRef.current?.abort();
+      if (streamTimerRef.current !== null) {
+        clearTimeout(streamTimerRef.current);
+        streamTimerRef.current = null;
+      }
+      if (synergyTimerRef.current !== null) {
+        clearInterval(synergyTimerRef.current);
+        synergyTimerRef.current = null;
+      }
+      requestInFlightRef.current = false;
+      synergyActiveRef.current = false;
+      setRequestInFlight(false);
+      setSynergyEvent(null);
       setExitMsg(msg);
       exitTimerRef.current = setTimeout(() => exit(), 50);
     },
@@ -263,6 +278,7 @@ export function App({ conversation, config, mood = "neutral", fetchFn }: AppProp
 
     setThinking(null);
     setStreaming(null);
+    synergyActiveRef.current = true;
     setDeskStatus("idle");
     setDeskNotice("synergy event");
     setSynergyEvent({ event, frame });
@@ -282,7 +298,8 @@ export function App({ conversation, config, mood = "neutral", fetchFn }: AppProp
           synergyTimerRef.current = null;
         }
         setSynergyEvent(null);
-        setDeskNotice("synergy logged");
+        synergyActiveRef.current = false;
+        setDeskNotice("synergy complete");
         setWitticism(event.finalLine);
         addItem("system", event.transcriptLine);
       }
@@ -290,99 +307,109 @@ export function App({ conversation, config, mood = "neutral", fetchFn }: AppProp
   }, [addItem]);
 
   const runLLM = useCallback(async (instruction?: string) => {
+    if (requestInFlightRef.current) return;
+    requestInFlightRef.current = true;
+    setRequestInFlight(true);
     const startedAt = Date.now();
-    setThinking(pick(THINKING_LINES));
-    setDeskStatus("idle");
-    setDeskNotice(null);
-    setFallbackModel(null);
-    streamBufRef.current = "";
-    setStreaming(null);
-    let firstToken = true;
-    abortRef.current = new AbortController();
-    let result: Awaited<ReturnType<typeof streamChat>> | undefined;
-    let caughtErr: unknown = null;
     try {
-      result = await streamChat({
-        apiKey: config.apiKey,
-        model,
-        fallbackModel: pickFallback(model),
-        messages: instruction
-          ? [
-              ...buildMessagesWithReminder(conversation),
-              { role: "system", content: instruction },
-            ]
-          : buildMessagesWithReminder(conversation),
-        onToken: (t) => {
-          if (!mountedRef.current) return;
-          if (firstToken) {
-            setThinking(null);
-            firstToken = false;
-          }
-          pushTokenToStream(t);
-        },
-        signal: abortRef.current.signal,
-        fetchFn,
-      });
-    } catch (err) {
-      caughtErr = err;
-    } finally {
-      if (streamTimerRef.current !== null) {
-        clearTimeout(streamTimerRef.current);
-        streamTimerRef.current = null;
+      setThinking(pick(THINKING_LINES));
+      setDeskStatus("idle");
+      setDeskNotice(null);
+      setFallbackModel(null);
+      streamBufRef.current = "";
+      setStreaming(null);
+      let firstToken = true;
+      abortRef.current = new AbortController();
+      let result: Awaited<ReturnType<typeof streamChat>> | undefined;
+      let caughtErr: unknown = null;
+      try {
+        result = await streamChat({
+          apiKey: config.apiKey,
+          model,
+          fallbackModel: pickFallback(model),
+          messages: instruction
+            ? [
+                ...buildMessagesWithReminder(conversation),
+                { role: "system", content: instruction },
+              ]
+            : buildMessagesWithReminder(conversation),
+          onToken: (t) => {
+            if (!mountedRef.current || exitingRef.current) return;
+            if (firstToken) {
+              setThinking(null);
+              firstToken = false;
+            }
+            pushTokenToStream(t);
+          },
+          signal: abortRef.current.signal,
+          fetchFn,
+        });
+      } catch (err) {
+        caughtErr = err;
+      } finally {
+        if (streamTimerRef.current !== null) {
+          clearTimeout(streamTimerRef.current);
+          streamTimerRef.current = null;
+        }
+        abortRef.current = null;
       }
-      abortRef.current = null;
-    }
-    if (!mountedRef.current) return;
-    if (caughtErr) {
-      const msg = caughtErr instanceof Error ? caughtErr.message : String(caughtErr);
+      if (!mountedRef.current || exitingRef.current) return;
+      if (caughtErr) {
+        const msg = caughtErr instanceof Error ? caughtErr.message : String(caughtErr);
+        setThinking(null);
+        setStreaming(null);
+        addItem("system", `${STREAM_ERROR} [${msg}]`);
+        setDeskStatus("error");
+        setDeskNotice(msg);
+        setMsgCount(conversation.length);
+        return;
+      }
       setThinking(null);
       setStreaming(null);
-      addItem("system", `${STREAM_ERROR} [${msg}]`);
-      setDeskStatus("error");
-      setDeskNotice(msg);
-      setMsgCount(conversation.length);
-      return;
-    }
-    setThinking(null);
-    setStreaming(null);
-    setLastLatencyMs(Date.now() - startedAt);
-    if (cancelledRef.current) {
-      cancelledRef.current = false;
-      if (result?.content) {
+      setLastLatencyMs(Date.now() - startedAt);
+      if (cancelledRef.current) {
+        cancelledRef.current = false;
+        if (result?.content) {
+          conversation.push("assistant", result.content);
+          addItem("assistant", result.content);
+        }
+        addItem("system", "(cancelled — Drexler taking lunch)");
+        setDeskNotice("response cancelled");
+      } else if (result?.ok) {
         conversation.push("assistant", result.content);
         addItem("assistant", result.content);
+        const notices: string[] = [];
+        if (result.fellBack) {
+          addItem("system", `(fell back to ${result.modelUsed})`);
+          notices.push(`fallback ${result.modelUsed}`);
+          setFallbackModel(result.modelUsed);
+        }
+        if (detectPersonaDrift(result.content)) {
+          addItem("system", `(persona drift detected — model used 'I')`);
+          notices.push("persona drift detected");
+        }
+        setDeskNotice(notices.length > 0 ? notices.join(" · ") : null);
+      } else if (result?.interrupted) {
+        conversation.push("assistant", result.content);
+        addItem("assistant", result.content);
+        addItem("system", "(stream interrupted — partial response saved)");
+        setDeskStatus("error");
+        setDeskNotice("stream interrupted; partial response saved");
+      } else {
+        const detail = result?.error ? ` [${result.error}]` : "";
+        addItem("system", `${STREAM_ERROR}${detail}`);
+        setDeskStatus("error");
+        setDeskNotice(result?.error ?? "stream error");
       }
-      addItem("system", "(cancelled — Drexler taking lunch)");
-      setDeskNotice("response cancelled");
-    } else if (result?.ok) {
-      conversation.push("assistant", result.content);
-      addItem("assistant", result.content);
-      const notices: string[] = [];
-      if (result.fellBack) {
-        addItem("system", `(fell back to ${result.modelUsed})`);
-        notices.push(`fallback ${result.modelUsed}`);
-        setFallbackModel(result.modelUsed);
+      setMsgCount(conversation.length);
+      setTokenCount(conversation.approximateTokens());
+      setWitticism(pick(WITTICISMS));
+    } finally {
+      requestInFlightRef.current = false;
+      if (mountedRef.current) {
+        setRequestInFlight(false);
       }
-      if (detectPersonaDrift(result.content)) {
-        addItem("system", `(persona drift detected — model used 'I')`);
-        notices.push("persona drift detected");
-      }
-      setDeskNotice(notices.length > 0 ? notices.join(" · ") : null);
-    } else if (result?.interrupted) {
-      conversation.push("assistant", result.content);
-      addItem("assistant", result.content);
-      addItem("system", "(stream interrupted — partial response saved)");
-      setDeskStatus("error");
-      setDeskNotice("stream interrupted; partial response saved");
-    } else {
-      const detail = result?.error ? ` [${result.error}]` : "";
-      addItem("system", `${STREAM_ERROR}${detail}`);
-      setDeskStatus("error");
-      setDeskNotice(result?.error ?? "stream error");
     }
-    setMsgCount(conversation.length);
-    setTokenCount(conversation.approximateTokens());
-    setWitticism(pick(WITTICISMS));
   }, [
     config,
     model,
@@ -465,6 +492,7 @@ export function App({ conversation, config, mood = "neutral", fetchFn }: AppProp
 
   const onSubmit = useCallback(
     async (raw: string) => {
+      if (requestInFlightRef.current || synergyActiveRef.current) return;
       const line = raw.trim();
       if (line === "") {
         addItem("system", EMPTY_NUDGE);
@@ -484,9 +512,15 @@ export function App({ conversation, config, mood = "neutral", fetchFn }: AppProp
   );
 
   useInput((char, key) => {
-    if (streaming !== null || thinking !== null || synergyEvent !== null) {
+    const busy =
+      requestInFlightRef.current ||
+      synergyActiveRef.current ||
+      streaming !== null ||
+      thinking !== null ||
+      synergyEvent !== null;
+    if (busy) {
       if (key.escape) {
-        if (synergyEvent !== null) {
+        if (synergyActiveRef.current || synergyEvent !== null) {
           return;
         }
         cancelledRef.current = true;
@@ -659,10 +693,13 @@ export function App({ conversation, config, mood = "neutral", fetchFn }: AppProp
       if (synergyTimerRef.current !== null) {
         clearInterval(synergyTimerRef.current);
       }
+      requestInFlightRef.current = false;
+      synergyActiveRef.current = false;
     };
   }, []);
 
-  const isBusy = streaming !== null || thinking !== null || synergyEvent !== null;
+  const isBusy =
+    requestInFlight || streaming !== null || thinking !== null || synergyEvent !== null;
   const headerStatus = isBusy ? "streaming" : deskStatus;
   const visibleTranscriptRows = synergyEvent
     ? Math.max(1, maxTranscriptRows - synergyEventRows(chromeWidth, isCompact))
