@@ -303,7 +303,7 @@ export function App({ conversation, config, mood = "neutral", fetchFn }: AppProp
         setWitticism(event.finalLine);
         addItem("system", event.transcriptLine);
       }
-    }, 60);
+    }, 45);
   }, [addItem]);
 
   const runLLM = useCallback(async (instruction?: string) => {

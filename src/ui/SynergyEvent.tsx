@@ -1,5 +1,5 @@
 import { Box, Text } from "ink";
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import { displayWidth, fitDisplayText } from "./graphemes.ts";
 import { useTheme } from "./ThemeContext.tsx";
 
@@ -142,6 +142,17 @@ function frameProgress(frame: number): number {
   return Math.max(0, Math.min(1, frame / (SYNERGY_EVENT_FRAMES - 1)));
 }
 
+// Cubic ease-out: fast reveal, soft settle. Feels less mechanical than linear.
+function easeOutCubic(p: number): number {
+  const clamped = Math.max(0, Math.min(1, p));
+  const inv = 1 - clamped;
+  return 1 - inv * inv * inv;
+}
+
+function easedProgress(frame: number): number {
+  return easeOutCubic(frameProgress(frame));
+}
+
 function bar(progress: number, width: number): string {
   const safeWidth = Math.max(1, width);
   const filled = Math.max(0, Math.min(safeWidth, Math.round(progress * safeWidth)));
@@ -149,7 +160,7 @@ function bar(progress: number, width: number): string {
 }
 
 function stageAt(event: SynergyEventDefinition, frame: number): string {
-  const progress = frameProgress(frame);
+  const progress = easedProgress(frame);
   const idx = Math.min(
     event.stages.length - 1,
     Math.floor(progress * event.stages.length),
@@ -157,13 +168,10 @@ function stageAt(event: SynergyEventDefinition, frame: number): string {
   return event.stages[idx]!;
 }
 
-function visibleArt(event: SynergyEventDefinition, frame: number): readonly string[] {
-  const progress = frameProgress(frame);
-  const count = Math.max(
-    1,
-    Math.ceil(progress * Math.min(event.art.length, FULL_EVENT_ART_ROWS)),
-  );
-  return event.art.slice(0, count);
+function visibleArtCount(event: SynergyEventDefinition, frame: number): number {
+  const progress = easedProgress(frame);
+  const cap = Math.min(event.art.length, FULL_EVENT_ART_ROWS);
+  return Math.max(1, Math.ceil(progress * cap));
 }
 
 function kpiAt(event: SynergyEventDefinition, frame: number): string {
@@ -185,9 +193,18 @@ function SynergyEventInner({
 }: Props) {
   const t = useTheme();
   const safeWidth = Math.max(1, Math.floor(width));
-  const progress = frameProgress(frame);
+  const progress = easedProgress(frame);
   const done = frame >= SYNERGY_EVENT_FRAMES - 1;
   const tiny = safeWidth < 38 || compact;
+  // Title pulse: alert-style flicker during early reveal, calm bright on done.
+  const earlyPulse = !done && frame < 6 && frame % 2 === 0;
+  const titleColor = done ? t.primaryLight : earlyPulse ? t.primary : t.warning;
+
+  const artFrames = useMemo(
+    () => event.art.slice(0, FULL_EVENT_ART_ROWS),
+    [event],
+  );
+  const revealedRows = visibleArtCount(event, frame);
 
   if (tiny) {
     const label = done ? event.finalLine : stageAt(event, frame);
@@ -195,7 +212,7 @@ function SynergyEventInner({
     const line = `SYNC ${bar(progress, miniBarWidth)} ${label}`;
     return (
       <Box width={safeWidth} flexShrink={1}>
-        <Text color={done ? t.primaryLight : t.warning} bold wrap="truncate">
+        <Text color={titleColor} bold wrap="truncate">
           {fitDisplayText(line, safeWidth)}
         </Text>
       </Box>
@@ -223,7 +240,7 @@ function SynergyEventInner({
         flexShrink={1}
       >
         <Box>
-          <Text color={t.warning} bold>
+          <Text color={titleColor} bold>
             SYNERGY EVENT
           </Text>
           <Text color={t.primaryDim}> ─ </Text>
@@ -232,8 +249,8 @@ function SynergyEventInner({
           </Text>
         </Box>
         <Box flexDirection="column">
-          {event.art.slice(0, FULL_EVENT_ART_ROWS).map((line, idx) => {
-            const revealed = idx < visibleArt(event, frame).length;
+          {artFrames.map((line, idx) => {
+            const revealed = idx < revealedRows;
             return (
               <Text
                 key={`${event.id}-${idx}`}
