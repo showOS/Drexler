@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { normalizeAssistantMarkdownRenderContent } from "../src/ui/displayContent.ts";
 import { parseBlocks, tokenizeInline } from "../src/ui/MarkdownBody.tsx";
 
 describe("tokenizeInline", () => {
@@ -78,6 +79,37 @@ describe("parseBlocks", () => {
       kind: "code",
       lang: "ts",
       lines: ["const x = 1;"],
+    });
+  });
+
+  test("captures tilde fenced code block contents", () => {
+    const blocks = parseBlocks("~~~python\nprint('fees')\n~~~");
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toMatchObject({
+      kind: "code",
+      lang: "python",
+      lines: ["print('fees')"],
+    });
+  });
+
+  test("does not close a longer fence on a shorter marker", () => {
+    const blocks = parseBlocks("````ts\nconst fence = ```;\n````");
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toMatchObject({
+      kind: "code",
+      lang: "ts",
+      lines: ["const fence = ```;"],
+    });
+  });
+
+  test("preserves non-markdown fence marker style for streaming render", () => {
+    const normalized = normalizeAssistantMarkdownRenderContent(
+      "~~~python\nprint('fees')\n~~~",
+    );
+    expect(normalized).toBe("~~~\nprint('fees')\n~~~");
+    expect(parseBlocks(normalized)[0]).toMatchObject({
+      kind: "code",
+      lines: ["print('fees')"],
     });
   });
 

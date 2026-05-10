@@ -122,6 +122,35 @@ export function defaultPersonaPath(): string {
   return resolve(import.meta.dir, "..", "prompts", "drexler.md");
 }
 
+async function validatePersonaFile(
+  inputPath: unknown,
+  label: string,
+): Promise<string> {
+  if (typeof inputPath !== "string" || inputPath.trim().length === 0) {
+    throw new LaunchConfigError(
+      "persona-path",
+      `Invalid ${label}: expected a regular .md file path.`,
+      { path: inputPath },
+    );
+  }
+  const resolved = resolve(inputPath);
+  // lstat (not stat) so symlinks pointing to non-.md targets cannot bypass
+  // the extension check via `ln -s /etc/passwd evil.md`.
+  const st = await lstat(resolved).catch(() => null);
+  if (
+    !st?.isFile() ||
+    st.isSymbolicLink() ||
+    !resolved.toLowerCase().endsWith(".md")
+  ) {
+    throw new LaunchConfigError(
+      "persona-path",
+      `Invalid ${label}: ${inputPath} (must be a regular .md file; symlinks rejected).`,
+      { path: inputPath },
+    );
+  }
+  return resolved;
+}
+
 export async function loadConfigFile(): Promise<Partial<Config>> {
   const cp = configPath();
   const lp = legacyConfigPath();
@@ -265,23 +294,11 @@ export async function validateLaunchConfig(
     throw new LaunchConfigError("model-alias", msg, { input: modelInput });
   }
 
-  let personaPath: string;
-  if (flags.persona) {
-    const resolved = resolve(flags.persona);
-    // lstat (not stat) so symlinks pointing to non-.md targets cannot bypass
-    // the extension check via `ln -s /etc/passwd evil.md`.
-    const st = await lstat(resolved).catch(() => null);
-    if (!st?.isFile() || !resolved.toLowerCase().endsWith(".md")) {
-      throw new LaunchConfigError(
-        "persona-path",
-        `Invalid --persona: ${flags.persona} (must be a regular .md file; symlinks rejected).`,
-        { path: flags.persona },
-      );
-    }
-    personaPath = resolved;
-  } else {
-    personaPath = fileCfg.personaPath ?? defaultPersonaPath();
-  }
+  const personaPath = flags.persona
+    ? await validatePersonaFile(flags.persona, "--persona")
+    : fileCfg.personaPath !== undefined
+      ? await validatePersonaFile(fileCfg.personaPath, "config personaPath")
+      : await validatePersonaFile(defaultPersonaPath(), "default persona");
 
   const maxHistory =
     typeof fileCfg.maxHistory === "number" &&

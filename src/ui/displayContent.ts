@@ -76,15 +76,17 @@ export function normalizeAssistantMarkdownRenderContent(content: string): string
   const output: string[] = [];
   let fenceChar = "";
   let fenceLength = 0;
+  let fenceMarker = "";
   let markdownFence = false;
 
   for (const rawLine of lines) {
     const line = rawLine.replace(/\t/gu, TAB_DISPLAY);
     if (fenceChar.length > 0) {
       if (isFenceClose(line, fenceChar, fenceLength)) {
-        if (!markdownFence) output.push("```");
+        if (!markdownFence) output.push(fenceMarker);
         fenceChar = "";
         fenceLength = 0;
+        fenceMarker = "";
         markdownFence = false;
       } else {
         output.push(line);
@@ -98,8 +100,9 @@ export function normalizeAssistantMarkdownRenderContent(content: string): string
       const info = openingFence[2] ?? "";
       fenceChar = marker[0]!;
       fenceLength = marker.length;
+      fenceMarker = marker;
       markdownFence = isMarkdownFence(info);
-      if (!markdownFence) output.push("```");
+      if (!markdownFence) output.push(marker);
       continue;
     }
 
