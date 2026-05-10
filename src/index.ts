@@ -19,7 +19,6 @@ import {
 } from "./renderer.ts";
 import { startRepl } from "./repl.ts";
 import { App } from "./ui/App.tsx";
-import { MascotIntro } from "./ui/MascotIntro.tsx";
 import { promptForApiKeyWithInk } from "./ui/SetupPrompt.tsx";
 import { ThemeProvider } from "./ui/ThemeContext.tsx";
 import { getActiveTheme, selectTheme, setActiveTheme } from "./ui/themes.ts";
@@ -127,23 +126,10 @@ async function main(): Promise<void> {
 
   if (isInteractive) {
     if (!skipIntro) {
-      // Print intro to stdout before Ink mounts. Ink's <Static> can't host
-      // animated state, and we want the banner visible from boot.
       console.log("");
       await typewriterBanner();
       console.log(tagline());
       console.log("");
-      // Animated welcome card via transient Ink instance.
-      const intro = render(
-        React.createElement(ThemeProvider, {
-          value: getActiveTheme(),
-          children: React.createElement(MascotIntro, { greeting }),
-        }),
-        { exitOnCtrlC: false },
-      );
-      await intro.waitUntilExit();
-      intro.clear();
-      intro.unmount();
     }
 
     console.log("");

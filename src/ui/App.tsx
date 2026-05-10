@@ -718,7 +718,7 @@ export function App({
   const headerStatus = isBusy ? "streaming" : deskStatus;
   const embeddedDealDeskWidth =
     chromeWidth >= 112
-      ? Math.min(92, Math.max(32, Math.floor(chromeWidth * 0.44)))
+      ? Math.min(72, Math.max(42, Math.floor(chromeWidth * 0.34)))
       : Math.max(32, chromeWidth - 8);
   const dealDeskHeader = (
     <DealDeskHeader

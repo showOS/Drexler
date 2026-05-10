@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.12
+
+- Removed the duplicate startup card render so normal launches show one startup panel.
+- Tightened the embedded Deal Desk width so its box stays clean inside the startup panel.
+
 ## 0.2.11
 
 - Moved the live Deal Desk chrome into the startup panel on normal launches.
