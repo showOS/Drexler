@@ -12,8 +12,11 @@ import {
 import {
   INTRO_BOOT_NOTES,
   INTRO_STATUS_PREFIX,
+  MascotDashboard,
   MascotIntro,
 } from "../src/ui/MascotIntro.tsx";
+import { DealDeskHeader } from "../src/ui/DealDeskHeader.tsx";
+import { displayWidth } from "../src/ui/graphemes.ts";
 import { ThemeProvider } from "../src/ui/ThemeContext.tsx";
 import { THEMES } from "../src/ui/themes.ts";
 
@@ -172,6 +175,41 @@ describe("MascotFrame", () => {
       } else {
         delete (process.stdout as { columns?: number }).columns;
       }
+    }
+  });
+
+  test("wide dashboard embeds deal desk inside the tips column", () => {
+    const rendered = renderToString(
+      React.createElement(ThemeProvider, {
+        value: THEMES.apollo,
+        children: React.createElement(MascotDashboard, {
+          greeting: "Hello",
+          width: 160,
+          dealDesk: React.createElement(DealDeskHeader, {
+            model: "google/gemma-4-26b-a4b-it",
+            mood: "paranoid",
+            messageCount: 6,
+            themeName: "apollo",
+            approximateTokens: 4958,
+            latencyMs: 1400,
+            compact: true,
+            maxWidth: 70,
+            marginBottom: 0,
+          }),
+        }),
+      }),
+    ).replace(ANSI_RE, "");
+    const rows = rendered.split("\n");
+    const tipsIdx = rows.findIndex((row) =>
+      row.includes("Tips for getting started"),
+    );
+    const deskIdx = rows.findIndex((row) => row.includes("┌ Drexler"));
+
+    expect(tipsIdx).toBeGreaterThan(-1);
+    expect(deskIdx).toBeGreaterThan(tipsIdx);
+    expect(rows[deskIdx]).toContain("┌ Drexler");
+    for (const row of rows) {
+      expect(displayWidth(row)).toBeLessThanOrEqual(160);
     }
   });
 });

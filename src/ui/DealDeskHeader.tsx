@@ -16,6 +16,7 @@ export interface DealDeskHeaderProps {
   compact?: boolean;
   notice?: string;
   maxWidth?: number;
+  marginBottom?: number;
 }
 
 const DEFAULT_WIDTH = 80;
@@ -151,6 +152,7 @@ function DealDeskHeaderInner({
   compact = false,
   notice,
   maxWidth = DEFAULT_WIDTH,
+  marginBottom = 1,
 }: DealDeskHeaderProps) {
   const t = useTheme();
   const width = Math.max(MIN_WIDTH, Math.floor(maxWidth));
@@ -194,7 +196,7 @@ function DealDeskHeaderInner({
 
   if (width < FRAMED_MIN_WIDTH) {
     return (
-      <Box width={width} marginBottom={1}>
+      <Box width={width} marginBottom={marginBottom}>
         <Text color={statusColor[status]} wrap="truncate">
           {tinyLine({ model, messageCount, status, width })}
         </Text>
@@ -203,7 +205,7 @@ function DealDeskHeaderInner({
   }
 
   return (
-    <Box flexDirection="column" width={width} marginBottom={1}>
+    <Box flexDirection="column" width={width} marginBottom={marginBottom}>
       <Text color={t.primaryDim}>{lines[0]}</Text>
       <Text color={statusColor[status]}>{lines[1]}</Text>
       {lines.slice(2, -1).map((line, index) => (

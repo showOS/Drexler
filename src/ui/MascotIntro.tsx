@@ -1,5 +1,5 @@
 import { Box, Text, useApp, useInput, useStdout } from "ink";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { STARTUP_TIPS } from "../startupTips.ts";
 import {
   MascotFrame,
@@ -139,6 +139,16 @@ interface IntroProps {
   greeting: string;
 }
 
+interface MascotDashboardProps {
+  greeting: string;
+  width: number;
+  state?: MascotState;
+  bar?: string;
+  barColor?: string;
+  mascotStatus?: string;
+  dealDesk?: ReactNode;
+}
+
 function bootBar(frameIdx: number, total: number): string {
   const active = Math.max(
     1,
@@ -162,6 +172,132 @@ function TipsPanel({ width }: { width: number }) {
             {tip}
           </Text>
         ))}
+      </Box>
+    </Box>
+  );
+}
+
+export function MascotDashboard({
+  greeting,
+  width,
+  state = FRAMES[FRAMES.length - 1]!,
+  bar = bootBar(FRAMES.length - 1, FRAMES.length),
+  barColor,
+  mascotStatus = `${INTRO_STATUS_PREFIX}${INTRO_BOOT_NOTES[INTRO_BOOT_NOTES.length - 1]}`,
+  dealDesk,
+}: MascotDashboardProps) {
+  const t = useTheme();
+  const resolvedBarColor = barColor ?? t.primaryLight;
+  const tinyTerminal = width < 21;
+  const compact = width < 72;
+  const sideBySide = width >= 112;
+  const available = compact ? Math.max(1, width - 1) : Math.max(28, width);
+  const innerWidth = compact
+    ? available
+    : Math.max(24, available - FRAME_CHROME_WIDTH);
+  const leftPanelWidth = compact
+    ? available
+    : sideBySide
+    ? Math.max(
+        MASCOT_WIDTH + GUTTER_WIDTH + 24,
+        Math.floor((innerWidth - SPLIT_DIVIDER_WIDTH) / 2),
+      )
+    : innerWidth;
+  const tipsWidth = sideBySide
+    ? Math.max(20, innerWidth - leftPanelWidth - SPLIT_DIVIDER_WIDTH)
+    : innerWidth;
+  const copyWidth = compact
+    ? available
+    : sideBySide
+    ? Math.max(18, leftPanelWidth - MASCOT_WIDTH - GUTTER_WIDTH)
+    : innerWidth;
+
+  if (tinyTerminal) {
+    return (
+      <Box width={available} flexDirection="column">
+        <Text color={resolvedBarColor}>{mascotStatus}</Text>
+        <Text bold color={t.primaryLight}>
+          Drexler™
+        </Text>
+        <Text color={t.primaryLight}>{greeting}</Text>
+        {dealDesk ? <Box marginTop={1}>{dealDesk}</Box> : null}
+      </Box>
+    );
+  }
+
+  if (compact) {
+    return (
+      <Box marginLeft={1} width={available} flexDirection="column">
+        <Text color={resolvedBarColor}>{bar}</Text>
+        <Text color={resolvedBarColor}>{mascotStatus}</Text>
+        <Text bold color={t.primaryLight}>
+          Drexler International™
+        </Text>
+        <Text color={t.primaryLight}>{greeting}</Text>
+        {dealDesk ? <Box marginTop={1}>{dealDesk}</Box> : null}
+      </Box>
+    );
+  }
+
+  return (
+    <Box width={available}>
+      <Box
+        width={available}
+        borderStyle="round"
+        borderColor={t.primary}
+        paddingX={1}
+        flexDirection={sideBySide ? "row" : "column"}
+        alignItems={sideBySide ? "flex-start" : "center"}
+      >
+        <Box flexDirection={sideBySide ? "row" : "column"} width={leftPanelWidth}>
+          <Box
+            width={MASCOT_WIDTH}
+            flexShrink={0}
+            flexDirection="column"
+            marginRight={sideBySide ? GUTTER_WIDTH : 0}
+          >
+            <MascotFrame {...state} />
+            <Text color={resolvedBarColor}>{bar}</Text>
+            <Text color={resolvedBarColor}>{mascotStatus}</Text>
+          </Box>
+          <Box
+            flexDirection="column"
+            justifyContent="center"
+            width={copyWidth}
+            marginTop={sideBySide ? 1 : 0}
+          >
+            <Text bold color={t.primaryLight}>
+              Drexler International™
+            </Text>
+            <Box height={1} />
+            <Text color={t.primaryLight}>{greeting}</Text>
+            <Box height={1} />
+          </Box>
+        </Box>
+        {sideBySide ? (
+          <>
+            <Box flexDirection="column" width={SPLIT_DIVIDER_WIDTH}>
+              {SPLIT_DIVIDER_ROWS.map((idx) => (
+                <Text key={idx} color={t.primaryDim}>
+                  {" │ "}
+                </Text>
+              ))}
+            </Box>
+            <Box
+              flexDirection="column"
+              width={tipsWidth}
+              paddingRight={1}
+            >
+              <TipsPanel width={Math.max(1, tipsWidth - 1)} />
+              {dealDesk ? <Box marginTop={1}>{dealDesk}</Box> : null}
+            </Box>
+          </>
+        ) : (
+          <Box marginTop={1} width={tipsWidth} flexDirection="column">
+            <TipsPanel width={tipsWidth} />
+            {dealDesk ? <Box marginTop={1}>{dealDesk}</Box> : null}
+          </Box>
+        )}
       </Box>
     </Box>
   );
@@ -213,32 +349,7 @@ export function MascotIntro({ greeting }: IntroProps) {
   }, [cols, frameIdx, exit]);
 
   const state = FRAMES[frameIdx] ?? FRAMES[FRAMES.length - 1]!;
-  // Below 21 cols, mascot (17) + gutter (4) overflow — render text-only.
-  const tinyTerminal = cols < 21;
   const compact = cols < 72;
-  const sideBySide = cols >= 112;
-  const available = compact
-    ? Math.max(1, cols - 1)
-    : Math.max(28, cols);
-  const innerWidth = compact
-    ? available
-    : Math.max(24, available - FRAME_CHROME_WIDTH);
-  const leftPanelWidth = compact
-    ? available
-    : sideBySide
-    ? Math.max(
-        MASCOT_WIDTH + GUTTER_WIDTH + 24,
-        Math.floor((innerWidth - SPLIT_DIVIDER_WIDTH) / 2),
-      )
-    : innerWidth;
-  const tipsWidth = sideBySide
-    ? Math.max(20, innerWidth - leftPanelWidth - SPLIT_DIVIDER_WIDTH)
-    : innerWidth;
-  const copyWidth = compact
-    ? available
-    : sideBySide
-    ? Math.max(18, leftPanelWidth - MASCOT_WIDTH - GUTTER_WIDTH)
-    : innerWidth;
   const bar = bootBar(
     Math.min(frameIdx, compact ? COMPACT_NOTES.length - 1 : FRAMES.length - 1),
     compact ? COMPACT_NOTES.length : FRAMES.length,
@@ -254,85 +365,14 @@ export function MascotIntro({ greeting }: IntroProps) {
     : state.note;
   const mascotStatus = `${INTRO_STATUS_PREFIX}${note}`;
 
-  if (tinyTerminal) {
-    return (
-      <Box width={available} flexDirection="column">
-        <Text color={barColor}>{mascotStatus}</Text>
-        <Text bold color={t.primaryLight}>
-          Drexler™
-        </Text>
-        <Text color={t.primaryLight}>{greeting}</Text>
-      </Box>
-    );
-  }
-
-  if (compact) {
-    return (
-      <Box marginLeft={1} width={available} flexDirection="column">
-        <Text color={barColor}>{bar}</Text>
-        <Text color={barColor}>{mascotStatus}</Text>
-        <Text bold color={t.primaryLight}>
-          Drexler International™
-        </Text>
-        <Text color={t.primaryLight}>{greeting}</Text>
-      </Box>
-    );
-  }
-
   return (
-    <Box width={available}>
-      <Box
-        width={available}
-        borderStyle="round"
-        borderColor={t.primary}
-        paddingX={1}
-        flexDirection={sideBySide ? "row" : "column"}
-        alignItems={sideBySide ? "flex-start" : "center"}
-      >
-        <Box flexDirection={sideBySide ? "row" : "column"} width={leftPanelWidth}>
-          <Box
-            width={MASCOT_WIDTH}
-            flexShrink={0}
-            flexDirection="column"
-            marginRight={sideBySide ? GUTTER_WIDTH : 0}
-          >
-            <MascotFrame {...state} />
-            <Text color={barColor}>{bar}</Text>
-            <Text color={barColor}>{mascotStatus}</Text>
-          </Box>
-          <Box
-            flexDirection="column"
-            justifyContent="center"
-            width={copyWidth}
-            marginTop={sideBySide ? 1 : 0}
-          >
-            <Text bold color={t.primaryLight}>
-              Drexler International™
-            </Text>
-            <Box height={1} />
-            <Text color={t.primaryLight}>{greeting}</Text>
-            <Box height={1} />
-          </Box>
-        </Box>
-        {sideBySide ? (
-          <>
-            <Box flexDirection="column" width={SPLIT_DIVIDER_WIDTH}>
-              {SPLIT_DIVIDER_ROWS.map((idx) => (
-                <Text key={idx} color={t.primaryDim}>
-                  {" │ "}
-                </Text>
-              ))}
-            </Box>
-            <Box width={tipsWidth}>
-              <TipsPanel width={tipsWidth} />
-            </Box>
-          </>
-        ) : (
-          <Box marginTop={1} width={tipsWidth}>
-            <TipsPanel width={tipsWidth} />
-          </Box>
-        )}
-      </Box>
-    </Box>
+    <MascotDashboard
+      greeting={greeting}
+      width={cols}
+      state={state}
+      bar={bar}
+      barColor={barColor}
+      mascotStatus={mascotStatus}
+    />
   );
 }

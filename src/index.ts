@@ -142,6 +142,7 @@ async function main(): Promise<void> {
         { exitOnCtrlC: false },
       );
       await intro.waitUntilExit();
+      intro.clear();
       intro.unmount();
     }
 
@@ -152,7 +153,13 @@ async function main(): Promise<void> {
     const { waitUntilExit } = render(
       React.createElement(ThemeProvider, {
         value: getActiveTheme(),
-        children: React.createElement(App, { conversation, config, mood }),
+        children: React.createElement(App, {
+          conversation,
+          config,
+          mood,
+          greeting,
+          showIntroChrome: !skipIntro,
+        }),
       }),
       { exitOnCtrlC: false },
     );

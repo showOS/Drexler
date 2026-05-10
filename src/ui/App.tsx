@@ -34,6 +34,7 @@ import {
   insertAtCursor,
 } from "./graphemes.ts";
 import { InputBox } from "./InputBox.tsx";
+import { MascotDashboard } from "./MascotIntro.tsx";
 import { StreamingMessage } from "./Message.tsx";
 import { Spinner } from "./Spinner.tsx";
 import { StatusBar } from "./StatusBar.tsx";
@@ -101,9 +102,18 @@ interface AppProps {
   config: Config;
   mood?: string;
   fetchFn?: FetchFn;
+  greeting?: string;
+  showIntroChrome?: boolean;
 }
 
-export function App({ conversation, config, mood = "neutral", fetchFn }: AppProps) {
+export function App({
+  conversation,
+  config,
+  mood = "neutral",
+  fetchFn,
+  greeting,
+  showIntroChrome = false,
+}: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const [activeTheme, setActiveThemeSnapshot] = useState(() => getActiveTheme());
@@ -126,9 +136,14 @@ export function App({ conversation, config, mood = "neutral", fetchFn }: AppProp
   const chromeWidth = useMemo(() => Math.max(1, cols), [cols]);
   const statusBarWidth = inputWidth;
   const isCompact = mode === "very-narrow";
+  const integratedIntro = showIntroChrome && typeof greeting === "string";
   const maxTranscriptRows = useMemo(
-    () => transcriptRowsForTerminalRows(rows),
-    [rows],
+    () =>
+      Math.max(
+        1,
+        transcriptRowsForTerminalRows(rows) - (integratedIntro ? 10 : 0),
+      ),
+    [integratedIntro, rows],
   );
 
   const [items, setItems] = useState<ChatItem[]>([]);
@@ -701,6 +716,26 @@ export function App({ conversation, config, mood = "neutral", fetchFn }: AppProp
   const isBusy =
     requestInFlight || streaming !== null || thinking !== null || synergyEvent !== null;
   const headerStatus = isBusy ? "streaming" : deskStatus;
+  const embeddedDealDeskWidth =
+    chromeWidth >= 112
+      ? Math.min(92, Math.max(32, Math.floor(chromeWidth * 0.44)))
+      : Math.max(32, chromeWidth - 8);
+  const dealDeskHeader = (
+    <DealDeskHeader
+      model={model}
+      mood={mood}
+      messageCount={msgCount}
+      themeName={themeName}
+      approximateTokens={tokenCount}
+      latencyMs={lastLatencyMs}
+      fallbackModel={fallbackModel}
+      status={headerStatus}
+      compact={isCompact}
+      notice={!integratedIntro ? deskNotice ?? undefined : undefined}
+      maxWidth={integratedIntro ? embeddedDealDeskWidth : chromeWidth}
+      marginBottom={integratedIntro ? 0 : 1}
+    />
+  );
   const visibleTranscriptRows = synergyEvent
     ? Math.max(1, maxTranscriptRows - synergyEventRows(chromeWidth, isCompact))
     : maxTranscriptRows;
@@ -708,19 +743,17 @@ export function App({ conversation, config, mood = "neutral", fetchFn }: AppProp
   return (
     <ThemeProvider value={activeTheme}>
       <Box flexDirection="column">
-        <DealDeskHeader
-          model={model}
-          mood={mood}
-          messageCount={msgCount}
-          themeName={themeName}
-          approximateTokens={tokenCount}
-          latencyMs={lastLatencyMs}
-          fallbackModel={fallbackModel}
-          status={headerStatus}
-          compact={isCompact}
-          notice={deskNotice ?? undefined}
-          maxWidth={chromeWidth}
-        />
+        {integratedIntro ? (
+          <Box marginBottom={1}>
+            <MascotDashboard
+              greeting={greeting}
+              width={chromeWidth}
+              dealDesk={dealDeskHeader}
+            />
+          </Box>
+        ) : (
+          dealDeskHeader
+        )}
         <TranscriptViewport
           items={items}
           maxRows={visibleTranscriptRows}

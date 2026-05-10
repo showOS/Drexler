@@ -102,4 +102,22 @@ describe("App state helpers", () => {
     expect(rendered).toContain("READY");
     expect(rendered).toContain("0 messages");
   });
+
+  test("App can embed live deal desk chrome in the startup panel", () => {
+    const ctx = makeCtx();
+    const rendered = renderToString(
+      React.createElement(App, {
+        conversation: ctx.conversation,
+        config: ctx.config,
+        mood: "ruthless",
+        greeting: "Hello",
+        showIntroChrome: true,
+      }),
+    );
+
+    expect(rendered).toContain("Tips for getting started");
+    expect(rendered).toContain("Drexler Deal Desk");
+    expect(rendered).toContain("ruthless");
+    expect(rendered).toContain("0 messages");
+  });
 });

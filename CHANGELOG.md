@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.11
+
+- Moved the live Deal Desk chrome into the startup panel on normal launches.
+- Kept a standalone Deal Desk header for fast and no-intro launches.
+- Added coverage for embedded startup-panel Deal Desk rendering.
+
 ## 0.2.10
 
 - Closed transcript turn blocks with right-side borders and corners so user and Drexler cards align with the input frame.
