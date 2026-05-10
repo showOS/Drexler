@@ -87,7 +87,19 @@ export function tokenizeInline(input: string): InlineToken[] {
     if (ch === "[") {
       const closeBracket = input.indexOf("]", i + 1);
       if (closeBracket !== -1 && input[closeBracket + 1] === "(") {
-        const closeParen = input.indexOf(")", closeBracket + 2);
+        let depth = 1;
+        let closeParen = -1;
+        for (let k = closeBracket + 2; k < input.length; k++) {
+          const c = input[k];
+          if (c === "(") depth += 1;
+          else if (c === ")") {
+            depth -= 1;
+            if (depth === 0) {
+              closeParen = k;
+              break;
+            }
+          }
+        }
         if (closeParen !== -1) {
           flushBuf();
           const text = input.slice(i + 1, closeBracket);

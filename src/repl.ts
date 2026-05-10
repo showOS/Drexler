@@ -70,7 +70,7 @@ export function buildMessagesWithReminder(conv: Conversation): Message[] {
 
 // Confusable letters that look like Latin "I" — fold to ASCII before regex
 // so detection isn't bypassed by Cyrillic І, Turkish İ, fullwidth Ｉ, etc.
-const I_CONFUSABLES_RE = /[ІіİıＩℐ]/g;
+const I_CONFUSABLES_RE = /[ІіİıＩℐⅠ]/g;
 
 export function detectPersonaDrift(content: string): boolean {
   const noCode = content

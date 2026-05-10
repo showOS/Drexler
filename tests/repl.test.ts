@@ -1,8 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { Conversation } from "../src/conversation.ts";
-import { detectPersonaDrift, handleLine, type ReplDeps } from "../src/repl.ts";
+import {
+  buildMessagesWithReminder,
+  detectPersonaDrift,
+  handleLine,
+  pickFallback,
+  type ReplDeps,
+} from "../src/repl.ts";
 import type { FetchFn } from "../src/llm.ts";
-import { MODEL_PRIMARY, type Config } from "../src/types.ts";
+import { MODEL_FALLBACK, MODEL_PRIMARY, type Config } from "../src/types.ts";
+import { DRIFT_REMINDER, REMINDER_INTERVAL } from "../src/sayings.ts";
 
 function makeDeps(fetchFn?: FetchFn) {
   const conversation = new Conversation("SYS", 50);
@@ -153,6 +160,61 @@ describe("detectPersonaDrift", () => {
 
   test("clean Drexler text returns false", () => {
     expect(detectPersonaDrift("Drexler answer now. Stonks go up.")).toBe(false);
+  });
+
+  test("flags Cyrillic capital I confusable", () => {
+    expect(detectPersonaDrift("І think you should...")).toBe(true);
+  });
+
+  test("flags Roman numeral I (U+2160)", () => {
+    expect(detectPersonaDrift("Ⅰ think you should...")).toBe(true);
+  });
+
+  test("flags fullwidth I", () => {
+    expect(detectPersonaDrift("Ｉ am happy to help")).toBe(true);
+  });
+});
+
+describe("pickFallback", () => {
+  test("returns fallback when current is primary", () => {
+    expect(pickFallback(MODEL_PRIMARY)).toBe(MODEL_FALLBACK);
+  });
+
+  test("returns primary when current is fallback", () => {
+    expect(pickFallback(MODEL_FALLBACK)).toBe(MODEL_PRIMARY);
+  });
+
+  test("returns primary for unknown model", () => {
+    expect(pickFallback("anthropic/claude-3-haiku")).toBe(MODEL_PRIMARY);
+  });
+});
+
+describe("buildMessagesWithReminder", () => {
+  test("does not inject reminder before first turn", () => {
+    const conv = new Conversation("SYS", 50);
+    expect(buildMessagesWithReminder(conv).at(-1)?.content).not.toBe(
+      DRIFT_REMINDER,
+    );
+  });
+
+  test("injects reminder exactly on REMINDER_INTERVAL boundary", () => {
+    const conv = new Conversation("SYS", 50);
+    for (let i = 0; i < REMINDER_INTERVAL; i++) {
+      conv.push("user", `q${i}`);
+      conv.push("assistant", `a${i}`);
+    }
+    const msgs = buildMessagesWithReminder(conv);
+    expect(msgs.at(-1)?.role).toBe("system");
+    expect(msgs.at(-1)?.content).toBe(DRIFT_REMINDER);
+  });
+
+  test("does not inject reminder mid-cadence", () => {
+    const conv = new Conversation("SYS", 50);
+    conv.push("user", "q1");
+    conv.push("assistant", "a1");
+    expect(buildMessagesWithReminder(conv).at(-1)?.content).not.toBe(
+      DRIFT_REMINDER,
+    );
   });
 });
 

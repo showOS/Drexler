@@ -172,6 +172,17 @@ async function main(): Promise<void> {
   });
 }
 
+process.on("unhandledRejection", (reason) => {
+  const msg = reason instanceof Error ? reason.stack ?? reason.message : String(reason);
+  console.error(error("Unhandled rejection:"), msg);
+  process.exit(1);
+});
+
+process.on("uncaughtException", (err) => {
+  console.error(error("Uncaught exception:"), err.stack ?? err.message);
+  process.exit(1);
+});
+
 main().catch((e) => {
   console.error(error("Fatal:"), e);
   process.exit(1);

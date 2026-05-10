@@ -34,6 +34,14 @@ describe("tokenizeInline", () => {
     ]);
   });
 
+  test("parses link with parens in URL (wikipedia-style)", () => {
+    expect(
+      tokenizeInline("[wiki](https://en.wikipedia.org/wiki/Foo_(bar))"),
+    ).toEqual([
+      { text: "wiki", link: "https://en.wikipedia.org/wiki/Foo_(bar)" },
+    ]);
+  });
+
   test("treats unmatched marker as literal", () => {
     expect(tokenizeInline("a ** unfinished")).toEqual([
       { text: "a ** unfinished" },
