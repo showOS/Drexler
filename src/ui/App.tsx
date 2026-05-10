@@ -1,6 +1,22 @@
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  applyFeed,
+  applyMinuteDecay,
+  applyPlay,
+  applyPraise,
+  applyRest,
+  applyVibe,
+  applyWork,
+  isPetDead,
+  loadPetState,
+  savePetState,
+  type PetActivity,
+  type PetStats,
+} from "../pet/petState.ts";
+import { DeathScreen } from "./DeathScreen.tsx";
+import { PetPanel, PET_PANEL_WIDTH, type Environment } from "./PetPanel.tsx";
+import {
   dispatch,
   filterPaletteByPrefix,
   isArgumentParentCommand,
@@ -187,7 +203,6 @@ export function App({
   }, [stdout]);
   const mode = useMemo(() => pickLayout(cols), [cols]);
   const chromeWidth = useMemo(() => Math.max(1, cols), [cols]);
-  const statusBarWidth = chromeWidth;
   const isCompact = mode === "very-narrow";
   const integratedIntro =
     showIntroChrome && typeof greeting === "string" && rows >= 32;
@@ -253,6 +268,114 @@ export function App({
   const [paletteIdx, setPaletteIdx] = useState(0);
   const [scrollOffset, setScrollOffset] = useState(0);
   const intro = useIntroAnimation(chromeWidth, integratedIntro);
+
+  const [petStats, setPetStats] = useState<PetStats>(() => loadPetState());
+  const [petActivity, setPetActivity] = useState<PetActivity>("idle");
+  const [isDead, setIsDead] = useState(false);
+  const [deathReason, setDeathReason] = useState("energy");
+  const [deathVariant, setDeathVariant] = useState(0);
+  const petActivityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const petSaveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const petDecayTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const petEnv = useMemo((): Environment => {
+    const h = new Date().getHours();
+    if (h >= 9 && h < 18) return "office";
+    if (h >= 6 || h < 23) return "home";
+    return "outdoors";
+  }, []);
+
+  const PET_MESSAGES = useMemo(() => ({
+    feed: [
+      "Drexler receives deal memo. Hunger: satisfied. Pipeline: expanding.",
+      "Drexler consumes quarterly report. Fortifying.",
+      "Deal deck delivered. Drexler is replenished.",
+      "Nutrition acquired via term sheet. Excellent.",
+      "Drexler ingests synergy bundle. Caloric intake: maximized.",
+      "Pipeline refueled. Drexler gives brief nod of approval.",
+    ],
+    play: [
+      "Drexler engages in corporate synergy games. Morale: elevated.",
+      "Drexler attempts leisure. Unfamiliar but effective.",
+      "Golf simulation initiated. Handicap: nonexistent.",
+      "Corporate retreat protocols engaged. Team building: successful.",
+      "Drexler plays. Competitors watch nervously.",
+      "Recreational time allocated. ROI: unclear but positive.",
+    ],
+    work: [
+      "Drexler retreats to deal desk. Pipeline throughput: increasing.",
+      "Grind mode initiated. Coffee consumed preemptively.",
+      "Drexler is doing the work. Others take note.",
+      "Deal origination in progress. Board is watching.",
+      "Drexler enters flow state. Productivity: exceptional.",
+      "All-nighter commenced. Regrets: minimal.",
+    ],
+    praise: [
+      "Drexler acknowledges commendation. Briefly.",
+      "Praise received. Filed under: expected.",
+      "Drexler nods. One singular nod.",
+      "Affirmation noted. Drexler remains unmoved. Mostly.",
+      "Kind words processed. Ego: appropriately inflated.",
+      "Drexler accepts compliment with characteristic restraint.",
+    ],
+    rest: [
+      "Drexler retires briefly. Strategic recharge in progress.",
+      "Under-desk nap initiated. Do not disturb.",
+      "Drexler powers down. Temporarily.",
+      "Rest mode engaged. Energy recovery: imminent.",
+      "Strategic downtime commenced. Drexler will return stronger.",
+      "Drexler sleeps. Dreams of closed deals.",
+    ],
+  }), []);
+
+  const triggerPetActivity = useCallback(
+    (activity: PetActivity, durationMs: number) => {
+      if (petActivityTimerRef.current !== null) {
+        clearTimeout(petActivityTimerRef.current);
+      }
+      setPetActivity(activity);
+      petActivityTimerRef.current = setTimeout(() => {
+        setPetActivity("idle");
+        petActivityTimerRef.current = null;
+      }, durationMs);
+    },
+    [],
+  );
+
+  // Persist pet state every 30 s
+  useEffect(() => {
+    petSaveTimerRef.current = setInterval(() => {
+      setPetStats((s) => { savePetState(s); return s; });
+    }, 30_000);
+    return () => {
+      if (petSaveTimerRef.current !== null) clearInterval(petSaveTimerRef.current);
+      if (petActivityTimerRef.current !== null) clearTimeout(petActivityTimerRef.current);
+      if (petDecayTimerRef.current !== null) clearInterval(petDecayTimerRef.current);
+    };
+  }, []);
+
+  // Real-time stat decay — every 30 s, one minute's worth per tick
+  useEffect(() => {
+    petDecayTimerRef.current = setInterval(() => {
+      setPetStats((s) => applyMinuteDecay(s));
+    }, 30_000);
+    return () => {
+      if (petDecayTimerRef.current !== null) clearInterval(petDecayTimerRef.current);
+    };
+  }, []);
+
+  // Death detection
+  useEffect(() => {
+    if (isDead || !isPetDead(petStats)) return;
+    const reason =
+      petStats.hunger <= 0 ? "hunger" :
+      petStats.happiness <= 0 ? "happiness" : "energy";
+    setDeathReason(reason);
+    setDeathVariant(Math.floor(Math.random() * 5));
+    setIsDead(true);
+    savePetState({ ...petStats, dead: true });
+    exitTimerRef.current = setTimeout(() => exit(), 5000);
+  }, [petStats, isDead, exit]);
 
   const paletteItems = useMemo(() => filterPaletteByPrefix(input), [input]);
   const paletteOpen = paletteItems.length > 0;
@@ -478,6 +601,51 @@ export function App({
 
   const handleSlashWithMutation = useCallback(
     async (line: string): Promise<void> => {
+      const lower = line.toLowerCase().trim();
+
+      // Pet commands — handled before dispatch so they don't hit the unknown-command path
+      if (lower === "/synergy") {
+        runSynergyEvent();
+        return;
+      }
+      if (lower === "/feed") {
+        setPetStats((s) => applyFeed(s));
+        triggerPetActivity("eating", 3500);
+        addItem("system", pick(PET_MESSAGES.feed));
+        return;
+      }
+      if (lower === "/play") {
+        setPetStats((s) => applyPlay(s));
+        triggerPetActivity("playing", 4000);
+        addItem("system", pick(PET_MESSAGES.play));
+        return;
+      }
+      if (lower === "/work") {
+        setPetStats((s) => applyWork(s));
+        triggerPetActivity("working", 5000);
+        addItem("system", pick(PET_MESSAGES.work));
+        return;
+      }
+      if (lower === "/praise") {
+        setPetStats((s) => applyPraise(s));
+        triggerPetActivity("praised", 3000);
+        addItem("system", pick(PET_MESSAGES.praise));
+        return;
+      }
+      if (lower === "/rest") {
+        setPetStats((s) => applyRest(s));
+        triggerPetActivity("sleeping", 5000);
+        addItem("system", pick(PET_MESSAGES.rest));
+        return;
+      }
+      if (lower === "/vibe") {
+        const result = applyVibe(petStats);
+        setPetStats(result.stats);
+        triggerPetActivity("vibing", 3500);
+        addItem("system", result.message);
+        return;
+      }
+
       let captured = "";
       const mutableConfig: Config = { ...config, model };
       const action = dispatch(line, {
@@ -487,11 +655,6 @@ export function App({
           captured += (captured ? "\n" : "") + s;
         },
       });
-      const lower = line.toLowerCase().trim();
-      if (lower === "/synergy") {
-        runSynergyEvent();
-        return;
-      }
       if (lower === "/clear" || lower.startsWith("/clear ")) {
         setItems([]);
       }
@@ -537,10 +700,13 @@ export function App({
       config,
       activeTheme,
       model,
+      petStats,
+      PET_MESSAGES,
       removeLastAssistantItem,
       runLLM,
       runSynergyEvent,
       triggerExit,
+      triggerPetActivity,
     ],
   );
 
@@ -807,7 +973,22 @@ export function App({
     />
   );
   const dealDeskHeader = renderDealDeskHeader(chromeWidth);
+  const showPetPanel = cols >= 90;
+  const contentWidth = showPetPanel ? Math.max(1, cols - PET_PANEL_WIDTH) : chromeWidth;
+  const contentInputWidth = Math.max(1, contentWidth);
+  const contentStatusWidth = Math.max(1, contentInputWidth - 2);
+  const visibleTranscriptRows = synergyEvent
+    ? Math.max(1, maxTranscriptRows - synergyEventRows(contentWidth, isCompact))
+    : maxTranscriptRows;
   const introBarColor = introPhaseColor(intro.colorPhase, t);
+
+  if (isDead) {
+    return (
+      <ThemeProvider value={activeTheme}>
+        <DeathScreen reason={deathReason} variant={deathVariant} />
+      </ThemeProvider>
+    );
+  }
 
   return (
     <ThemeProvider value={activeTheme}>
@@ -829,73 +1010,79 @@ export function App({
         ) : (
           dealDeskHeader
         )}
-        <TranscriptViewport
-          items={items}
-          maxRows={visibleTranscriptRows}
-          cols={chromeWidth}
-          compact={isCompact}
-          scrollOffset={scrollOffset}
-        />
-
-        <Box flexDirection="column">
-          {streaming !== null && (
-            <Box marginBottom={1}>
-              <StreamingMessage content={streaming} width={chromeWidth} />
-            </Box>
+        <Box flexDirection="row" alignItems="flex-start">
+          {showPetPanel && (
+            <PetPanel stats={petStats} activity={petActivity} env={petEnv} isPaused={isBusy} />
           )}
-          {thinking !== null && streaming === null && (
-            <Box marginBottom={1}>
-              <Spinner label={thinking} width={chromeWidth} />
-            </Box>
-          )}
-          {synergyEvent !== null && (
-            <SynergyEvent
-              event={synergyEvent.event}
-              frame={synergyEvent.frame}
-              width={chromeWidth}
+          <Box flexDirection="column" flexGrow={1}>
+            <TranscriptViewport
+              items={items}
+              maxRows={visibleTranscriptRows}
+              cols={contentWidth}
               compact={isCompact}
+              scrollOffset={scrollOffset}
             />
-          )}
-          {exitMsg !== null ? (
-            <Box paddingX={1} marginBottom={1}>
-              <Text color={t.primaryLight} bold>
-                {exitMsg}
-              </Text>
-            </Box>
-          ) : (
-            <>
-              {paletteOpen && (
-                <CommandPalette
-                  items={paletteItems}
-                  selectedIdx={paletteIdx}
-                  width={chromeWidth}
+            <Box flexDirection="column">
+              {streaming !== null && (
+                <Box marginBottom={1}>
+                  <StreamingMessage content={streaming} width={contentWidth} />
+                </Box>
+              )}
+              {thinking !== null && streaming === null && (
+                <Box paddingX={1} marginBottom={1}>
+                  <Spinner label={thinking} width={contentWidth} />
+                </Box>
+              )}
+              {synergyEvent !== null && (
+                <SynergyEvent
+                  event={synergyEvent.event}
+                  frame={synergyEvent.frame}
+                  width={contentWidth}
+                  compact={isCompact}
                 />
               )}
-              <Box flexDirection="column">
-                <InputBox
-                  value={input}
-                  cursor={cursor}
-                  disabled={isBusy}
-                  disabledLabel={
-                    synergyEvent !== null
-                      ? "(Synergy event running... boardroom locked)"
-                      : undefined
-                  }
-                  width={chromeWidth}
-                />
-              </Box>
-              <Box paddingLeft={2}>
-                <StatusBar
-                  messageCount={msgCount}
-                  witticism={witticism}
-                  maxWidth={Math.max(1, statusBarWidth - 2)}
-                  status={isBusy ? "streaming" : deskStatus}
-                  compact={isCompact}
-                  scrollHint={scrollHint}
-                />
-              </Box>
-            </>
-          )}
+              {exitMsg !== null ? (
+                <Box paddingX={1} marginBottom={1}>
+                  <Text color={t.primaryLight} bold>
+                    {exitMsg}
+                  </Text>
+                </Box>
+              ) : (
+                <>
+                  {paletteOpen && (
+                    <CommandPalette
+                      items={paletteItems}
+                      selectedIdx={paletteIdx}
+                      width={contentWidth}
+                    />
+                  )}
+                  <Box flexDirection="column">
+                    <InputBox
+                      value={input}
+                      cursor={cursor}
+                      disabled={isBusy}
+                      disabledLabel={
+                        synergyEvent !== null
+                          ? "(Synergy event running... boardroom locked)"
+                          : undefined
+                      }
+                      width={contentInputWidth}
+                    />
+                  </Box>
+                  <Box paddingLeft={2}>
+                    <StatusBar
+                      messageCount={msgCount}
+                      witticism={witticism}
+                      maxWidth={contentStatusWidth}
+                      status={isBusy ? "streaming" : deskStatus}
+                      compact={isCompact}
+                      scrollHint={scrollHint}
+                    />
+                  </Box>
+                </>
+              )}
+            </Box>
+          </Box>
         </Box>
       </Box>
     </ThemeProvider>

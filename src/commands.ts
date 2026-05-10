@@ -47,6 +47,12 @@ const HELP_TEXT = `New memo to staff! Drexler permit following directives:
   /clear         - shred all documents (reset history)
   /exit          - meeting adjourned
   /synergy       - SYNERGY!
+  /feed          - feed Drexler a deal memo
+  /play          - corporate synergy game with Drexler
+  /work          - Drexler grinds the deal pipeline
+  /praise        - affirm Drexler's contributions
+  /rest          - Drexler takes a strategic nap
+  /vibe          - let Drexler choose his own adventure
   /model         - show or switch model (e.g. /model 26b)
   /theme         - show or switch theme (${THEME_NAMES.join(", ")})
   /startup       - persist startup mode (fast, no-intro, normal)
@@ -78,6 +84,12 @@ export const COMMAND_PALETTE: ReadonlyArray<SlashCommand> = [
   { name: "/clear", description: "Reset conversation", group: "directives" },
   { name: "/exit", description: "Adjourn meeting", group: "directives" },
   { name: "/synergy", description: "SYNERGY!", group: "directives" },
+  { name: "/feed", description: "Feed Drexler a deal memo", group: "directives" },
+  { name: "/play", description: "Play with Drexler", group: "directives" },
+  { name: "/work", description: "Drexler grinds deals", group: "directives" },
+  { name: "/praise", description: "Affirm Drexler", group: "directives" },
+  { name: "/rest", description: "Drexler takes a strategic nap", group: "directives" },
+  { name: "/vibe", description: "Drexler chooses his own adventure", group: "directives" },
   { name: "/model", description: "Show or switch model", group: "models" },
   { name: "/theme", description: "Show or switch theme", group: "themes" },
   { name: "/startup", description: "Persist startup mode", group: "startup" },

@@ -57,6 +57,12 @@ Slash commands inside REPL:
   /clear         reset conversation
   /exit          exit
   /synergy       SYNERGY!
+  /feed          feed Drexler a deal memo
+  /play          corporate synergy game (flexing included)
+  /work          Drexler grinds the pipeline
+  /rest          strategic nap (restores energy)
+  /praise        affirm Drexler's contributions
+  /vibe          let Drexler choose his own adventure
   /model [id]    show or switch model
   /theme [name]  show or switch theme; append save to persist
   /startup [mode] persist startup mode: fast, no-intro, normal
