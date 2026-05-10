@@ -85,7 +85,9 @@ rm -rf ~/.config/drexler   # optional: wipe stored key + settings
 | --------------------------------- | ----------------------------------------------------------------- |
 | `--model <31b\|26b\|vendor/name>` | switch model (alias or full OpenRouter id, e.g. `google/gemma-4-31b-it`) |
 | `--persona <path>`                | load a custom persona markdown file instead of bundled `drexler.md` |
-| `--theme <apollo\|amber\|mono>`   | color theme (default `apollo`)                                    |
+| `--theme <name>`                  | color theme (default `apollo`)                                    |
+| `--no-intro`                      | skip the startup banner and mascot                                |
+| `--fast`                          | fast startup mode, implies `--no-intro`                           |
 | `--version`, `-v`                 | print version                                                     |
 | `--help`, `-h`                    | print usage                                                       |
 
@@ -98,9 +100,18 @@ rm -rf ~/.config/drexler   # optional: wipe stored key + settings
 | `/exit`        | meeting adjourned                                |
 | `/synergy`     | SYNERGY!                                         |
 | `/model`       | show current model, or `/model 26b` to switch   |
+| `/theme`       | show/switch theme; append `save` to persist, e.g. `/theme midnight save` |
+| `/startup fast\|no-intro\|normal` | persist startup behavior for future launches |
 | `/history`     | message count + approx tokens                    |
 | `/regenerate`  | re-roll last response                            |
+| `/retry terse\|brutal` | re-roll last response with a style mandate |
+| `/expand`      | print Drexler's latest response                  |
+| `/quote`       | quote Drexler's latest response                  |
+| `/search <term>` | search the current transcript                 |
+| `/export md\|txt\|json\|html [path]` | export transcript       |
 | `/save [path]` | archive conversation as markdown                 |
+| `/save-last [path]` | save Drexler's last response only          |
+| `/copy-last`   | copy Drexler's latest response to the clipboard  |
 
 `Ctrl+C` exits gracefully with an in-character farewell.
 
@@ -120,7 +131,9 @@ Drexler reads config in this priority (later wins):
 | -------------------- | ---------------------------------------------------- |
 | `OPENROUTER_API_KEY` | API key (overrides config file)                      |
 | `DREXLER_MODEL`      | model id or alias                                    |
-| `DREXLER_THEME`      | `apollo` / `amber` / `mono`                          |
+| `DREXLER_THEME`      | color theme name                                     |
+| `DREXLER_NO_INTRO`   | `1`, `true`, `yes`, or `on` skips startup intro      |
+| `DREXLER_FAST`       | `1`, `true`, `yes`, or `on` enables fast startup     |
 | `XDG_CONFIG_HOME`    | override config dir (default `~/.config/drexler`)    |
 | `NO_COLOR`           | disable colors entirely                              |
 
@@ -134,11 +147,16 @@ Drexler reads config in this priority (later wins):
   "model": "google/gemma-4-31b-it",
   "maxHistory": 50,
   "personaPath": "/optional/path/to/custom-persona.md",
-  "theme": "apollo"
+  "theme": "apollo",
+  "noIntro": false,
+  "fast": false
 }
 ```
 
 Default `maxHistory`: 50 messages.
+
+Available launch/config themes: `apollo`, `amber`, `mono`, `terminal`, `dealroom`, `midnight`, `paper`, and `plasma`.
+`NO_COLOR` always forces `mono`.
 
 ---
 
@@ -173,7 +191,7 @@ bun run typecheck
 ### Releasing a new version
 
 ```bash
-npm version patch          # bumps package.json, commits, tags
+npm version <patch|minor>  # bumps package.json, commits, tags
 git push --follow-tags     # CI publishes to npm automatically
 ```
 
@@ -189,7 +207,8 @@ The `.github/workflows/publish.yml` workflow runs typecheck + tests + `npm publi
 | `command not found: bun`                                   | Install Bun (see [Install](#install) section above)                                       |
 | `API key rejected by OpenRouter`                           | Update key: `rm ~/.config/drexler/config.json` and re-run `drexler`, or export `OPENROUTER_API_KEY` |
 | Garbled box-drawing characters                             | Use a UTF-8 terminal with a Nerd Font (e.g. iTerm2, Alacritty, WezTerm)                   |
-| Want to switch themes mid-session                          | `drexler --theme amber` (or `mono`) on next launch                                        |
+| Want to switch themes mid-session                          | Use `/theme midnight`, `/theme dealroom`, `/theme amber`, or any listed theme inside the REPL |
+| Want a faster launch                                       | Use `drexler --fast` or set `"fast": true` in config                                     |
 
 ---
 
