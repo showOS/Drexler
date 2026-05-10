@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { renderToString, useStdout } from "ink";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import React from "react";
 import { dispatch } from "../src/commands.ts";
 import { Conversation } from "../src/conversation.ts";
@@ -184,6 +187,34 @@ describe("App state helpers", () => {
     expect(rendered.match(/Drexler Deal Desk/g)?.length).toBe(1);
     for (const row of rendered.split("\n")) {
       expect(displayWidth(row)).toBeLessThanOrEqual(120);
+    }
+  });
+
+  test("App renders the pet side panel without exceeding terminal width", async () => {
+    const origHome = process.env.HOME;
+    const home = await mkdtemp(join(tmpdir(), "drexler-app-pet-"));
+    try {
+      process.env.HOME = home;
+      const ctx = makeCtx();
+      const rendered = renderAppWithStdout(
+        {
+          conversation: ctx.conversation,
+          config: ctx.config,
+          mood: "ruthless",
+        },
+        120,
+        30,
+      );
+
+      expect(rendered).toContain("DREXLER HQ");
+      expect(rendered).toContain("Drexler Deal Desk");
+      for (const row of rendered.split("\n")) {
+        expect(displayWidth(row)).toBeLessThanOrEqual(120);
+      }
+    } finally {
+      if (origHome !== undefined) process.env.HOME = origHome;
+      else delete process.env.HOME;
+      await rm(home, { recursive: true, force: true });
     }
   });
 

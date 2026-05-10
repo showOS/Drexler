@@ -285,7 +285,7 @@ export function App({
   const petEnv = useMemo((): Environment => {
     const h = new Date().getHours();
     if (h >= 9 && h < 18) return "office";
-    if (h >= 6 || h < 23) return "home";
+    if (h >= 6 && h < 23) return "home";
     return "outdoors";
   }, []);
 
@@ -345,6 +345,13 @@ export function App({
     },
     [],
   );
+  const updatePetStats = useCallback((updater: (stats: PetStats) => PetStats) => {
+    setPetStats((stats) => {
+      const next = updater(stats);
+      savePetState(next);
+      return next;
+    });
+  }, []);
 
   // Persist pet state every 30 s
   useEffect(() => {
@@ -395,8 +402,8 @@ export function App({
     ? Math.max(1, maxTranscriptRows - synergyEventRows(contentWidth, isCompact))
     : maxTranscriptRows;
   const estimatedTranscriptRows = useMemo(
-    () => estimateTranscriptRows(items, isCompact, chromeWidth),
-    [items, isCompact, chromeWidth],
+    () => estimateTranscriptRows(items, isCompact, contentWidth),
+    [items, isCompact, contentWidth],
   );
   const scrollHint = useMemo(() => {
     if (estimatedTranscriptRows <= visibleTranscriptRows) return undefined;
@@ -613,38 +620,38 @@ export function App({
         return;
       }
       if (lower === "/feed") {
-        setPetStats((s) => applyFeed(s));
+        updatePetStats(applyFeed);
         triggerPetActivity("eating", 3500);
         addItem("system", pick(PET_MESSAGES.feed));
         return;
       }
       if (lower === "/play") {
-        setPetStats((s) => applyPlay(s));
+        updatePetStats(applyPlay);
         triggerPetActivity("playing", 4000);
         addItem("system", pick(PET_MESSAGES.play));
         return;
       }
       if (lower === "/work") {
-        setPetStats((s) => applyWork(s));
+        updatePetStats(applyWork);
         triggerPetActivity("working", 5000);
         addItem("system", pick(PET_MESSAGES.work));
         return;
       }
       if (lower === "/praise") {
-        setPetStats((s) => applyPraise(s));
+        updatePetStats(applyPraise);
         triggerPetActivity("praised", 3000);
         addItem("system", pick(PET_MESSAGES.praise));
         return;
       }
       if (lower === "/rest") {
-        setPetStats((s) => applyRest(s));
+        updatePetStats(applyRest);
         triggerPetActivity("sleeping", 5000);
         addItem("system", pick(PET_MESSAGES.rest));
         return;
       }
       if (lower === "/vibe") {
         const result = applyVibe(petStats);
-        setPetStats(result.stats);
+        updatePetStats(() => result.stats);
         triggerPetActivity("vibing", 3500);
         addItem("system", result.message);
         return;
@@ -711,6 +718,7 @@ export function App({
       runSynergyEvent,
       triggerExit,
       triggerPetActivity,
+      updatePetStats,
     ],
   );
 

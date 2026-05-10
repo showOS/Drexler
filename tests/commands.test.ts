@@ -100,6 +100,22 @@ describe("dispatch (V7, V8, V16, V17)", () => {
     expect(out.join("\n")).toMatch(/SYNERGY/);
   });
 
+  test("pet directives are recognized outside the interactive UI", () => {
+    for (const command of [
+      "/feed",
+      "/play",
+      "/work",
+      "/praise",
+      "/rest",
+      "/vibe",
+    ]) {
+      const { ctx, out } = makeCtx();
+      const action = dispatch(command, ctx);
+      expect(action.type).toBe("continue");
+      expect(out.join("\n")).toContain("interactive deal desk");
+    }
+  });
+
   test("V17: /model <alias> switches active model", () => {
     const { ctx, out } = makeCtx();
     expect(ctx.config.model).toBe(MODEL_PRIMARY);
@@ -777,7 +793,12 @@ describe("filterPaletteByPrefix", () => {
 
   test("redo command appears in palette", () => {
     const out = filterPaletteByPrefix("/re");
-    expect(out.map((c) => c.name)).toEqual(["/regenerate", "/redo", "/retry"]);
+    expect(out.map((c) => c.name)).toEqual([
+      "/rest",
+      "/regenerate",
+      "/redo",
+      "/retry",
+    ]);
   });
 
   test("save-last command appears after overlapping prefix", () => {

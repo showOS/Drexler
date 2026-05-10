@@ -365,6 +365,17 @@ export function dispatch(input: string, ctx: CommandContext): CommandAction {
       );
       return { type: "continue" };
 
+    case "feed":
+    case "play":
+    case "work":
+    case "praise":
+    case "rest":
+    case "vibe":
+      ctx.print(
+        "Drexler pet directives require the interactive deal desk. Launch Drexler in a TTY.",
+      );
+      return { type: "continue" };
+
     case "model":
       handleModel(args, ctx);
       return { type: "continue" };
