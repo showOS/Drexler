@@ -1,4 +1,4 @@
-# Drexler
+# Drexler DREXLER DREXLER DREXLER
 
 [![npm version](https://img.shields.io/npm/v/drexler.svg)](https://www.npmjs.com/package/drexler)
 [![license](https://img.shields.io/npm/l/drexler.svg)](./LICENSE)
@@ -27,12 +27,12 @@ That's it. First launch prompts for an OpenRouter API key (free at <https://open
 
 Bun ≥ 1.1 is required. Install once per machine:
 
-| Platform        | Command                                                              |
-| --------------- | -------------------------------------------------------------------- |
-| **macOS/Linux** | `curl -fsSL https://bun.sh/install \| bash`                          |
-| **Homebrew**    | `brew install oven-sh/bun/bun`                                       |
-| **Windows**     | `powershell -c "irm bun.sh/install.ps1 \| iex"`                      |
-| **npm**         | `npm install -g bun`                                                 |
+| Platform        | Command                                         |
+| --------------- | ----------------------------------------------- |
+| **macOS/Linux** | `curl -fsSL https://bun.sh/install \| bash`     |
+| **Homebrew**    | `brew install oven-sh/bun/bun`                  |
+| **Windows**     | `powershell -c "irm bun.sh/install.ps1 \| iex"` |
+| **npm**         | `npm install -g bun`                            |
 
 Verify: `bun --version` → should print `1.1.0` or higher.
 
@@ -110,38 +110,38 @@ Keyboard notes:
 
 ### Flags
 
-| flag                              | what                                                              |
-| --------------------------------- | ----------------------------------------------------------------- |
+| flag                              | what                                                                     |
+| --------------------------------- | ------------------------------------------------------------------------ |
 | `--model <31b\|26b\|vendor/name>` | switch model (alias or full OpenRouter id, e.g. `google/gemma-4-31b-it`) |
-| `--persona <path>`                | load a custom persona markdown file instead of bundled `drexler.md` |
-| `--theme <name>`                  | color theme (default `apollo`)                                    |
-| `--no-intro`                      | skip the startup banner and mascot                                |
-| `--fast`                          | fast startup mode, implies `--no-intro`                           |
-| `--version`, `-v`                 | print version                                                     |
-| `--help`, `-h`                    | print usage                                                       |
+| `--persona <path>`                | load a custom persona markdown file instead of bundled `drexler.md`      |
+| `--theme <name>`                  | color theme (default `apollo`)                                           |
+| `--no-intro`                      | skip the startup banner and mascot                                       |
+| `--fast`                          | fast startup mode, implies `--no-intro`                                  |
+| `--version`, `-v`                 | print version                                                            |
+| `--help`, `-h`                    | print usage                                                              |
 
 ### Slash commands (inside the REPL)
 
-| cmd            | what it does                                     |
-| -------------- | ------------------------------------------------ |
-| `/help`        | list directives                                  |
-| `/clear`       | shred conversation history (system prompt pinned) |
-| `/exit`        | meeting adjourned                                |
-| `/synergy`     | run a rotating animated morale event             |
-| `/model`       | show current model, or `/model 26b` to switch   |
-| `/theme`       | show/switch theme; append `save` to persist, e.g. `/theme midnight save` |
-| `/startup fast\|no-intro\|normal` | persist startup behavior for future launches |
-| `/history`     | message count + approx tokens                    |
-| `/regenerate`  | re-roll last response                            |
-| `/redo`        | alias for `/regenerate`                          |
-| `/retry terse\|brutal` | re-roll last response with a style mandate |
-| `/expand`      | print Drexler's latest response                  |
-| `/quote`       | quote Drexler's latest response                  |
-| `/search <term>` | search the current transcript                 |
-| `/export md\|txt\|json\|html [path]` | export transcript       |
-| `/save [path]` | archive conversation as markdown                 |
-| `/save-last [path]` | save Drexler's last response only          |
-| `/copy-last`   | copy Drexler's latest response to the clipboard  |
+| cmd                                  | what it does                                                             |
+| ------------------------------------ | ------------------------------------------------------------------------ |
+| `/help`                              | list directives                                                          |
+| `/clear`                             | shred conversation history (system prompt pinned)                        |
+| `/exit`                              | meeting adjourned                                                        |
+| `/synergy`                           | run a rotating animated morale event                                     |
+| `/model`                             | show current model, or `/model 26b` to switch                            |
+| `/theme`                             | show/switch theme; append `save` to persist, e.g. `/theme midnight save` |
+| `/startup fast\|no-intro\|normal`    | persist startup behavior for future launches                             |
+| `/history`                           | message count + approx tokens                                            |
+| `/regenerate`                        | re-roll last response                                                    |
+| `/redo`                              | alias for `/regenerate`                                                  |
+| `/retry terse\|brutal`               | re-roll last response with a style mandate                               |
+| `/expand`                            | print Drexler's latest response                                          |
+| `/quote`                             | quote Drexler's latest response                                          |
+| `/search <term>`                     | search the current transcript                                            |
+| `/export md\|txt\|json\|html [path]` | export transcript                                                        |
+| `/save [path]`                       | archive conversation as markdown                                         |
+| `/save-last [path]`                  | save Drexler's last response only                                        |
+| `/copy-last`                         | copy Drexler's latest response to the clipboard                          |
 
 ---
 
@@ -157,15 +157,15 @@ If the current config file does not exist, Drexler also checks the legacy `~/.dr
 
 ### Environment variables
 
-| var                  | purpose                                              |
-| -------------------- | ---------------------------------------------------- |
-| `OPENROUTER_API_KEY` | API key (overrides config file)                      |
-| `DREXLER_MODEL`      | model id or alias                                    |
-| `DREXLER_THEME`      | color theme name                                     |
-| `DREXLER_NO_INTRO`   | `1`, `true`, `yes`, or `on` skips startup intro      |
-| `DREXLER_FAST`       | `1`, `true`, `yes`, or `on` enables fast startup     |
-| `XDG_CONFIG_HOME`    | override config dir (default `~/.config/drexler`)    |
-| `NO_COLOR`           | disable colors entirely                              |
+| var                  | purpose                                           |
+| -------------------- | ------------------------------------------------- |
+| `OPENROUTER_API_KEY` | API key (overrides config file)                   |
+| `DREXLER_MODEL`      | model id or alias                                 |
+| `DREXLER_THEME`      | color theme name                                  |
+| `DREXLER_NO_INTRO`   | `1`, `true`, `yes`, or `on` skips startup intro   |
+| `DREXLER_FAST`       | `1`, `true`, `yes`, or `on` enables fast startup  |
+| `XDG_CONFIG_HOME`    | override config dir (default `~/.config/drexler`) |
+| `NO_COLOR`           | disable colors entirely                           |
 
 ### Config file
 
@@ -190,25 +190,25 @@ Available launch/config themes: `apollo`, `amber`, `mono`, `terminal`, `dealroom
 
 Theme notes:
 
-| theme      | character                                  |
-| ---------- | ------------------------------------------ |
-| `apollo`   | signature Drexler green, the default        |
-| `amber`    | warm amber deal glow                        |
-| `mono`     | plain high-contrast ANSI colors             |
-| `terminal` | classic green/cyan terminal                 |
-| `dealroom` | restrained teal boardroom palette           |
-| `midnight` | cool blue late-session desk                 |
-| `paper`    | clean document-style contrast               |
-| `plasma`   | high-energy magenta trading-floor accent    |
+| theme      | character                                |
+| ---------- | ---------------------------------------- |
+| `apollo`   | signature Drexler green, the default     |
+| `amber`    | warm amber deal glow                     |
+| `mono`     | plain high-contrast ANSI colors          |
+| `terminal` | classic green/cyan terminal              |
+| `dealroom` | restrained teal boardroom palette        |
+| `midnight` | cool blue late-session desk              |
+| `paper`    | clean document-style contrast            |
+| `plasma`   | high-energy magenta trading-floor accent |
 
 ---
 
 ## Models
 
-| alias  | id                                  | notes                          |
-| ------ | ----------------------------------- | ------------------------------ |
-| `31b`  | `google/gemma-4-31b-it`             | primary default                |
-| `26b`  | `google/gemma-4-26b-a4b-it`         | fallback, auto-retry on 429    |
+| alias | id                          | notes                       |
+| ----- | --------------------------- | --------------------------- |
+| `31b` | `google/gemma-4-31b-it`     | primary default             |
+| `26b` | `google/gemma-4-26b-a4b-it` | fallback, auto-retry on 429 |
 
 Pass `--model vendor/name:tag` for any other OpenRouter-compatible model.
 
@@ -245,16 +245,16 @@ The `.github/workflows/publish.yml` workflow runs install, tag/package version v
 
 ## Troubleshooting
 
-| symptom                                                    | fix                                                                                       |
-| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `command not found: drexler`                               | Add `~/.bun/bin` to `$PATH`, or restart shell                                             |
-| `command not found: bun`                                   | Install Bun (see [Install](#install) section above)                                       |
-| `API key rejected by OpenRouter`                           | Update key: `rm ~/.config/drexler/config.json` and re-run `drexler`, or export `OPENROUTER_API_KEY` |
-| Garbled box-drawing characters                             | Use a UTF-8 terminal with a Nerd Font (e.g. iTerm2, Alacritty, WezTerm)                   |
-| Want to switch themes mid-session                          | Use `/theme midnight`, `/theme dealroom`, `/theme amber`, or any listed theme inside the REPL |
-| Want a faster launch                                       | Use `drexler --fast` or set `"fast": true` in config                                     |
-| Startup panel looks cramped                                | Enlarge the terminal, or use `/startup no-intro` or `/startup fast`                      |
-| Slash command options are not visible                      | Type `/`, `/theme`, `/startup`, `/retry`, `/export`, or `/model`; exact fixed-argument commands open their chooser automatically |
+| symptom                               | fix                                                                                                                              |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `command not found: drexler`          | Add `~/.bun/bin` to `$PATH`, or restart shell                                                                                    |
+| `command not found: bun`              | Install Bun (see [Install](#install) section above)                                                                              |
+| `API key rejected by OpenRouter`      | Update key: `rm ~/.config/drexler/config.json` and re-run `drexler`, or export `OPENROUTER_API_KEY`                              |
+| Garbled box-drawing characters        | Use a UTF-8 terminal with a Nerd Font (e.g. iTerm2, Alacritty, WezTerm)                                                          |
+| Want to switch themes mid-session     | Use `/theme midnight`, `/theme dealroom`, `/theme amber`, or any listed theme inside the REPL                                    |
+| Want a faster launch                  | Use `drexler --fast` or set `"fast": true` in config                                                                             |
+| Startup panel looks cramped           | Enlarge the terminal, or use `/startup no-intro` or `/startup fast`                                                              |
+| Slash command options are not visible | Type `/`, `/theme`, `/startup`, `/retry`, `/export`, or `/model`; exact fixed-argument commands open their chooser automatically |
 
 ---
 
