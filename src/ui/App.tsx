@@ -37,6 +37,13 @@ import { InputBox } from "./InputBox.tsx";
 import { StreamingMessage } from "./Message.tsx";
 import { Spinner } from "./Spinner.tsx";
 import { StatusBar } from "./StatusBar.tsx";
+import {
+  pickSynergyEvent,
+  SynergyEvent,
+  SYNERGY_EVENT_FRAMES,
+  synergyEventRows,
+  type SynergyEventDefinition,
+} from "./SynergyEvent.tsx";
 import { ThemeProvider } from "./ThemeContext.tsx";
 import { TranscriptViewport } from "./TranscriptViewport.tsx";
 import { getActiveTheme, THEMES } from "./themes.ts";
@@ -82,6 +89,11 @@ interface ChatItem {
   id: number;
   role: "user" | "assistant" | "system";
   content: string;
+}
+
+interface ActiveSynergyEvent {
+  event: SynergyEventDefinition;
+  frame: number;
 }
 
 interface AppProps {
@@ -155,6 +167,9 @@ export function App({ conversation, config, mood = "neutral", fetchFn }: AppProp
   const cursor = draft.cursor;
   const [streaming, setStreaming] = useState<string | null>(null);
   const [thinking, setThinking] = useState<string | null>(null);
+  const [synergyEvent, setSynergyEvent] = useState<ActiveSynergyEvent | null>(
+    null,
+  );
   const [exitMsg, setExitMsg] = useState<string | null>(null);
   const [witticism, setWitticism] = useState<string>(pick(WITTICISMS));
   const [model, setModel] = useState<string>(config.model);
@@ -207,6 +222,7 @@ export function App({ conversation, config, mood = "neutral", fetchFn }: AppProp
   const mountedRef = useRef(true);
   const exitingRef = useRef(false);
   const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const synergyTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const flushStream = useCallback(() => {
     if (!mountedRef.current) return;
     setStreaming(streamBufRef.current);
@@ -233,6 +249,45 @@ export function App({ conversation, config, mood = "neutral", fetchFn }: AppProp
     },
     [flushStream],
   );
+
+  const runSynergyEvent = useCallback(() => {
+    if (synergyTimerRef.current !== null) {
+      clearInterval(synergyTimerRef.current);
+      synergyTimerRef.current = null;
+    }
+
+    const event = pickSynergyEvent();
+    let frame = 0;
+    const finalFrame = SYNERGY_EVENT_FRAMES - 1;
+    const holdFrames = 8;
+
+    setThinking(null);
+    setStreaming(null);
+    setDeskStatus("idle");
+    setDeskNotice("synergy event");
+    setSynergyEvent({ event, frame });
+
+    synergyTimerRef.current = setInterval(() => {
+      frame += 1;
+      if (!mountedRef.current) return;
+
+      if (frame <= finalFrame) {
+        setSynergyEvent({ event, frame });
+        return;
+      }
+
+      if (frame >= finalFrame + holdFrames) {
+        if (synergyTimerRef.current !== null) {
+          clearInterval(synergyTimerRef.current);
+          synergyTimerRef.current = null;
+        }
+        setSynergyEvent(null);
+        setDeskNotice("synergy logged");
+        setWitticism(event.finalLine);
+        addItem("system", event.transcriptLine);
+      }
+    }, 60);
+  }, [addItem]);
 
   const runLLM = useCallback(async (instruction?: string) => {
     const startedAt = Date.now();
@@ -349,6 +404,10 @@ export function App({ conversation, config, mood = "neutral", fetchFn }: AppProp
         },
       });
       const lower = line.toLowerCase().trim();
+      if (lower === "/synergy") {
+        runSynergyEvent();
+        return;
+      }
       if (lower === "/clear" || lower.startsWith("/clear ")) {
         setItems([]);
         setLastLatencyMs(null);
@@ -399,6 +458,7 @@ export function App({ conversation, config, mood = "neutral", fetchFn }: AppProp
       model,
       removeLastAssistantItem,
       runLLM,
+      runSynergyEvent,
       triggerExit,
     ],
   );
@@ -424,8 +484,11 @@ export function App({ conversation, config, mood = "neutral", fetchFn }: AppProp
   );
 
   useInput((char, key) => {
-    if (streaming !== null || thinking !== null) {
+    if (streaming !== null || thinking !== null || synergyEvent !== null) {
       if (key.escape) {
+        if (synergyEvent !== null) {
+          return;
+        }
         cancelledRef.current = true;
         abortRef.current?.abort();
         return;
@@ -593,11 +656,17 @@ export function App({ conversation, config, mood = "neutral", fetchFn }: AppProp
       if (exitTimerRef.current !== null) {
         clearTimeout(exitTimerRef.current);
       }
+      if (synergyTimerRef.current !== null) {
+        clearInterval(synergyTimerRef.current);
+      }
     };
   }, []);
 
-  const isBusy = streaming !== null || thinking !== null;
+  const isBusy = streaming !== null || thinking !== null || synergyEvent !== null;
   const headerStatus = isBusy ? "streaming" : deskStatus;
+  const visibleTranscriptRows = synergyEvent
+    ? Math.max(1, maxTranscriptRows - synergyEventRows(chromeWidth, isCompact))
+    : maxTranscriptRows;
 
   return (
     <ThemeProvider value={activeTheme}>
@@ -617,7 +686,7 @@ export function App({ conversation, config, mood = "neutral", fetchFn }: AppProp
         />
         <TranscriptViewport
           items={items}
-          maxRows={maxTranscriptRows}
+          maxRows={visibleTranscriptRows}
           cols={chromeWidth}
           compact={isCompact}
           scrollOffset={scrollOffset}
@@ -633,6 +702,14 @@ export function App({ conversation, config, mood = "neutral", fetchFn }: AppProp
             <Box paddingX={1} marginBottom={1}>
               <Spinner label={thinking} width={chromeWidth} />
             </Box>
+          )}
+          {synergyEvent !== null && (
+            <SynergyEvent
+              event={synergyEvent.event}
+              frame={synergyEvent.frame}
+              width={chromeWidth}
+              compact={isCompact}
+            />
           )}
           {exitMsg !== null ? (
             <Box paddingX={1} marginBottom={1}>
@@ -654,6 +731,11 @@ export function App({ conversation, config, mood = "neutral", fetchFn }: AppProp
                   value={input}
                   cursor={cursor}
                   disabled={isBusy}
+                  disabledLabel={
+                    synergyEvent !== null
+                      ? "(Synergy event running... boardroom locked)"
+                      : undefined
+                  }
                   width={inputWidth}
                 />
               </Box>

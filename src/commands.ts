@@ -314,7 +314,9 @@ export function dispatch(input: string, ctx: CommandContext): CommandAction {
       };
 
     case "synergy":
-      ctx.print("SYNERGY. You promoted. Award: continued employment.");
+      ctx.print(
+        "SYNERGY EVENT: alignment protocol completed. Award: continued employment.",
+      );
       return { type: "continue" };
 
     case "model":

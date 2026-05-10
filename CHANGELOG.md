@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.6
+
+- Upgraded `/synergy` into a rotating animated Ink event with staged reveals, progress, KPI tickers, and themed finale copy.
+- Added compact synergy rendering and a non-interactive fallback line for classic command dispatch.
+
 ## 0.2.5
 
 - Made constrained slash commands open smoother option choosers, with `/theme` showing all theme choices as soon as the command is typed.

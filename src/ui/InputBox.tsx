@@ -8,6 +8,7 @@ interface Props {
   cursor: number;
   disabled: boolean;
   width: number;
+  disabledLabel?: string;
 }
 
 const PROMPT_WIDTH = 2;
@@ -80,13 +81,19 @@ function fitPlainText(chars: string[], cursor: number, maxWidth: number): string
   return out || " ";
 }
 
-function InputBoxInner({ value, cursor, disabled, width }: Props) {
+function InputBoxInner({
+  value,
+  cursor,
+  disabled,
+  width,
+  disabledLabel,
+}: Props) {
   const t = useTheme();
   const chars = splitGraphemes(value);
   const safeCursor = clampCursor(value, cursor);
   const boxWidth = Math.max(1, width);
   const inputBudget = Math.max(1, boxWidth - BOX_CHROME_WIDTH - PROMPT_WIDTH);
-  const disabledText = "(Drexler thinking... ESC to cancel)";
+  const disabledText = disabledLabel ?? "(Drexler thinking... ESC to cancel)";
   const window = fitWindow(chars, safeCursor, inputBudget);
   const visible = chars.slice(window.start, window.end);
   const visibleCursor = clamp(safeCursor - window.start, 0, visible.length);
