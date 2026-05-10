@@ -16,8 +16,9 @@ export interface SynergyEventDefinition {
 
 export const SYNERGY_EVENT_FRAMES = 28;
 const FULL_EVENT_WIDTH = 88;
-const FULL_EVENT_ROWS = 12;
-const FULL_EVENT_ART_ROWS = 4;
+const FULL_EVENT_ART_ROWS = 6;
+const FULL_EVENT_CHROME_ROWS = 7;
+const FULL_EVENT_ROWS = FULL_EVENT_CHROME_ROWS + FULL_EVENT_ART_ROWS;
 
 export const SYNERGY_EVENTS: readonly SynergyEventDefinition[] = [
   {
