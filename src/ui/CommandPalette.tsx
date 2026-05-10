@@ -20,6 +20,7 @@ const COMMAND_HINTS: Record<string, string> = {
   "/startup": "/startup fast",
   "/history": "show ledger stats",
   "/regenerate": "retry last answer",
+  "/redo": "same as /regenerate",
   "/retry": "/retry terse",
   "/expand": "print latest response",
   "/quote": "quote latest response",

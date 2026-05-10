@@ -58,6 +58,7 @@ describe("dispatch (V7, V8, V16, V17)", () => {
     expect(printed).toContain("/search <term>");
     expect(printed).toContain("/export <fmt> [path]");
     expect(printed).toContain("/startup");
+    expect(printed).toContain("/redo");
     expect(printed).toContain("/retry [style]");
     expect(printed).toContain("/expand");
     expect(printed).toContain("/quote");
@@ -672,9 +673,14 @@ describe("filterPaletteByPrefix", () => {
     ]);
   });
 
-  test("exact match returns single command", () => {
+  test("exact overlapping prefix keeps related longer commands visible", () => {
     const out = filterPaletteByPrefix("/save");
-    expect(out).toEqual([{ name: "/save", description: COMMAND_PALETTE.find((c) => c.name === "/save")!.description }]);
+    expect(out.map((c) => c.name)).toEqual(["/save", "/save-last"]);
+  });
+
+  test("redo command appears in palette", () => {
+    const out = filterPaletteByPrefix("/re");
+    expect(out.map((c) => c.name)).toEqual(["/regenerate", "/redo", "/retry"]);
   });
 
   test("save-last command appears after overlapping prefix", () => {

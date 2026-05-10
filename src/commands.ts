@@ -38,6 +38,7 @@ const HELP_TEXT = `New memo to staff! Drexler permit following directives:
   /startup       - persist startup mode (fast, no-intro, normal)
   /history       - count messages and approximate tokens
   /regenerate    - re-roll Drexler's last response
+  /redo          - alias for /regenerate
   /retry [style] - re-roll last response, optionally terse or brutal
   /expand        - print Drexler's latest response
   /quote         - quote Drexler's latest response
@@ -64,6 +65,7 @@ export const COMMAND_PALETTE: ReadonlyArray<SlashCommand> = [
   { name: "/startup", description: "Persist startup mode" },
   { name: "/history", description: "Message + token count" },
   { name: "/regenerate", description: "Re-roll last response" },
+  { name: "/redo", description: "Alias for regenerate" },
   { name: "/retry", description: "Retry terse or brutal" },
   { name: "/expand", description: "Print last response" },
   { name: "/quote", description: "Quote last response" },
@@ -79,8 +81,6 @@ export function filterPaletteByPrefix(
 ): ReadonlyArray<SlashCommand> {
   if (!input.startsWith("/") || input.includes(" ")) return [];
   const prefix = input.toLowerCase();
-  const exact = COMMAND_PALETTE.find((c) => c.name.toLowerCase() === prefix);
-  if (exact) return [exact];
   return COMMAND_PALETTE.filter((c) =>
     c.name.toLowerCase().startsWith(prefix),
   );

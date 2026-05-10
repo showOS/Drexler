@@ -58,6 +58,7 @@ Slash commands inside REPL:
   /startup [mode] persist startup mode: fast, no-intro, normal
   /history       message + token count
   /regenerate    re-roll last response
+  /redo          alias for /regenerate
   /retry [style] re-roll last response as terse or brutal
   /expand        print latest response
   /quote         quote latest response

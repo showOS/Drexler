@@ -104,6 +104,7 @@ rm -rf ~/.config/drexler   # optional: wipe stored key + settings
 | `/startup fast\|no-intro\|normal` | persist startup behavior for future launches |
 | `/history`     | message count + approx tokens                    |
 | `/regenerate`  | re-roll last response                            |
+| `/redo`        | alias for `/regenerate`                          |
 | `/retry terse\|brutal` | re-roll last response with a style mandate |
 | `/expand`      | print Drexler's latest response                  |
 | `/quote`       | quote Drexler's latest response                  |
