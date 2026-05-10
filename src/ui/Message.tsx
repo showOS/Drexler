@@ -2,6 +2,7 @@ import { Box, Text } from "ink";
 import { memo, useMemo } from "react";
 import { renderMarkdown } from "../renderer.ts";
 import { fitDisplayText } from "./graphemes.ts";
+import { MarkdownBody } from "./MarkdownBody.tsx";
 import { useTheme } from "./ThemeContext.tsx";
 
 interface MessageItem {
@@ -111,9 +112,8 @@ interface StreamingProps {
 
 function StreamingMessageInner({ content, width = 80 }: StreamingProps) {
   const t = useTheme();
-  const lines = useMemo(() => content.split("\n"), [content]);
   const safeWidth = Math.max(1, Math.floor(width));
-  const contentWidth = Math.max(1, safeWidth - 3);
+  const innerWidth = Math.max(1, safeWidth - 2);
 
   if (safeWidth < 18) {
     const compactLine = fitDisplayText(content.replace(/\s+/g, " "), safeWidth);
@@ -135,16 +135,15 @@ function StreamingMessageInner({ content, width = 80 }: StreamingProps) {
         <Text color={t.primaryDim}> ─ </Text>
         <Text color={t.dim}>drafting live</Text>
       </Box>
-      {lines.map((ln, i) => (
-        <Box key={i} paddingLeft={1}>
-          <Text color={i === lines.length - 1 ? t.primaryLight : t.primary}>
-            │{" "}
-          </Text>
-          <Text color={t.text} wrap="truncate">
-            {fitDisplayText(ln, contentWidth)}
-          </Text>
-        </Box>
-      ))}
+      <MarkdownBody
+        content={content}
+        baseColor={t.text}
+        accentColor={t.primaryLight}
+        dimColor={t.dim}
+        codeColor={t.primaryDim}
+        width={innerWidth}
+        paddingLeft={1}
+      />
     </Box>
   );
 }

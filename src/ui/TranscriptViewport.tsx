@@ -1,6 +1,7 @@
 import { Box, Text } from "ink";
 import { Children, memo, useMemo, type ReactNode } from "react";
 import { displayWidth, fitDisplayText, splitGraphemes } from "./graphemes.ts";
+import { estimateMarkdownRows, MarkdownBody } from "./MarkdownBody.tsx";
 import { useTheme } from "./ThemeContext.tsx";
 
 export interface TranscriptViewportItem {
@@ -103,6 +104,10 @@ function itemRows(
   cols: number,
 ): number {
   if (compact) return 1;
+  if (item.role === "assistant") {
+    const innerWidth = Math.max(1, cols - 2);
+    return 2 + estimateMarkdownRows(item.content, innerWidth);
+  }
   const bodyPrefix = "│ › ";
   const bodySuffix = " │";
   const contentWidth = Math.max(
@@ -168,6 +173,33 @@ function DefaultTranscriptItem({
   const headerPrefix = `╭─ ${label} `;
   const headerRuleWidth = Math.max(0, cols - displayWidth(headerPrefix) - 1);
   const footerWidth = Math.max(0, cols - 2);
+
+  if (item.role === "assistant") {
+    const innerWidth = Math.max(1, cols - 2);
+    return (
+      <Box flexDirection="column" width={cols} flexShrink={1}>
+        <Text color={accent} bold wrap="truncate">
+          {fitDisplayText(
+            `${headerPrefix}${rule("─", headerRuleWidth)}╮`,
+            cols,
+          )}
+        </Text>
+        <MarkdownBody
+          content={item.content}
+          baseColor={t.text}
+          accentColor={t.primaryLight}
+          dimColor={t.dim}
+          codeColor={t.primaryDim}
+          width={innerWidth}
+          paddingLeft={1}
+        />
+        <Text color={accent} wrap="truncate">
+          {fitDisplayText(`╰${rule("─", footerWidth)}╯`, cols)}
+        </Text>
+      </Box>
+    );
+  }
+
   const bodyPrefix = item.role === "user" ? "│ › " : "│   ";
   const continuationPrefix = "│   ";
   const bodySuffix = " │";
