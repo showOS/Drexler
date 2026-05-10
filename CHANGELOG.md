@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.5
+
+- Made constrained slash commands open smoother option choosers, with `/theme` showing all theme choices as soon as the command is typed.
+- Added richer theme descriptions and contextual hints in the command palette.
+
 ## 0.2.4
 
 - Improved transcript readability with distinct user and Drexler turn blocks, role-specific accents, and clearer body markers.

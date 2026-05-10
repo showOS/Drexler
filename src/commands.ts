@@ -53,6 +53,7 @@ const WHITESPACE_RE = /\s+/;
 export interface SlashCommand {
   readonly name: string;
   readonly description: string;
+  readonly hint?: string;
 }
 
 export const COMMAND_PALETTE: ReadonlyArray<SlashCommand> = [
@@ -76,49 +77,151 @@ export const COMMAND_PALETTE: ReadonlyArray<SlashCommand> = [
   { name: "/copy-last", description: "Copy last response" },
 ];
 
+const THEME_PALETTE_COPY: Record<
+  ThemeName,
+  { readonly description: string; readonly hint: string }
+> = {
+  apollo: {
+    description: "Signature Drexler green",
+    hint: "default executive terminal",
+  },
+  amber: {
+    description: "Warm amber deal glow",
+    hint: "low-light command room",
+  },
+  mono: {
+    description: "Plain high-contrast text",
+    hint: "NO_COLOR friendly",
+  },
+  terminal: {
+    description: "Classic ANSI terminal",
+    hint: "green/cyan legacy mode",
+  },
+  dealroom: {
+    description: "Teal boardroom desk",
+    hint: "quiet professional palette",
+  },
+  midnight: {
+    description: "Cool blue night desk",
+    hint: "focused late-session work",
+  },
+  paper: {
+    description: "Clean document mode",
+    hint: "bright memo-style contrast",
+  },
+  plasma: {
+    description: "Magenta trading floor",
+    hint: "high-energy neon accent",
+  },
+};
+
 const ARGUMENT_PALETTE: ReadonlyArray<{
   readonly command: string;
+  readonly baseDescription: string;
+  readonly baseHint: string;
   readonly values: ReadonlyArray<SlashCommand>;
 }> = [
   {
     command: "/theme",
+    baseDescription: "Theme chooser",
+    baseHint: "select a look below",
     values: [
-      ...THEME_NAMES.map((name) => ({
-        name: `/theme ${name}`,
-        description: `Switch to ${name} theme`,
-      })),
-      { name: "/theme save", description: "Save current theme as default" },
+      ...THEME_NAMES.map((name) => {
+        const copy = THEME_PALETTE_COPY[name];
+        return {
+          name: `/theme ${name}`,
+          description: copy.description,
+          hint: copy.hint,
+        };
+      }),
+      {
+        name: "/theme save",
+        description: "Persist current theme",
+        hint: "use after previewing",
+      },
     ],
   },
   {
     command: "/startup",
+    baseDescription: "Startup mode chooser",
+    baseHint: "pick launch behavior",
     values: [
-      { name: "/startup fast", description: "Persist fast startup" },
-      { name: "/startup no-intro", description: "Skip intro on launch" },
-      { name: "/startup normal", description: "Restore full intro" },
+      {
+        name: "/startup fast",
+        description: "Persist fast startup",
+        hint: "skip ceremony",
+      },
+      {
+        name: "/startup no-intro",
+        description: "Skip intro on launch",
+        hint: "keep normal runtime",
+      },
+      {
+        name: "/startup normal",
+        description: "Restore full intro",
+        hint: "show full opening",
+      },
     ],
   },
   {
     command: "/retry",
+    baseDescription: "Retry style chooser",
+    baseHint: "reshape last answer",
     values: [
-      { name: "/retry terse", description: "Retry in two sentences" },
-      { name: "/retry brutal", description: "Retry more forcefully" },
+      {
+        name: "/retry terse",
+        description: "Retry in two sentences",
+        hint: "short and direct",
+      },
+      {
+        name: "/retry brutal",
+        description: "Retry more forcefully",
+        hint: "sharper critique",
+      },
     ],
   },
   {
     command: "/export",
+    baseDescription: "Export format chooser",
+    baseHint: "pick transcript output",
     values: [
-      { name: "/export md", description: "Export markdown transcript" },
-      { name: "/export txt", description: "Export plain text transcript" },
-      { name: "/export json", description: "Export structured JSON" },
-      { name: "/export html", description: "Export printable HTML" },
+      {
+        name: "/export md",
+        description: "Export markdown transcript",
+        hint: "portable notes",
+      },
+      {
+        name: "/export txt",
+        description: "Export plain text transcript",
+        hint: "clean copy",
+      },
+      {
+        name: "/export json",
+        description: "Export structured JSON",
+        hint: "machine-readable",
+      },
+      {
+        name: "/export html",
+        description: "Export printable HTML",
+        hint: "browser-ready memo",
+      },
     ],
   },
   {
     command: "/model",
+    baseDescription: "Model chooser",
+    baseHint: "select inference desk",
     values: [
-      { name: "/model 31b", description: "Use primary 31b model" },
-      { name: "/model 26b", description: "Use fallback 26b model" },
+      {
+        name: "/model 31b",
+        description: "Use primary 31b model",
+        hint: "best default",
+      },
+      {
+        name: "/model 26b",
+        description: "Use fallback 26b model",
+        hint: "faster backup",
+      },
     ],
   },
 ];
@@ -126,6 +229,16 @@ const ARGUMENT_PALETTE: ReadonlyArray<{
 function filterArgumentPalette(input: string): ReadonlyArray<SlashCommand> {
   const lower = input.toLowerCase();
   for (const group of ARGUMENT_PALETTE) {
+    if (lower === group.command) {
+      return [
+        {
+          name: group.command,
+          description: group.baseDescription,
+          hint: group.baseHint,
+        },
+        ...group.values,
+      ];
+    }
     const prefix = `${group.command} `;
     if (!lower.startsWith(prefix)) continue;
     const argPrefix = lower.slice(prefix.length);
@@ -143,6 +256,8 @@ export function filterPaletteByPrefix(
   input: string,
 ): ReadonlyArray<SlashCommand> {
   if (!input.startsWith("/")) return [];
+  const exactArgumentPalette = filterArgumentPalette(input);
+  if (exactArgumentPalette.length > 0) return exactArgumentPalette;
   if (input.includes(" ")) return filterArgumentPalette(input);
   const prefix = input.toLowerCase();
   return COMMAND_PALETTE.filter((c) =>

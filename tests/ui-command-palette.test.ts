@@ -69,14 +69,48 @@ describe("CommandPalette", () => {
       [
         {
           name: "/theme midnight",
-          description: "Switch to midnight theme",
+          description: "Cool blue night desk",
+          hint: "focused late-session work",
         },
       ],
-      72,
+      92,
     );
 
+    expect(rendered).toContain("THEMES");
     expect(rendered).toContain("/theme midnight");
-    expect(rendered).toContain("Switch to midnight theme");
-    expect(rendered.match(/Switch to midnight theme/g)?.length).toBe(1);
+    expect(rendered).toContain("Cool blue night desk");
+    expect(rendered).toContain("focused late-session work");
+    expect(rendered.match(/Cool blue night desk/g)?.length).toBe(1);
+  });
+
+  test("renders exact theme command as a smooth chooser", () => {
+    const rendered = renderPalette(
+      [
+        {
+          name: "/theme",
+          description: "Theme chooser",
+          hint: "select a look below",
+        },
+        {
+          name: "/theme apollo",
+          description: "Signature Drexler green",
+          hint: "default executive terminal",
+        },
+        {
+          name: "/theme midnight",
+          description: "Cool blue night desk",
+          hint: "focused late-session work",
+        },
+      ],
+      90,
+      1,
+    );
+
+    expect(rendered).toContain("THEMES");
+    expect(rendered).toContain("enter apply");
+    expect(rendered).toContain("Theme chooser");
+    expect(rendered).toContain("select a look below");
+    expect(rendered).toContain("Signature Drexler green");
+    expect(rendered).toContain("default executive terminal");
   });
 });

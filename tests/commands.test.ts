@@ -673,6 +673,21 @@ describe("filterPaletteByPrefix", () => {
     ]);
   });
 
+  test("exact constrained commands open their argument chooser smoothly", () => {
+    const out = filterPaletteByPrefix("/theme");
+    expect(out.map((c) => c.name).slice(0, 4)).toEqual([
+      "/theme",
+      "/theme apollo",
+      "/theme amber",
+      "/theme mono",
+    ]);
+    expect(out[0]).toEqual({
+      name: "/theme",
+      description: "Theme chooser",
+      hint: "select a look below",
+    });
+  });
+
   test("exact overlapping prefix keeps related longer commands visible", () => {
     const out = filterPaletteByPrefix("/save");
     expect(out.map((c) => c.name)).toEqual(["/save", "/save-last"]);
@@ -699,6 +714,13 @@ describe("filterPaletteByPrefix", () => {
     expect(filterPaletteByPrefix("/theme ").map((c) => c.name)).toContain(
       "/theme midnight",
     );
+    expect(
+      filterPaletteByPrefix("/theme ").find((c) => c.name === "/theme midnight"),
+    ).toEqual({
+      name: "/theme midnight",
+      description: "Cool blue night desk",
+      hint: "focused late-session work",
+    });
     expect(filterPaletteByPrefix("/theme m").map((c) => c.name)).toEqual([
       "/theme mono",
       "/theme midnight",

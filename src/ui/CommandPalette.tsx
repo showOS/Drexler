@@ -31,10 +31,34 @@ const COMMAND_HINTS: Record<string, string> = {
   "/copy-last": "copy latest response",
 };
 
+const ARGUMENT_TITLES: Record<string, { title: string; hint: string }> = {
+  "/theme": { title: "THEMES", hint: "tab fill, ↑↓ choose, enter apply" },
+  "/startup": { title: "STARTUP", hint: "tab fill, ↑↓ choose, enter save" },
+  "/retry": { title: "RETRY", hint: "tab fill, ↑↓ choose, enter reroll" },
+  "/export": { title: "EXPORT", hint: "tab fill, ↑↓ choose, enter run" },
+  "/model": { title: "MODELS", hint: "tab fill, ↑↓ choose, enter switch" },
+};
+
+function paletteHeading(items: ReadonlyArray<SlashCommand>): {
+  title: string;
+  hint: string;
+} {
+  const firstToken = items[0]?.name.split(" ")[0] ?? "";
+  const hasArguments = items.some((item) => item.name.includes(" "));
+  if (hasArguments && ARGUMENT_TITLES[firstToken]) {
+    return ARGUMENT_TITLES[firstToken];
+  }
+  return {
+    title: "DIRECTIVES",
+    hint: "tab/↑↓ select, enter execute",
+  };
+}
+
 function CommandPaletteInner({ items, selectedIdx, width = 80 }: Props) {
   const t = useTheme();
   const safeWidth = Math.max(1, Math.floor(width));
   const tiny = safeWidth < 26;
+  const heading = useMemo(() => paletteHeading(items), [items]);
   const maxNameW = useMemo(
     () => items.reduce((m, i) => Math.max(m, i.name.length), 0),
     [items],
@@ -81,19 +105,22 @@ function CommandPaletteInner({ items, selectedIdx, width = 80 }: Props) {
     >
       <Box marginBottom={1}>
         <Text color={t.primaryLight} bold>
-          DIRECTIVES
+          {heading.title}
         </Text>
         <Text color={t.primaryDim}> ─ </Text>
         <Text color={t.dim} wrap="truncate">
-          {fitDisplayText("tab/↑↓ select, enter execute", Math.max(1, innerWidth - 13))}
+          {fitDisplayText(
+            heading.hint,
+            Math.max(1, innerWidth - displayWidth(heading.title) - 3),
+          )}
         </Text>
       </Box>
       {items.map((item, idx) => {
         const sel = idx === selectedIdx;
         const isArgumentSuggestion = item.name.includes(" ");
-        const hint = isArgumentSuggestion
-          ? ""
-          : COMMAND_HINTS[item.name] ?? item.description;
+        const hint =
+          item.hint ??
+          (isArgumentSuggestion ? "" : COMMAND_HINTS[item.name] ?? item.description);
         const name = item.name.padEnd(maxNameW + 1);
         const desc = fitDisplayText(item.description, descBudget);
         const clippedHint =
