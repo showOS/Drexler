@@ -177,6 +177,45 @@ function titledPanelBottom(width: number): string {
   return `╰${"─".repeat(Math.max(0, width - 2))}╯`;
 }
 
+function fixedDisplayRows(
+  input: string,
+  width: number,
+  rowCount: number,
+): string[] {
+  const safeWidth = Math.max(1, width);
+  const rows: string[] = [];
+  const words = input.replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+  let cursor = 0;
+
+  while (rows.length < rowCount && cursor < words.length) {
+    const remaining = words.slice(cursor).join(" ");
+    if (rows.length === rowCount - 1 || displayWidth(remaining) <= safeWidth) {
+      rows.push(fitDisplayText(remaining, safeWidth));
+      cursor = words.length;
+      break;
+    }
+
+    let row = words[cursor] ?? "";
+    cursor += 1;
+    if (displayWidth(row) > safeWidth) {
+      rows.push(fitDisplayText(row, safeWidth));
+      continue;
+    }
+
+    while (cursor < words.length) {
+      const next = words[cursor] ?? "";
+      const candidate = `${row} ${next}`;
+      if (displayWidth(candidate) > safeWidth) break;
+      row = candidate;
+      cursor += 1;
+    }
+    rows.push(row);
+  }
+
+  while (rows.length < rowCount) rows.push("");
+  return rows;
+}
+
 type IntroColorPhase = "early" | "middle" | "late";
 
 function introTotalFrames(width: number): number {
@@ -668,6 +707,9 @@ export function MascotDashboard({
     : sideBySide
     ? Math.max(18, leftPanelWidth - MASCOT_WIDTH - GUTTER_WIDTH - 1)
     : innerWidth;
+  const wideGreetingRows = sideBySide
+    ? fixedDisplayRows(greeting, copyWidth, 2)
+    : [];
 
   if (tinyTerminal) {
     return (
@@ -743,8 +785,16 @@ export function MascotDashboard({
               Drexler International™
             </Text>
             <Box height={1} />
-            <Text color={t.primaryLight}>{greeting}</Text>
-            <Box height={sideBySide ? 2 : 1} />
+            {sideBySide ? (
+              wideGreetingRows.map((row, idx) => (
+                <Text key={idx} color={t.primaryLight}>
+                  {row || " "}
+                </Text>
+              ))
+            ) : (
+              <Text color={t.primaryLight}>{greeting}</Text>
+            )}
+            <Box height={1} />
             <MoodReadout
               mood={mood}
               progress={bootProgress}

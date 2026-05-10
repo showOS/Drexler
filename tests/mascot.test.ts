@@ -486,6 +486,51 @@ describe("MascotFrame", () => {
     }
   });
 
+  test("wide dashboard keeps mood anchored when greeting wraps", () => {
+    const renderDashboard = (greeting: string) =>
+      renderToString(
+        React.createElement(ThemeProvider, {
+          value: THEMES.apollo,
+          children: React.createElement(MascotDashboard, {
+            greeting,
+            width: 200,
+            mood: "victorious",
+            dealDesk: (dealDeskWidth: number) =>
+              React.createElement(DealDeskHeader, {
+                model: "google/gemma-4-26b-a4b-it",
+                mood: "victorious",
+                messageCount: 0,
+                themeName: "apollo",
+                approximateTokens: 4776,
+                maxWidth: dealDeskWidth,
+                marginBottom: 0,
+              }),
+          }),
+        }),
+        { columns: 200 },
+      ).replace(ANSI_RE, "");
+
+    const shortRows = renderDashboard("Hello").split("\n");
+    const wrappedRows = renderDashboard(
+      "New memo to staff. Drexler accept questions for next 6 minutes. Begin.",
+    ).split("\n");
+    const shortMoodIdx = shortRows.findIndex((row) => row.includes("╭─ Mood"));
+    const wrappedMoodIdx = wrappedRows.findIndex((row) =>
+      row.includes("╭─ Mood"),
+    );
+    const wrappedDealDeskIdx = wrappedRows.findIndex((row) =>
+      row.includes("╭─ Drexler Deal Desk"),
+    );
+
+    expect(shortMoodIdx).toBeGreaterThan(-1);
+    expect(wrappedMoodIdx).toBe(shortMoodIdx);
+    expect(wrappedDealDeskIdx).toBe(wrappedMoodIdx);
+    expect(wrappedRows.length).toBe(shortRows.length);
+    for (const row of wrappedRows) {
+      expect(displayWidth(row)).toBeLessThanOrEqual(200);
+    }
+  });
+
   test("wide dashboard keeps embedded deal desk inset symmetric", () => {
     const rendered = renderToString(
       React.createElement(ThemeProvider, {

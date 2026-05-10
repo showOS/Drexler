@@ -83,9 +83,13 @@ rm -rf ~/.config/drexler   # optional: wipe stored key + settings
 
 ### Interactive UI
 
-Drexler runs as an Ink terminal UI when both stdin and stdout are TTYs. The normal launch shows the mascot startup panel, tips, and a compact **Drexler Deal Desk** status box. Short terminals automatically suppress oversized startup chrome so the chat stays usable.
+Drexler runs as an Ink terminal UI when both stdin and stdout are TTYs. The normal launch shows one integrated startup panel with the mascot, tips, a **Mood** readout, and the **Drexler Deal Desk**. Short terminals automatically suppress oversized startup chrome so the chat stays usable.
 
-Conversation turns render as bordered cards aligned to the chat input width. User and Drexler responses use separate accents, wrapped text, and fixed-width borders so long responses stay inside the terminal instead of clipping at the right edge.
+The startup panel is designed to stay stable while it boots: the mascot loading bar and Mood gauge animate without changing width, greeting copy is held in a fixed slot, and the Mood and Deal Desk boxes stay aligned when the greeting wraps. After boot, Mood resolves into a rotating Drexler-flavored posture with a short satirical subtext line.
+
+The Deal Desk is intentionally not a frontier-model telemetry panel. It shows mood-shaped corporate nonsense like boardroom status, memo count, mandate, risk, fees, and counsel posture. Values rotate by mood and session so repeated moods still feel alive.
+
+Conversation turns render as bordered cards aligned to the chat input width. User and Drexler responses use separate accents, wrapped text, and fixed-width borders so long responses stay inside the terminal instead of clipping at the right edge. Drexler responses use a diamond body marker. Markdown/code fence labels are cleaned up for display, and code blocks render with Dracula-inspired terminal syntax colors.
 
 Typing `/` opens the directive palette. Use `Tab`, `Enter`, or `↑`/`↓` to select. Commands with fixed arguments open smoother option choosers:
 
@@ -96,6 +100,13 @@ Typing `/` opens the directive palette. Use `Tab`, `Enter`, or `↑`/`↓` to se
 - `/model` offers `31b` and `26b`.
 
 `/synergy` runs a rotating animated corporate event in the live UI, then returns control to the chat when the animation completes.
+
+Keyboard notes:
+
+- `Tab`, `Enter`, and `↑`/`↓` operate the directive palette.
+- `PageUp`/`PageDown` scroll transcript history when it exceeds the visible viewport.
+- `Esc` cancels an in-flight model response without quitting.
+- `Ctrl+C` exits gracefully with an in-character farewell.
 
 ### Flags
 
@@ -131,8 +142,6 @@ Typing `/` opens the directive palette. Use `Tab`, `Enter`, or `↑`/`↓` to se
 | `/save [path]` | archive conversation as markdown                 |
 | `/save-last [path]` | save Drexler's last response only          |
 | `/copy-last`   | copy Drexler's latest response to the clipboard  |
-
-`Ctrl+C` exits gracefully with an in-character farewell.
 
 ---
 
@@ -211,7 +220,7 @@ Pass `--model vendor/name:tag` for any other OpenRouter-compatible model.
 git clone https://github.com/showOS/Drexler.git
 cd Drexler
 bun install
-cp .env.example .env       # then edit, paste key into OPENROUTER_API_KEY=
+export OPENROUTER_API_KEY=sk-or-v1-your-key
 bun run start
 ```
 

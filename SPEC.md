@@ -90,10 +90,17 @@ The command palette opens for `/` input and provides argument choosers for `/the
 ## UI Behavior
 
 - Interactive TTY launches use Ink. Non-TTY launches fall back to linear readline output.
-- Normal interactive startup shows one mascot panel with tips and an embedded Deal Desk status box.
+- Normal interactive startup shows one mascot panel with the mascot, a fixed-height greeting slot, a Mood readout, tips, and an embedded Deal Desk box.
 - Short terminals suppress oversized startup chrome to protect chat usability.
+- The startup Mood readout must keep stable geometry during boot. Its gauge row contains only the fixed-width bar and percentage; phase copy belongs on the subtext row.
+- When startup completes, Mood resolves to the current mood plus rotating satirical posture/detail copy. Repeated launches with the same mood may choose different posture/detail pairs.
+- Wide startup layouts keep the Mood box aligned with the Deal Desk box. Greeting wrapping must not move the Mood box or add rows to the lower dashboard area.
+- The embedded Deal Desk is satirical product chrome, not model telemetry. It shows mood-shaped boardroom status, memo count, mandate, risk, fees, and counsel/corporate copy.
 - Transcript turns render as bordered cards aligned to the input width.
 - User and Drexler cards use distinct accents but share consistent width and border geometry.
+- Drexler response bodies use a diamond marker; user bodies use a chevron marker.
+- Assistant display normalizes markdown/code fences so raw fence markers and language labels do not leak into the transcript. Non-markdown fenced code renders as code with Dracula-inspired syntax coloring.
+- Save/export commands preserve the underlying conversation content instead of the UI-only normalized display.
 - Long text, wide glyphs, spinner labels, status rows, command rows, and Deal Desk rows must be display-width bounded so they do not wrap unpredictably or clip the right edge.
 - During model streaming or synergy animation, input is locked until the active operation finishes.
 
@@ -108,6 +115,7 @@ The command palette opens for `/` input and provides argument choosers for `/the
 - Empty input prints a local nudge and makes no model call.
 - Stream errors do not append partial assistant text to history.
 - SIGINT closes active work and exits cleanly.
+- ESC cancels an active model response without quitting. ESC does not cancel `/synergy`; the synergy event owns input until it completes.
 - Startup greeting is selected from the persona's session openers.
 - Markdown rendering supports styled terminal output without emitting raw HTML.
 - Export and save commands reject traversal, enforce expected extensions, and refuse to overwrite existing files.

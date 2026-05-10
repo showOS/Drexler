@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Added a startup Mood panel with a stable boot gauge, percentage-only loading row, and rotating mood-specific posture/detail copy.
+- Anchored the wide startup dashboard so wrapped greeting copy no longer pushes the Mood and Deal Desk boxes down or adds stray rows.
+- Reworked the embedded Deal Desk into satirical mood-shaped product chrome instead of model/context telemetry.
+- Improved Drexler transcript rendering with complete bordered cards, a diamond response marker, cleaned markdown/code fence display, and Dracula-inspired code syntax colors.
+- Updated documentation to match current startup chrome, command palette behavior, keyboard controls, source setup, and layout invariants.
+
 ## 0.2.13
 
 - Hardened startup panel layout across narrow, standard, and wide terminals.
