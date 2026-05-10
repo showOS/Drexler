@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.14
 
 - Added a startup Mood panel with a stable boot gauge, percentage-only loading row, and rotating mood-specific posture/detail copy.
 - Anchored the wide startup dashboard so wrapped greeting copy no longer pushes the Mood and Deal Desk boxes down or adds stray rows.
