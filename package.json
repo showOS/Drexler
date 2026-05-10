@@ -1,6 +1,6 @@
 {
   "name": "drexler",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "CLI chat with Drexler, a corporate-executive AI persona built on OpenRouter Gemma 4 31B.",
   "license": "MIT",
   "author": "showOS",

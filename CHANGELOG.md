@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1
+
+- Fixed slash command help and palette coverage so every implemented command is discoverable.
+- Kept overlapping slash-command previews visible, such as `/save` with `/save-last` and `/re` with `/regenerate`, `/redo`, and `/retry`.
+
 ## 0.2.0
 
 - Added premium Ink chat chrome with responsive header, transcript viewport, command palette, input, live spinner, and streaming response states.
