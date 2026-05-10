@@ -203,6 +203,10 @@ export function App({
   }, [stdout]);
   const mode = useMemo(() => pickLayout(cols), [cols]);
   const chromeWidth = useMemo(() => Math.max(1, cols), [cols]);
+  const showPetPanel = cols >= 90;
+  const contentWidth = showPetPanel ? Math.max(1, cols - PET_PANEL_WIDTH) : chromeWidth;
+  const contentInputWidth = Math.max(1, contentWidth);
+  const contentStatusWidth = Math.max(1, contentInputWidth - 2);
   const isCompact = mode === "very-narrow";
   const integratedIntro =
     showIntroChrome && typeof greeting === "string" && rows >= 32;
@@ -388,7 +392,7 @@ export function App({
   }, [items.length]);
 
   const visibleTranscriptRows = synergyEvent
-    ? Math.max(1, maxTranscriptRows - synergyEventRows(chromeWidth, isCompact))
+    ? Math.max(1, maxTranscriptRows - synergyEventRows(contentWidth, isCompact))
     : maxTranscriptRows;
   const estimatedTranscriptRows = useMemo(
     () => estimateTranscriptRows(items, isCompact, chromeWidth),
@@ -973,13 +977,6 @@ export function App({
     />
   );
   const dealDeskHeader = renderDealDeskHeader(chromeWidth);
-  const showPetPanel = cols >= 90;
-  const contentWidth = showPetPanel ? Math.max(1, cols - PET_PANEL_WIDTH) : chromeWidth;
-  const contentInputWidth = Math.max(1, contentWidth);
-  const contentStatusWidth = Math.max(1, contentInputWidth - 2);
-  const visibleTranscriptRows = synergyEvent
-    ? Math.max(1, maxTranscriptRows - synergyEventRows(contentWidth, isCompact))
-    : maxTranscriptRows;
   const introBarColor = introPhaseColor(intro.colorPhase, t);
 
   if (isDead) {
