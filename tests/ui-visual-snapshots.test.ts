@@ -65,7 +65,7 @@ function renderVisual(width: number): string {
         React.createElement(StatusBar, {
           messageCount: 6,
           witticism: "Cash flow is argument with receipts.",
-          maxWidth: Math.max(1, width - 2),
+          maxWidth: width,
           scrollHint: "PageUp scrollback",
           compact: width < 60,
         }),

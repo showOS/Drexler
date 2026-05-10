@@ -124,7 +124,7 @@ export function App({ conversation, config, mood = "neutral", fetchFn }: AppProp
   const mode = useMemo(() => pickLayout(cols), [cols]);
   const inputWidth = useMemo(() => Math.max(1, cols), [cols]);
   const chromeWidth = useMemo(() => Math.max(1, cols), [cols]);
-  const statusBarWidth = useMemo(() => Math.max(1, inputWidth - 2), [inputWidth]);
+  const statusBarWidth = inputWidth;
   const isCompact = mode === "very-narrow";
   const maxTranscriptRows = useMemo(
     () => transcriptRowsForTerminalRows(rows),
@@ -776,7 +776,7 @@ export function App({ conversation, config, mood = "neutral", fetchFn }: AppProp
                   width={inputWidth}
                 />
               </Box>
-              <Box paddingLeft={2}>
+              <Box>
                 <StatusBar
                   messageCount={msgCount}
                   witticism={witticism}

@@ -103,8 +103,12 @@ function itemRows(
   cols: number,
 ): number {
   if (compact) return 1;
-  const bodyPrefix = `${ROLE_MARKERS[item.role]}  `;
-  const contentWidth = Math.max(1, cols - displayWidth(bodyPrefix));
+  const bodyPrefix = "│ › ";
+  const bodySuffix = " │";
+  const contentWidth = Math.max(
+    1,
+    cols - displayWidth(bodyPrefix) - displayWidth(bodySuffix),
+  );
   return 2 + wrappedContentRows(item.content, contentWidth).length;
 }
 
@@ -162,31 +166,41 @@ function DefaultTranscriptItem({
   }
 
   const headerPrefix = `╭─ ${label} `;
-  const headerRuleWidth = Math.max(0, cols - displayWidth(headerPrefix));
-  const footerWidth = Math.max(1, cols - 1);
-  const bodyPrefix = `${ROLE_MARKERS[item.role]}  `;
-  const contentWidth = Math.max(1, cols - displayWidth(bodyPrefix));
+  const headerRuleWidth = Math.max(0, cols - displayWidth(headerPrefix) - 1);
+  const footerWidth = Math.max(0, cols - 2);
+  const bodyPrefix = item.role === "user" ? "│ › " : "│   ";
+  const continuationPrefix = "│   ";
+  const bodySuffix = " │";
+  const contentWidth = Math.max(
+    1,
+    cols - displayWidth(bodyPrefix) - displayWidth(bodySuffix),
+  );
 
   return (
     <Box flexDirection="column" width={cols} flexShrink={1}>
       <Text color={accent} bold wrap="truncate">
         {fitDisplayText(
-          `${headerPrefix}${rule("─", headerRuleWidth)}`,
+          `${headerPrefix}${rule("─", headerRuleWidth)}╮`,
           cols,
         )}
       </Text>
       {wrappedContentRows(item.content, contentWidth).map((line, index) => (
         <Box key={index} width={cols} flexShrink={1}>
           <Text color={accent} bold={item.role === "user"}>
-            {index === 0 || item.role === "assistant" ? bodyPrefix : "   "}
+            {index === 0 ? bodyPrefix : continuationPrefix}
           </Text>
           <Text color={roleBodyColor(item.role, t)}>
-            {line}
+            {fitDisplayText(line, contentWidth)}
+          </Text>
+          <Text color={accent} bold={item.role === "user"}>
+            {`${" ".repeat(
+              Math.max(0, contentWidth - displayWidth(line)),
+            )}${bodySuffix}`}
           </Text>
         </Box>
       ))}
       <Text color={accent} bold={item.role === "user"} wrap="truncate">
-        {fitDisplayText(`╰${rule("─", footerWidth)}`, cols)}
+        {fitDisplayText(`╰${rule("─", footerWidth)}╯`, cols)}
       </Text>
     </Box>
   );

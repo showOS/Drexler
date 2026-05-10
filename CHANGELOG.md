@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.10
+
+- Closed transcript turn blocks with right-side borders and corners so user and Drexler cards align with the input frame.
+- Aligned the status row with the main chat chrome.
+
 ## 0.2.9
 
 - Removed transcript card side labels like `incoming memo` and `response ledger`.
