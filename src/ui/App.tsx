@@ -41,7 +41,6 @@ import { ThemeProvider } from "./ThemeContext.tsx";
 import { TranscriptViewport } from "./TranscriptViewport.tsx";
 import { getActiveTheme, THEMES } from "./themes.ts";
 
-const MAX_INPUT_WIDTH = 80;
 const TRANSCRIPT_CHROME_ROWS = 12;
 
 export function transcriptRowsForTerminalRows(rows: number): number {
@@ -111,14 +110,8 @@ export function App({ conversation, config, mood = "neutral", fetchFn }: AppProp
     };
   }, [stdout]);
   const mode = useMemo(() => pickLayout(cols), [cols]);
-  const inputWidth = useMemo(
-    () => Math.max(1, Math.min(cols, MAX_INPUT_WIDTH)),
-    [cols],
-  );
-  const chromeWidth = useMemo(
-    () => Math.max(1, Math.min(cols, MAX_INPUT_WIDTH)),
-    [cols],
-  );
+  const inputWidth = useMemo(() => Math.max(1, cols), [cols]);
+  const chromeWidth = useMemo(() => Math.max(1, cols), [cols]);
   const statusBarWidth = useMemo(() => Math.max(1, inputWidth - 2), [inputWidth]);
   const isCompact = mode === "very-narrow";
   const maxTranscriptRows = useMemo(

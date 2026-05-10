@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3
+
+- Restored full-terminal-width interactive chrome, including the chat input bar.
+
 ## 0.2.2
 
 - Added argument suggestions in the slash command palette for `/theme`, `/startup`, `/retry`, `/export`, and `/model`.

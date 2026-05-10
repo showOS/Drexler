@@ -77,4 +77,20 @@ describe("InputBox", () => {
       expect(visibleLength(row)).toBeLessThanOrEqual(5);
     }
   });
+
+  test("can render a full-width terminal input bar", () => {
+    const width = 132;
+    const rendered = renderInput({
+      value: "",
+      cursor: 0,
+      disabled: false,
+      width,
+    });
+
+    const rows = rendered.split("\n");
+    expect(rows.some((row) => visibleLength(row) === width)).toBe(true);
+    for (const row of rows) {
+      expect(visibleLength(row)).toBeLessThanOrEqual(width);
+    }
+  });
 });
