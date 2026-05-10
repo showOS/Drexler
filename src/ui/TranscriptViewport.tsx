@@ -27,13 +27,16 @@ export interface TranscriptViewportProps {
 
 interface TranscriptEntry {
   key: string;
-  node: ReactNode | ((clipTo?: number) => ReactNode);
+  node:
+    | ReactNode
+    | ((clipTo?: { readonly start: number; readonly rows: number }) => ReactNode);
   estimatedRows: number;
 }
 
 interface VisibleEntry {
   entry: TranscriptEntry;
-  clipTo?: number;
+  clipStart?: number;
+  clipRows?: number;
 }
 
 const DEFAULT_MAX_ROWS = 18;
@@ -43,8 +46,9 @@ const HEADER_FOOTER_ROWS = 2;
 const TRUNCATION_HINT_ROWS = 1;
 const MIN_TRUNCATED_BODY_ROWS = 1;
 
-function truncationHint(dropped: number): string {
-  return `... ${dropped} line${dropped === 1 ? "" : "s"} truncated — PageUp scrollback to read`;
+function truncationHint(dropped: number, direction: "earlier" | "newer"): string {
+  const keyHint = direction === "earlier" ? "PageUp scrollback" : "PageDown newer";
+  return `... ${dropped} line${dropped === 1 ? "" : "s"} ${direction} — ${keyHint} to read`;
 }
 
 const ROLE_LABELS: Record<TranscriptViewportItem["role"], string> = {
@@ -310,6 +314,14 @@ function tokenizeCodeLine(line: string): CodeToken[] {
   return tokens;
 }
 
+export function estimateTranscriptRows(
+  items: readonly TranscriptViewportItem[],
+  compact: boolean,
+  cols: number,
+): number {
+  return items.reduce((sum, item) => sum + itemRows(item, compact, cols), 0);
+}
+
 function itemRows(
   item: TranscriptViewportItem,
   compact: boolean,
@@ -345,11 +357,13 @@ function DefaultTranscriptItem({
   item,
   compact,
   cols,
+  clipStart = 0,
   maxRows,
 }: {
   item: TranscriptViewportItem;
   compact: boolean;
   cols: number;
+  clipStart?: number;
   maxRows?: number;
 }) {
   const t = useTheme();
@@ -383,7 +397,7 @@ function DefaultTranscriptItem({
       );
     });
 
-  if (compact) {
+  if (compact || (maxRows !== undefined && maxRows < HEADER_FOOTER_ROWS + 1)) {
     const marker = item.role === "assistant" ? "◆" : ROLE_MARKERS[item.role];
     const prefix = `${label} ${marker} `;
     const budget = Math.max(1, cols - displayWidth(prefix));
@@ -414,12 +428,37 @@ function DefaultTranscriptItem({
       MIN_TRUNCATED_BODY_ROWS,
       maxRows - HEADER_FOOTER_ROWS,
     );
-    if (allDisplayLines.length > bodyBudget) {
-      const keep = Math.max(0, bodyBudget - TRUNCATION_HINT_ROWS);
-      const dropped = allDisplayLines.length - keep;
+    const bodyStart = Math.max(0, Math.min(allDisplayLines.length, clipStart - 1));
+    const before = bodyStart;
+    const afterAvailable = Math.max(0, allDisplayLines.length - bodyStart);
+    const needsTopHint = before > 0;
+    const needsBottomHint = afterAvailable > bodyBudget;
+    const hintRows =
+      (needsTopHint ? TRUNCATION_HINT_ROWS : 0) +
+      (needsBottomHint ? TRUNCATION_HINT_ROWS : 0);
+    const keep = Math.max(0, bodyBudget - hintRows);
+    const bodyEnd = Math.min(allDisplayLines.length, bodyStart + keep);
+    if (needsTopHint || bodyEnd < allDisplayLines.length) {
+      const droppedBefore = before;
+      const droppedAfter = allDisplayLines.length - bodyEnd;
       displayLines = [
-        ...allDisplayLines.slice(0, keep),
-        { kind: "text", text: truncationHint(dropped) },
+        ...(droppedBefore > 0
+          ? [
+              {
+                kind: "text" as const,
+                text: truncationHint(droppedBefore, "earlier"),
+              },
+            ]
+          : []),
+        ...allDisplayLines.slice(bodyStart, bodyEnd),
+        ...(droppedAfter > 0
+          ? [
+              {
+                kind: "text" as const,
+                text: truncationHint(droppedAfter, "newer"),
+              },
+            ]
+          : []),
       ];
     }
   }
@@ -498,12 +537,13 @@ function itemsToEntries({
     key: String(item.id ?? index),
     node: renderItem
       ? renderItem(item, index)
-      : (clipTo?: number) => (
+      : (clipTo?: { readonly start: number; readonly rows: number }) => (
           <DefaultTranscriptItem
             item={item}
             compact={compact}
             cols={cols}
-            maxRows={clipTo}
+            clipStart={clipTo?.start}
+            maxRows={clipTo?.rows}
           />
         ),
     estimatedRows: itemRows(item, compact, cols),
@@ -532,63 +572,87 @@ function selectWindow(
   }
 
   const safeRows = Math.max(1, Math.floor(maxRows));
-  const safeOffset = Math.max(0, Math.min(Math.floor(scrollOffset), entries.length - 1));
-  const end = entries.length - safeOffset;
-  let reserveTop = 0;
-  const reserveBottom = safeOffset > 0 ? 1 : 0;
-  let start = Math.max(0, end - 1);
+  const rowCounts = entries.map((entry) => Math.max(1, entry.estimatedRows));
+  const totalRows = rowCounts.reduce((sum, rows) => sum + rows, 0);
+  const maxOffset = Math.max(0, totalRows - 1);
+  const safeOffset = Math.max(0, Math.min(Math.floor(scrollOffset), maxOffset));
+  const endRow = Math.max(1, totalRows - safeOffset);
+  let indicatorRows = 0;
+  let startRow = Math.max(0, endRow - safeRows);
 
   for (let pass = 0; pass < 3; pass++) {
-    const budget = Math.max(1, safeRows - reserveTop - reserveBottom);
-    let used = 0;
-    start = end;
-
-    while (start > 0) {
-      const entry = entries[start - 1]!;
-      const rows = Math.max(1, entry.estimatedRows);
-      if (used > 0 && used + rows > budget) break;
-      start -= 1;
-      used += rows;
-      if (used >= budget) break;
-    }
-
-    const nextReserveTop = start > 0 ? 1 : 0;
-    if (nextReserveTop === reserveTop) break;
-    reserveTop = nextReserveTop;
+    const hiddenBeforeRows = startRow;
+    const hiddenAfterRows = Math.max(0, totalRows - endRow);
+    const nextIndicatorRows = Math.min(
+      safeRows - 1,
+      (hiddenBeforeRows > 0 ? 1 : 0) + (hiddenAfterRows > 0 ? 1 : 0),
+    );
+    if (nextIndicatorRows === indicatorRows) break;
+    indicatorRows = nextIndicatorRows;
+    startRow = Math.max(0, endRow - Math.max(1, safeRows - indicatorRows));
   }
 
-  const slice = entries.slice(start, end);
-  const visible: VisibleEntry[] = slice.map((entry) => ({ entry }));
-  const totalVisibleRows = slice.reduce(
-    (sum, entry) => sum + Math.max(1, entry.estimatedRows),
-    0,
-  );
-  let hiddenBefore = start;
-  let hiddenAfter = entries.length - end;
-  let hiddenRowsBefore = entries
-    .slice(0, start)
-    .reduce((s, e) => s + Math.max(1, e.estimatedRows), 0);
-  let hiddenRowsAfter = entries
-    .slice(end)
-    .reduce((s, e) => s + Math.max(1, e.estimatedRows), 0);
-  const indicatorRows =
-    (hiddenBefore > 0 ? 1 : 0) + (hiddenAfter > 0 ? 1 : 0);
-  // Minimum render of a single transcript card: header + footer + 1 body row.
-  const MIN_ITEM_ROWS = HEADER_FOOTER_ROWS + MIN_TRUNCATED_BODY_ROWS;
-  const hardBudget = Math.max(MIN_ITEM_ROWS, safeRows - indicatorRows);
-  if (visible.length === 1 && totalVisibleRows > hardBudget) {
-    visible[0]!.clipTo = hardBudget;
+  const buildVisible = (fromRow: number, toRow: number): VisibleEntry[] => {
+    const next: VisibleEntry[] = [];
+    let rowCursor = 0;
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i]!;
+      const rows = rowCounts[i]!;
+      const entryStart = rowCursor;
+      const entryEnd = rowCursor + rows;
+      rowCursor = entryEnd;
+      const overlapStart = Math.max(fromRow, entryStart);
+      const overlapEnd = Math.min(toRow, entryEnd);
+      if (overlapStart >= overlapEnd) continue;
+      next.push({
+        entry,
+        clipStart: overlapStart - entryStart,
+        clipRows: overlapEnd - overlapStart,
+      });
+    }
+    return next;
+  };
+
+  let visible = buildVisible(startRow, endRow);
+  if (
+    indicatorRows > 0 &&
+    visible.some(
+      ({ entry, clipRows }) =>
+        entry.estimatedRows >= HEADER_FOOTER_ROWS + MIN_TRUNCATED_BODY_ROWS &&
+        (clipRows ?? entry.estimatedRows) <
+          HEADER_FOOTER_ROWS + MIN_TRUNCATED_BODY_ROWS,
+    )
+  ) {
+    indicatorRows = 0;
+    startRow = Math.max(0, endRow - safeRows);
+    visible = buildVisible(startRow, endRow);
   }
-  const clippedRows = visible[0]?.clipTo ?? totalVisibleRows;
-  if (clippedRows + indicatorRows > safeRows) {
-    if (hiddenBefore > 0) {
-      hiddenBefore = 0;
-      hiddenRowsBefore = 0;
-    }
-    if (clippedRows + (hiddenAfter > 0 ? 1 : 0) > safeRows) {
-      hiddenAfter = 0;
-      hiddenRowsAfter = 0;
-    }
+
+  let hiddenBefore = 0;
+  let hiddenAfter = 0;
+  let cursor = 0;
+  for (let i = 0; i < entries.length; i++) {
+    const rows = rowCounts[i]!;
+    const entryStart = cursor;
+    const entryEnd = cursor + rows;
+    cursor = entryEnd;
+    if (entryEnd <= startRow) hiddenBefore += 1;
+    else if (entryStart < startRow && entryEnd > startRow) hiddenBefore += 1;
+    if (entryStart >= endRow) hiddenAfter += 1;
+    else if (entryStart < endRow && entryEnd > endRow) hiddenAfter += 1;
+  }
+  let hiddenRowsBefore = startRow;
+  let hiddenRowsAfter = Math.max(0, totalRows - endRow);
+  const showTopIndicator = indicatorRows > 0 && hiddenRowsBefore > 0;
+  const showBottomIndicator =
+    indicatorRows > (showTopIndicator ? 1 : 0) && hiddenRowsAfter > 0;
+  if (!showTopIndicator) {
+    hiddenBefore = 0;
+    hiddenRowsBefore = 0;
+  }
+  if (!showBottomIndicator) {
+    hiddenAfter = 0;
+    hiddenRowsAfter = 0;
   }
 
   return {
@@ -615,9 +679,10 @@ function ScrollIndicator({
 }) {
   const t = useTheme();
   const arrow = direction === "earlier" ? "↑" : "↓";
+  const keyHint = direction === "earlier" ? "PageUp scrollback" : "PageDown newer";
   const label = compact
     ? `${arrow} ${rows} ${direction}`
-    : `${arrow} ${rows} line${rows === 1 ? "" : "s"} ${direction} (${count} item${count === 1 ? "" : "s"} hidden) — PageUp scrollback`;
+    : `${arrow} ${rows} line${rows === 1 ? "" : "s"} ${direction} (${count} item${count === 1 ? "" : "s"} hidden) — ${keyHint}`;
 
   return (
     <Box width={cols} flexShrink={1}>
@@ -667,9 +732,15 @@ function TranscriptViewportInner({
           cols={width}
         />
       ) : null}
-      {visible.map(({ entry, clipTo }) => (
+      {visible.map(({ entry, clipStart, clipRows }) => (
         <Box key={entry.key} flexDirection="column" width={width} flexShrink={1}>
-          {typeof entry.node === "function" ? entry.node(clipTo) : entry.node}
+          {typeof entry.node === "function"
+            ? entry.node(
+                clipRows === undefined
+                  ? undefined
+                  : { start: clipStart ?? 0, rows: clipRows },
+              )
+            : entry.node}
         </Box>
       ))}
       {hiddenAfter > 0 ? (

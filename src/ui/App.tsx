@@ -66,7 +66,10 @@ import {
   type SynergyEventDefinition,
 } from "./SynergyEvent.tsx";
 import { ThemeProvider } from "./ThemeContext.tsx";
-import { TranscriptViewport } from "./TranscriptViewport.tsx";
+import {
+  estimateTranscriptRows,
+  TranscriptViewport,
+} from "./TranscriptViewport.tsx";
 import { getActiveTheme } from "./themes.ts";
 
 const TRANSCRIPT_CHROME_ROWS = 12;
@@ -78,15 +81,22 @@ export function transcriptRowsForTerminalRows(rows: number): number {
 export function nextTranscriptScrollOffset({
   current,
   itemCount,
+  totalRows,
+  visibleRows,
   direction,
   step = 3,
 }: {
   current: number;
-  itemCount: number;
+  itemCount?: number;
+  totalRows?: number;
+  visibleRows?: number;
   direction: "older" | "newer";
   step?: number;
 }): number {
-  const maxOffset = Math.max(0, itemCount - 1);
+  const maxOffset =
+    totalRows !== undefined
+      ? Math.max(0, totalRows - Math.max(1, visibleRows ?? 1))
+      : Math.max(0, (itemCount ?? 0) - 1);
   if (direction === "older") {
     return Math.min(maxOffset, current + step);
   }
@@ -377,10 +387,17 @@ export function App({
     setScrollOffset(0);
   }, [items.length]);
 
+  const visibleTranscriptRows = synergyEvent
+    ? Math.max(1, maxTranscriptRows - synergyEventRows(chromeWidth, isCompact))
+    : maxTranscriptRows;
+  const estimatedTranscriptRows = useMemo(
+    () => estimateTranscriptRows(items, isCompact, chromeWidth),
+    [items, isCompact, chromeWidth],
+  );
   const scrollHint = useMemo(() => {
-    if (items.length <= maxTranscriptRows) return undefined;
+    if (estimatedTranscriptRows <= visibleTranscriptRows) return undefined;
     return scrollOffset > 0 ? "PageDown newer" : "PageUp scrollback";
-  }, [items.length, maxTranscriptRows, scrollOffset]);
+  }, [estimatedTranscriptRows, visibleTranscriptRows, scrollOffset]);
 
   // throttle streaming updates so React doesn't re-render every token
   const streamBufRef = useRef("");
@@ -730,7 +747,8 @@ export function App({
       setScrollOffset((offset) =>
         nextTranscriptScrollOffset({
           current: offset,
-          itemCount: items.length,
+          totalRows: estimatedTranscriptRows,
+          visibleRows: visibleTranscriptRows,
           direction: "older",
         }),
       );
@@ -740,7 +758,8 @@ export function App({
       setScrollOffset((offset) =>
         nextTranscriptScrollOffset({
           current: offset,
-          itemCount: items.length,
+          totalRows: estimatedTranscriptRows,
+          visibleRows: visibleTranscriptRows,
           direction: "newer",
         }),
       );

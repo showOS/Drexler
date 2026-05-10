@@ -386,18 +386,30 @@ describe("TranscriptViewport", () => {
     expect(rendered).toContain("new memo");
   });
 
-  test("scrollOffset exposes older transcript with newer indicator", () => {
+  test("uses compact fallback when maxRows is below framed-card height", () => {
+    const rendered = renderViewport({
+      items: [{ id: "new", role: "assistant", content: "new memo" }],
+      maxRows: 2,
+      cols: 44,
+    });
+
+    const rows = rendered.split("\n").filter(Boolean);
+    expect(rows.length).toBeLessThanOrEqual(2);
+    expect(rendered).toContain("DREXLER ◆ new memo");
+    expect(rendered).not.toContain("╭─ DREXLER");
+  });
+
+  test("scrollOffset exposes older transcript rows", () => {
     const rendered = renderViewport({
       items,
       maxRows: 9,
       cols: 60,
-      scrollOffset: 2,
+      scrollOffset: 8,
     });
 
-    expect(rendered).toMatch(/newer .* PageUp scrollback/);
-    expect(rendered).toContain("items hidden");
+    expect(rendered).toContain("memo 1");
+    expect(rendered).toContain("memo 2");
     expect(rendered).toContain("memo 3");
-    expect(rendered).toContain("memo 4");
     expect(rendered).not.toContain("memo 6");
   });
 
@@ -410,9 +422,26 @@ describe("TranscriptViewport", () => {
     });
     const rows = rendered.split("\n").filter(Boolean);
     expect(rows.length).toBeLessThanOrEqual(8);
-    expect(rendered).toMatch(/\.\.\. \d+ lines? truncated — PageUp scrollback to read/);
+    expect(rendered).toMatch(/\.\.\. \d+ lines? earlier — PageUp scrollback to read/);
+    expect(rendered).toContain("memo line 55");
+    expect(rendered).not.toContain("memo line 1");
+  });
+
+  test("scrollOffset can page through a single oversize assistant response", () => {
+    const longContent = Array.from({ length: 60 }, (_, i) => `memo line ${i + 1}`).join("\n");
+    const rendered = renderViewport({
+      items: [{ id: "huge", role: "assistant", content: longContent }],
+      maxRows: 8,
+      cols: 60,
+      scrollOffset: 56,
+    });
+
+    const rows = rendered.split("\n").filter(Boolean);
+    expect(rows.length).toBeLessThanOrEqual(8);
     expect(rendered).toContain("memo line 1");
-    expect(rendered).not.toContain("memo line 60");
+    expect(rendered).toContain("memo line 2");
+    expect(rendered).toMatch(/\.\.\. \d+ lines? newer — PageDown newer to read/);
+    expect(rendered).toMatch(/newer .* PageDown newer/);
   });
 
   test("scroll indicator reports rows in addition to item counts", () => {

@@ -108,6 +108,33 @@ describe("App state helpers", () => {
     ).toBe(0);
   });
 
+  test("scroll offset can use rendered row bounds for oversized cards", () => {
+    expect(
+      nextTranscriptScrollOffset({
+        current: 0,
+        totalRows: 60,
+        visibleRows: 8,
+        direction: "older",
+      }),
+    ).toBe(3);
+    expect(
+      nextTranscriptScrollOffset({
+        current: 51,
+        totalRows: 60,
+        visibleRows: 8,
+        direction: "older",
+      }),
+    ).toBe(52);
+    expect(
+      nextTranscriptScrollOffset({
+        current: 2,
+        totalRows: 60,
+        visibleRows: 8,
+        direction: "newer",
+      }),
+    ).toBe(0);
+  });
+
   test("App renders the integrated initial chrome", () => {
     const ctx = makeCtx();
     const fetchFn: FetchFn = async () =>
