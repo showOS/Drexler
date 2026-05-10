@@ -22,20 +22,57 @@ describe("selectTheme priority", () => {
 
   test("flag wins over env and config", () => {
     expect(
-      selectTheme({ flag: "amber", env: "mono", configValue: "apollo" }),
-    ).toBe("amber");
+      selectTheme({ flag: "plasma", env: "mono", configValue: "apollo" }),
+    ).toBe("plasma");
   });
 
   test("env wins over config when no flag", () => {
-    expect(selectTheme({ env: "mono", configValue: "apollo" })).toBe("mono");
+    expect(selectTheme({ env: "midnight", configValue: "apollo" })).toBe(
+      "midnight",
+    );
   });
 
   test("config used when no flag/env", () => {
-    expect(selectTheme({ configValue: "amber" })).toBe("amber");
+    expect(selectTheme({ configValue: "dealroom" })).toBe("dealroom");
   });
 
   test("default is apollo when nothing supplied", () => {
     expect(selectTheme({})).toBe("apollo");
+  });
+});
+
+describe("theme registry", () => {
+  test("contains the launch/config theme pack", () => {
+    expect(Object.keys(THEMES).sort()).toEqual(
+      [
+        "amber",
+        "apollo",
+        "dealroom",
+        "midnight",
+        "mono",
+        "paper",
+        "plasma",
+        "terminal",
+      ].sort(),
+    );
+  });
+
+  test("new premium themes have required color slots", () => {
+    for (const name of [
+      "terminal",
+      "dealroom",
+      "midnight",
+      "paper",
+      "plasma",
+    ] as const) {
+      expect(THEMES[name].primary).toBeTruthy();
+      expect(THEMES[name].primaryLight).toBeTruthy();
+      expect(THEMES[name].primaryDim).toBeTruthy();
+      expect(THEMES[name].text).toBeTruthy();
+      expect(THEMES[name].dim).toBeTruthy();
+      expect(THEMES[name].error).toBeTruthy();
+      expect(THEMES[name].warning).toBeTruthy();
+    }
   });
 });
 
@@ -60,7 +97,7 @@ describe("selectTheme NO_COLOR handling", () => {
 
   test('NO_COLOR="" (empty) does NOT force mono', () => {
     process.env.NO_COLOR = "";
-    expect(selectTheme({ flag: "amber" })).toBe("amber");
+    expect(selectTheme({ flag: "paper" })).toBe("paper");
   });
 });
 
@@ -94,8 +131,8 @@ describe("setActiveTheme + getActiveTheme round-trip", () => {
   test("setActiveTheme updates active theme returned by getActiveTheme", () => {
     setActiveTheme("amber");
     expect(getActiveTheme()).toBe(THEMES.amber);
-    setActiveTheme("mono");
-    expect(getActiveTheme()).toBe(THEMES.mono);
+    setActiveTheme("plasma");
+    expect(getActiveTheme()).toBe(THEMES.plasma);
     setActiveTheme("apollo");
     expect(getActiveTheme()).toBe(THEMES.apollo);
   });

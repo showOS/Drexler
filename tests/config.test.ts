@@ -48,9 +48,18 @@ describe("parseFlags", () => {
     expect(parseFlags(["--theme=mono"])).toEqual({ theme: "mono" });
   });
 
+  test("parses --no-intro", () => {
+    expect(parseFlags(["--no-intro"])).toEqual({ noIntro: true });
+  });
+
+  test("parses --fast", () => {
+    expect(parseFlags(["--fast"])).toEqual({ fast: true });
+  });
+
   test("does not consume another flag as a missing value", () => {
-    expect(parseFlags(["--model", "--theme", "amber"])).toEqual({
+    expect(parseFlags(["--model", "--theme", "amber", "--no-intro"])).toEqual({
       theme: "amber",
+      noIntro: true,
     });
   });
 });
@@ -325,6 +334,9 @@ describe("ensureApiKey + resolveConfig (no-prompt paths)", () => {
   let origEnvKey: string | undefined;
   let origEnvModel: string | undefined;
   let origXdg: string | undefined;
+  let origTheme: string | undefined;
+  let origNoIntro: string | undefined;
+  let origFast: string | undefined;
   let dir: string;
 
   beforeEach(async () => {
@@ -333,10 +345,16 @@ describe("ensureApiKey + resolveConfig (no-prompt paths)", () => {
     origEnvKey = process.env.OPENROUTER_API_KEY;
     origEnvModel = process.env.DREXLER_MODEL;
     origXdg = process.env.XDG_CONFIG_HOME;
+    origTheme = process.env.DREXLER_THEME;
+    origNoIntro = process.env.DREXLER_NO_INTRO;
+    origFast = process.env.DREXLER_FAST;
     process.env.HOME = dir;
     delete process.env.OPENROUTER_API_KEY;
     delete process.env.DREXLER_MODEL;
     delete process.env.XDG_CONFIG_HOME;
+    delete process.env.DREXLER_THEME;
+    delete process.env.DREXLER_NO_INTRO;
+    delete process.env.DREXLER_FAST;
   });
 
   afterEach(async () => {
@@ -348,6 +366,12 @@ describe("ensureApiKey + resolveConfig (no-prompt paths)", () => {
     else delete process.env.DREXLER_MODEL;
     if (origXdg !== undefined) process.env.XDG_CONFIG_HOME = origXdg;
     else delete process.env.XDG_CONFIG_HOME;
+    if (origTheme !== undefined) process.env.DREXLER_THEME = origTheme;
+    else delete process.env.DREXLER_THEME;
+    if (origNoIntro !== undefined) process.env.DREXLER_NO_INTRO = origNoIntro;
+    else delete process.env.DREXLER_NO_INTRO;
+    if (origFast !== undefined) process.env.DREXLER_FAST = origFast;
+    else delete process.env.DREXLER_FAST;
     await rm(dir, { recursive: true, force: true });
   });
 
@@ -484,33 +508,72 @@ describe("ensureApiKey + resolveConfig (no-prompt paths)", () => {
 
   test("resolveConfig --theme flag wins over env DREXLER_THEME", async () => {
     process.env.OPENROUTER_API_KEY = "sk-or-key-padding1234567890ab";
-    const origTheme = process.env.DREXLER_THEME;
     process.env.DREXLER_THEME = "mono";
-    try {
-      const cfg = await resolveConfig(["--theme", "amber"]);
-      expect(cfg.theme).toBe("amber");
-    } finally {
-      if (origTheme !== undefined) process.env.DREXLER_THEME = origTheme;
-      else delete process.env.DREXLER_THEME;
-    }
+    const cfg = await resolveConfig(["--theme", "amber"]);
+    expect(cfg.theme).toBe("amber");
   });
 
   test("resolveConfig env DREXLER_THEME used when no flag", async () => {
     process.env.OPENROUTER_API_KEY = "sk-or-key-padding1234567890ab";
-    const origTheme = process.env.DREXLER_THEME;
-    process.env.DREXLER_THEME = "mono";
-    try {
-      const cfg = await resolveConfig([]);
-      expect(cfg.theme).toBe("mono");
-    } finally {
-      if (origTheme !== undefined) process.env.DREXLER_THEME = origTheme;
-      else delete process.env.DREXLER_THEME;
-    }
+    process.env.DREXLER_THEME = "midnight";
+    const cfg = await resolveConfig([]);
+    expect(cfg.theme).toBe("midnight");
+  });
+
+  test("resolveConfig file theme can use the premium theme pack", async () => {
+    await saveConfig({
+      apiKey: "sk-or-key-padding1234567890ab",
+      theme: "dealroom",
+    });
+    const cfg = await resolveConfig([]);
+    expect(cfg.theme).toBe("dealroom");
   });
 
   test("resolveConfig invalid theme value is ignored (theme undefined)", async () => {
     process.env.OPENROUTER_API_KEY = "sk-or-key-padding1234567890ab";
     const cfg = await resolveConfig(["--theme", "neon"]);
     expect(cfg.theme).toBeUndefined();
+  });
+
+  test("resolveConfig --no-intro flag overrides config false", async () => {
+    await saveConfig({
+      apiKey: "sk-or-key-padding1234567890ab",
+      noIntro: false,
+    });
+    const cfg = await resolveConfig(["--no-intro"]);
+    expect(cfg.noIntro).toBe(true);
+  });
+
+  test("resolveConfig reads noIntro and fast from config booleans", async () => {
+    await saveConfig({
+      apiKey: "sk-or-key-padding1234567890ab",
+      noIntro: true,
+      fast: true,
+    });
+    const cfg = await resolveConfig([]);
+    expect(cfg.noIntro).toBe(true);
+    expect(cfg.fast).toBe(true);
+  });
+
+  test("resolveConfig reads noIntro and fast from env booleans", async () => {
+    process.env.OPENROUTER_API_KEY = "sk-or-key-padding1234567890ab";
+    process.env.DREXLER_NO_INTRO = "yes";
+    process.env.DREXLER_FAST = "1";
+    const cfg = await resolveConfig([]);
+    expect(cfg.noIntro).toBe(true);
+    expect(cfg.fast).toBe(true);
+  });
+
+  test("resolveConfig lets env false override config true for startup booleans", async () => {
+    await saveConfig({
+      apiKey: "sk-or-key-padding1234567890ab",
+      noIntro: true,
+      fast: true,
+    });
+    process.env.DREXLER_NO_INTRO = "false";
+    process.env.DREXLER_FAST = "0";
+    const cfg = await resolveConfig([]);
+    expect(cfg.noIntro).toBe(false);
+    expect(cfg.fast).toBe(false);
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import {
   COMMAND_PALETTE,
   dispatch,
@@ -9,6 +9,11 @@ import {
 import { Conversation } from "../src/conversation.ts";
 import { MODEL_FALLBACK, MODEL_PRIMARY } from "../src/types.ts";
 import type { Config } from "../src/types.ts";
+import { getActiveTheme, setActiveTheme, THEMES } from "../src/ui/themes.ts";
+
+afterEach(() => {
+  setActiveTheme("apollo");
+});
 
 function makeCtx() {
   const conversation = new Conversation("SYS", 50);
@@ -48,7 +53,16 @@ describe("dispatch (V7, V8, V16, V17)", () => {
     const { ctx, out } = makeCtx();
     const action = dispatch("/help", ctx);
     expect(action.type).toBe("continue");
-    expect(out.join("\n")).toMatch(/Drexler permit following/);
+    const printed = out.join("\n");
+    expect(printed).toMatch(/Drexler permit following/);
+    expect(printed).toContain("/search <term>");
+    expect(printed).toContain("/export <fmt> [path]");
+    expect(printed).toContain("/startup");
+    expect(printed).toContain("/retry [style]");
+    expect(printed).toContain("/expand");
+    expect(printed).toContain("/quote");
+    expect(printed).toContain("/save-last [path]");
+    expect(printed).toContain("/copy-last");
   });
 
   test("/HELP works case-insensitive (V8)", () => {
@@ -103,6 +117,96 @@ describe("dispatch (V7, V8, V16, V17)", () => {
     expect(out.join("\n")).toMatch(/Unknown model/);
   });
 
+  test("/theme with no arg shows current runtime theme", () => {
+    setActiveTheme("amber");
+    const { ctx, out } = makeCtx();
+    dispatch("/theme", ctx);
+    expect(out.join("\n")).toContain("Current theme: amber");
+  });
+
+  test("/theme display prefers active runtime theme over config", () => {
+    setActiveTheme("mono");
+    const { ctx, out } = makeCtx();
+    ctx.config.theme = "amber";
+    dispatch("/theme", ctx);
+    expect(out.join("\n")).toContain("Current theme: mono");
+  });
+
+  test("/theme <name> switches active theme and mutates config", () => {
+    const { ctx, out } = makeCtx();
+    dispatch("/theme midnight", ctx);
+    expect(ctx.config.theme).toBe("midnight");
+    expect(getActiveTheme()).toBe(THEMES.midnight);
+    expect(out.join("\n")).toMatch(/redecorate boardroom: midnight/);
+  });
+
+  test("/theme <name> save returns persisted theme preference", () => {
+    const { ctx, out } = makeCtx();
+    const action = dispatch("/theme plasma save", ctx);
+    expect(ctx.config.theme).toBe("plasma");
+    expect(out.join("\n")).toContain("save: plasma");
+    expect(action.type).toBe("continue");
+    if (action.type === "continue") {
+      expect(action.persistConfig).toEqual({ theme: "plasma" });
+    }
+  });
+
+  test("/theme save persists current runtime theme", () => {
+    setActiveTheme("midnight");
+    const { ctx } = makeCtx();
+    const action = dispatch("/theme save", ctx);
+    expect(action.type).toBe("continue");
+    if (action.type === "continue") {
+      expect(action.persistConfig).toEqual({ theme: "midnight" });
+    }
+  });
+
+  test("/startup persists startup modes", () => {
+    const { ctx, out } = makeCtx();
+    const fast = dispatch("/startup fast", ctx);
+    expect(ctx.config.fast).toBe(true);
+    expect(ctx.config.noIntro).toBe(true);
+    expect(fast.type).toBe("continue");
+    if (fast.type === "continue") {
+      expect(fast.persistConfig).toEqual({ fast: true, noIntro: true });
+    }
+
+    const normal = dispatch("/startup normal", ctx);
+    expect(normal.type).toBe("continue");
+    if (normal.type === "continue") {
+      expect(normal.persistConfig).toEqual({ fast: false, noIntro: false });
+    }
+    expect(out.join("\n")).toContain("startup mode: fast");
+    expect(out.join("\n")).toContain("full theatrical entrance");
+  });
+
+  test("/startup validates mode", () => {
+    const { ctx, out } = makeCtx();
+    const action = dispatch("/startup neon", ctx);
+    expect(action.type).toBe("continue");
+    if (action.type === "continue") {
+      expect(action.persistConfig).toBeUndefined();
+    }
+    expect(out.join("\n")).toContain("Unknown startup mode");
+  });
+
+  test("/theme is case-insensitive", () => {
+    const { ctx } = makeCtx();
+    dispatch("/theme AMBER", ctx);
+    expect(ctx.config.theme).toBe("amber");
+    expect(getActiveTheme()).toBe(THEMES.amber);
+  });
+
+  test("/theme bad value prints error and leaves theme unchanged", () => {
+    const { ctx, out } = makeCtx();
+    ctx.config.theme = "amber";
+    setActiveTheme("amber");
+    dispatch("/theme neon", ctx);
+    expect(ctx.config.theme).toBe("amber");
+    expect(getActiveTheme()).toBe(THEMES.amber);
+    expect(out.join("\n")).toMatch(/Unknown theme/);
+  });
+
   test("/history prints message count", () => {
     const { ctx, out } = makeCtx();
     ctx.conversation.push("user", "u1");
@@ -130,6 +234,9 @@ describe("dispatch (V7, V8, V16, V17)", () => {
     ctx.conversation.push("assistant", "old reply");
     const action = dispatch("/regenerate", ctx);
     expect(action.type).toBe("regenerate");
+    if (action.type === "regenerate") {
+      expect(action.removedAssistant).toBe(true);
+    }
     const snap = ctx.conversation.snapshot();
     expect(snap[snap.length - 1]?.role).toBe("user");
     expect(snap.some((m) => m.content === "old reply")).toBe(false);
@@ -142,6 +249,58 @@ describe("dispatch (V7, V8, V16, V17)", () => {
     expect(dispatch("/redo", ctx).type).toBe("regenerate");
     ctx.conversation.push("assistant", "a2");
     expect(dispatch("/retry", ctx).type).toBe("regenerate");
+  });
+
+  test("/retry terse injects a hidden style instruction", () => {
+    const { ctx, out } = makeCtx();
+    ctx.conversation.push("user", "hi");
+    ctx.conversation.push("assistant", "a");
+    const action = dispatch("/retry terse", ctx);
+    expect(action.type).toBe("regenerate");
+    if (action.type === "regenerate") {
+      expect(action.instruction).toContain("terse");
+      expect(action.removedAssistant).toBe(true);
+    }
+    expect(out.join("\n")).toContain("Style mandate: terse");
+    const last = ctx.conversation.snapshot().at(-1);
+    expect(last?.role).toBe("user");
+    expect(last?.content).toBe("hi");
+  });
+
+  test("/retry unknown style does not regenerate", () => {
+    const { ctx, out } = makeCtx();
+    ctx.conversation.push("user", "hi");
+    ctx.conversation.push("assistant", "a");
+    const action = dispatch("/retry verbose", ctx);
+    expect(action.type).toBe("continue");
+    expect(out.join("\n")).toContain("Unknown retry style");
+    expect(ctx.conversation.snapshot().at(-1)?.content).toBe("a");
+  });
+
+  test("/regenerate after assistant-less failed turn does not claim an assistant was removed", () => {
+    const { ctx } = makeCtx();
+    ctx.conversation.push("user", "first");
+    ctx.conversation.push("assistant", "first reply");
+    ctx.conversation.push("user", "second");
+    const action = dispatch("/regenerate", ctx);
+    expect(action.type).toBe("regenerate");
+    if (action.type === "regenerate") {
+      expect(action.removedAssistant).toBe(false);
+    }
+    expect(ctx.conversation.snapshot().map((m) => m.content)).toContain(
+      "first reply",
+    );
+  });
+
+  test("/expand and /quote print the latest assistant response", () => {
+    const { ctx, out } = makeCtx();
+    ctx.conversation.push("user", "hi");
+    ctx.conversation.push("assistant", "line one\nline two");
+    dispatch("/expand", ctx);
+    dispatch("/quote", ctx);
+    const printed = out.join("\n");
+    expect(printed).toContain("line one\nline two");
+    expect(printed).toContain("> line one\n> line two");
   });
 });
 
@@ -160,6 +319,8 @@ describe("/save", () => {
       expect(action.type).toBe("continue");
       const md = await readFile(target, "utf-8");
       expect(md).toContain("## You");
+      expect(md).toContain("Model: ");
+      expect(md).toContain("Theme: ");
       expect(md).toContain("hello");
       expect(md).toContain("## Drexler");
       expect(md).toContain("Drexler reply");
@@ -290,6 +451,202 @@ describe("/save", () => {
   });
 });
 
+describe("search, export, and last-response commands", () => {
+  test("/search finds matching transcript rows", () => {
+    const { ctx, out } = makeCtx();
+    ctx.conversation.push("user", "Review covenant headroom");
+    ctx.conversation.push("assistant", "Covenant headroom looks acceptable.");
+    dispatch("/search covenant", ctx);
+    const printed = out.join("\n");
+    expect(printed).toContain('Search results for "covenant": 2');
+    expect(printed).toContain("You:");
+    expect(printed).toContain("Drexler:");
+  });
+
+  test("/search handles missing and unmatched terms", () => {
+    const { ctx, out } = makeCtx();
+    dispatch("/search", ctx);
+    dispatch("/search leverage", ctx);
+    const printed = out.join("\n");
+    expect(printed).toMatch(/Usage: \/search <term>/);
+    expect(printed).toContain('No transcript matches for "leverage".');
+  });
+
+  test("/export md writes markdown", async () => {
+    const { mkdtemp, rm, readFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = await mkdtemp(join(tmpdir(), "drexler-export-"));
+    try {
+      const target = join(dir, "memo.md");
+      const { ctx } = makeCtx();
+      ctx.conversation.push("user", "markdown export");
+      const action = dispatch(`/export md ${target}`, ctx);
+      expect(action.type).toBe("continue");
+      const md = await readFile(target, "utf-8");
+      expect(md).toContain("# Drexler Conversation");
+      expect(md).toContain("markdown export");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("/export txt writes plain text", async () => {
+    const { mkdtemp, rm, readFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = await mkdtemp(join(tmpdir(), "drexler-export-"));
+    try {
+      const target = join(dir, "memo.txt");
+      const { ctx } = makeCtx();
+      ctx.conversation.push("assistant", "plain export");
+      const action = dispatch(`/export txt ${target}`, ctx);
+      expect(action.type).toBe("continue");
+      const txt = await readFile(target, "utf-8");
+      expect(txt).toContain("Drexler Conversation");
+      expect(txt).toContain("[Drexler]");
+      expect(txt).toContain("plain export");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("/export json writes metadata and messages", async () => {
+    const { mkdtemp, rm, readFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = await mkdtemp(join(tmpdir(), "drexler-export-"));
+    try {
+      const target = join(dir, "memo.json");
+      const { ctx } = makeCtx();
+      ctx.conversation.push("user", "json export");
+      const action = dispatch(`/export json ${target}`, ctx);
+      expect(action.type).toBe("continue");
+      const parsed = JSON.parse(await readFile(target, "utf-8"));
+      expect(parsed.messageCount).toBe(1);
+      expect(parsed.model).toBe(MODEL_PRIMARY);
+      expect(parsed.theme).toBe("apollo");
+      expect(parsed.messages).toEqual([{ role: "user", content: "json export" }]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("/export html escapes transcript content", async () => {
+    const { mkdtemp, rm, readFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = await mkdtemp(join(tmpdir(), "drexler-export-"));
+    try {
+      const target = join(dir, "memo.html");
+      const { ctx } = makeCtx();
+      ctx.conversation.push("user", "<script>alert(1)</script>");
+      const action = dispatch(`/export html ${target}`, ctx);
+      expect(action.type).toBe("continue");
+      const html = await readFile(target, "utf-8");
+      expect(html).toContain("<!doctype html>");
+      expect(html).toContain("<header>");
+      expect(html).toContain("Model ");
+      expect(html).toContain("@media print");
+      expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+      expect(html).not.toContain("<script>alert(1)</script>");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("/export validates format, extension, traversal, and overwrite", async () => {
+    const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = await mkdtemp(join(tmpdir(), "drexler-export-"));
+    try {
+      const target = join(dir, "exists.json");
+      await writeFile(target, "ORIGINAL", "utf-8");
+      const { ctx, out } = makeCtx();
+      dispatch("/export pdf out.pdf", ctx);
+      dispatch(`/export json ${join(dir, "wrong.txt")}`, ctx);
+      dispatch("/export md subdir/../escape.md", ctx);
+      dispatch(`/export json ${target}`, ctx);
+      const printed = out.join("\n");
+      expect(printed).toMatch(/Usage: \/export md\|txt\|json\|html/);
+      expect(printed).toMatch(/Target must end in \.json/);
+      expect(printed).toMatch(/no '\.\.' segments allowed/);
+      expect(printed).toMatch(/Refuse to overwrite/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("/save-last writes only the last assistant response", async () => {
+    const { mkdtemp, rm, readFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = await mkdtemp(join(tmpdir(), "drexler-last-"));
+    try {
+      const target = join(dir, "last.md");
+      const { ctx } = makeCtx();
+      ctx.conversation.push("assistant", "first reply");
+      ctx.conversation.push("user", "new question");
+      ctx.conversation.push("assistant", "final reply");
+      const action = dispatch(`/save-last ${target}`, ctx);
+      expect(action.type).toBe("continue");
+      const md = await readFile(target, "utf-8");
+      expect(md).toContain("# Drexler Last Response");
+      expect(md).toContain("final reply");
+      expect(md).not.toContain("first reply");
+      expect(md).not.toContain("new question");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("/save-last reports when no assistant response exists", () => {
+    const { ctx, out } = makeCtx();
+    dispatch("/save-last", ctx);
+    expect(out.join("\n")).toMatch(/not issued a response/);
+  });
+
+  test("/copy-last copies latest assistant response through injected writer", () => {
+    const { ctx, out } = makeCtx();
+    ctx.conversation.push("assistant", "clipboard reply");
+    let copied = "";
+    dispatch("/copy-last", {
+      ...ctx,
+      copyToClipboard: (text: string) => {
+        copied = text;
+        return { ok: true, command: "test-clipboard" } as const;
+      },
+    });
+    expect(copied).toBe("clipboard reply");
+    expect(out.join("\n")).toContain("copied last response to clipboard");
+    expect(out.join("\n")).toContain("test-clipboard");
+  });
+
+  test("/copy-last gives save fallback when clipboard is unavailable", () => {
+    const { ctx, out } = makeCtx();
+    ctx.conversation.push("assistant", "clipboard reply");
+    dispatch("/copy-last", {
+      ...ctx,
+      copyToClipboard: () =>
+        ({ ok: false, reason: "no clipboard utility found" }) as const,
+    });
+    expect(out.join("\n")).toContain("Clipboard unavailable");
+    expect(out.join("\n")).toContain("/save-last");
+  });
+
+  test("/copy-last reports when no assistant response exists", () => {
+    const { ctx, out } = makeCtx();
+    dispatch("/copy-last", {
+      ...ctx,
+      copyToClipboard: () => {
+        throw new Error("should not be called");
+      },
+    });
+    expect(out.join("\n")).toMatch(/not issued a response/);
+  });
+});
+
 describe("filterPaletteByPrefix", () => {
   test("empty input returns no items (palette closed)", () => {
     expect(filterPaletteByPrefix("")).toEqual([]);
@@ -308,9 +665,28 @@ describe("filterPaletteByPrefix", () => {
     expect(out.map((c) => c.name)).toEqual(["/help", "/history"]);
   });
 
+  test("theme command appears in palette", () => {
+    const out = filterPaletteByPrefix("/t");
+    expect(out).toEqual([
+      { name: "/theme", description: "Show or switch theme" },
+    ]);
+  });
+
   test("exact match returns single command", () => {
     const out = filterPaletteByPrefix("/save");
     expect(out).toEqual([{ name: "/save", description: COMMAND_PALETTE.find((c) => c.name === "/save")!.description }]);
+  });
+
+  test("save-last command appears after overlapping prefix", () => {
+    const out = filterPaletteByPrefix("/save-");
+    expect(out).toEqual([
+      { name: "/save-last", description: "Save last Drexler response" },
+    ]);
+  });
+
+  test("copy-last command advertises clipboard behavior", () => {
+    const out = filterPaletteByPrefix("/copy");
+    expect(out).toEqual([{ name: "/copy-last", description: "Copy last response" }]);
   });
 
   test("space in input closes palette (args mode)", () => {

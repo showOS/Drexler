@@ -35,9 +35,18 @@ describe("drexler CLI fast paths", () => {
     expect(stdout).toContain("Usage:");
     expect(stdout).toContain("--model");
     expect(stdout).toContain("--persona");
+    expect(stdout).toContain("--no-intro");
+    expect(stdout).toContain("--fast");
     expect(stdout).toContain("/help");
     expect(stdout).toContain("/exit");
+    expect(stdout).toContain("/theme");
+    expect(stdout).toContain("/startup");
     expect(stdout).toContain("/regenerate");
+    expect(stdout).toContain("/retry");
+    expect(stdout).toContain("/expand");
+    expect(stdout).toContain("/quote");
+    expect(stdout).toContain("/search");
+    expect(stdout).toContain("/export");
     expect(stdout).toContain("/save");
   });
 
@@ -51,6 +60,13 @@ describe("drexler CLI fast paths", () => {
     const { stdout, exitCode } = run(["--help"]);
     expect(exitCode).toBe(0);
     expect(stdout).toContain("--theme");
+  });
+
+  test("--help mentions fast startup flags", () => {
+    const { stdout, exitCode } = run(["--help"]);
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("--no-intro");
+    expect(stdout).toContain("--fast");
   });
 
   test("--version exits before any API key check (works with empty env)", () => {
