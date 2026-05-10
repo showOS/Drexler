@@ -1,5 +1,6 @@
 import { Box, Text } from "ink";
 import { memo, useMemo } from "react";
+import { displayWidth, fitDisplayText } from "./graphemes.ts";
 import { useTheme } from "./ThemeContext.tsx";
 
 export type DealDeskHeaderStatus = "idle" | "streaming" | "error";
@@ -29,25 +30,19 @@ const STATUS_LABEL: Record<DealDeskHeaderStatus, string> = {
   error: "ERROR",
 };
 
-function visibleLength(input: string): number {
-  return Array.from(input).length;
-}
-
 function clampText(input: string, max: number): string {
   if (max <= 0) return "";
-  if (visibleLength(input) <= max) return input;
-  if (max === 1) return "…";
-  return `${Array.from(input).slice(0, max - 1).join("")}…`;
+  return fitDisplayText(input, max);
 }
 
 function padToWidth(input: string, width: number): string {
-  const len = visibleLength(input);
+  const len = displayWidth(input);
   if (len >= width) return input;
   return `${input}${" ".repeat(width - len)}`;
 }
 
 function shellLine(left: string, right: string, width: number): string {
-  const available = Math.max(0, width - visibleLength(left) - visibleLength(right));
+  const available = Math.max(0, width - displayWidth(left) - displayWidth(right));
   return `${left}${"─".repeat(available)}${right}`;
 }
 

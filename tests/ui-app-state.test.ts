@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { renderToString } from "ink";
+import { renderToString, useStdout } from "ink";
 import React from "react";
 import { dispatch } from "../src/commands.ts";
 import { Conversation } from "../src/conversation.ts";
@@ -10,7 +10,33 @@ import {
   shouldRemoveVisibleAssistantForAction,
   transcriptRowsForTerminalRows,
 } from "../src/ui/App.tsx";
+import { displayWidth } from "../src/ui/graphemes.ts";
 import { MODEL_PRIMARY, type Config } from "../src/types.ts";
+
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
+
+function renderAppWithStdout(
+  props: React.ComponentProps<typeof App>,
+  columns: number,
+  rows: number,
+): string {
+  const stdout = {
+    columns,
+    rows,
+    isTTY: true,
+    on: () => undefined,
+    off: () => undefined,
+  } as unknown as NodeJS.WriteStream;
+  function StdoutBackedApp() {
+    const ctx = useStdout();
+    (ctx as { stdout: NodeJS.WriteStream }).stdout = stdout;
+    return React.createElement(App, props);
+  }
+  return renderToString(
+    React.createElement(StdoutBackedApp),
+    { columns },
+  ).replace(ANSI_RE, "");
+}
 
 function makeCtx() {
   const conversation = new Conversation("SYS", 50);
@@ -105,19 +131,52 @@ describe("App state helpers", () => {
 
   test("App can embed live deal desk chrome in the startup panel", () => {
     const ctx = makeCtx();
-    const rendered = renderToString(
-      React.createElement(App, {
+    const rendered = renderAppWithStdout(
+      {
         conversation: ctx.conversation,
         config: ctx.config,
         mood: "ruthless",
         greeting: "Hello",
         showIntroChrome: true,
-      }),
+      },
+      120,
+      40,
     );
 
     expect(rendered).toContain("Tips for getting started");
     expect(rendered).toContain("Drexler Deal Desk");
     expect(rendered).toContain("ruthless");
     expect(rendered).toContain("0 messages");
+    expect(rendered.match(/Tips for getting started/g)?.length).toBe(1);
+    expect(rendered.match(/Drexler Deal Desk/g)?.length).toBe(1);
+    for (const row of rendered.split("\n")) {
+      expect(displayWidth(row)).toBeLessThanOrEqual(120);
+    }
+  });
+
+  test.each([
+    [72, 30],
+    [80, 30],
+    [72, 31],
+    [80, 31],
+  ])("App suppresses startup panel at %dx%d", (columns, rows) => {
+    const ctx = makeCtx();
+    const rendered = renderAppWithStdout(
+      {
+        conversation: ctx.conversation,
+        config: ctx.config,
+        mood: "ruthless",
+        greeting: "Hello",
+        showIntroChrome: true,
+      },
+      columns,
+      rows,
+    );
+
+    expect(rendered).not.toContain("Tips for getting started");
+    expect(rendered).toContain("Drexler Deal Desk");
+    for (const row of rendered.split("\n")) {
+      expect(displayWidth(row)).toBeLessThanOrEqual(columns);
+    }
   });
 });

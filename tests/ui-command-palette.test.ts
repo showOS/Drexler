@@ -113,4 +113,24 @@ describe("CommandPalette", () => {
     expect(rendered).toContain("Signature Drexler green");
     expect(rendered).toContain("default executive terminal");
   });
+
+  test("long argument command rows stay single-line and bounded", () => {
+    const width = 48;
+    const rendered = renderPalette(
+      [
+        {
+          name: "/model openrouter/google/gemma-4-26b-a4b-it",
+          description: "Switch to fallback boardroom model",
+          hint: "stable cheaper route",
+        },
+      ],
+      width,
+    );
+
+    expect(rendered).toContain("/model");
+    expect(rendered.split("\n").filter(Boolean).length).toBeLessThanOrEqual(5);
+    for (const row of rendered.split("\n")) {
+      expect(displayWidth(row)).toBeLessThanOrEqual(width);
+    }
+  });
 });

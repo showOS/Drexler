@@ -275,11 +275,19 @@ function selectWindow(
     reserveTop = nextReserveTop;
   }
 
-  return {
-    visible: entries.slice(start, end),
-    hiddenBefore: start,
-    hiddenAfter: entries.length - end,
-  };
+  const visible = entries.slice(start, end);
+  const visibleRows = visible.reduce(
+    (sum, entry) => sum + Math.max(1, entry.estimatedRows),
+    0,
+  );
+  let hiddenBefore = start;
+  let hiddenAfter = entries.length - end;
+  if (visibleRows + (hiddenBefore > 0 ? 1 : 0) + (hiddenAfter > 0 ? 1 : 0) > safeRows) {
+    if (hiddenBefore > 0) hiddenBefore = 0;
+    if (visibleRows + (hiddenAfter > 0 ? 1 : 0) > safeRows) hiddenAfter = 0;
+  }
+
+  return { visible, hiddenBefore, hiddenAfter };
 }
 
 function ScrollIndicator({

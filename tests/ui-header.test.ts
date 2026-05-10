@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { renderToString } from "ink";
 import React from "react";
 import { DealDeskHeader } from "../src/ui/DealDeskHeader.tsx";
+import { displayWidth } from "../src/ui/graphemes.ts";
 import { ThemeProvider } from "../src/ui/ThemeContext.tsx";
 import { THEMES } from "../src/ui/themes.ts";
 
@@ -17,7 +18,7 @@ function renderHeader(props: React.ComponentProps<typeof DealDeskHeader>): strin
 }
 
 function visibleLength(input: string): number {
-  return Array.from(input).length;
+  return displayWidth(input);
 }
 
 describe("DealDeskHeader", () => {
@@ -90,6 +91,21 @@ describe("DealDeskHeader", () => {
 
     expect(rendered).toContain("LIVE");
     expect(rendered).not.toContain("┌");
+    for (const row of rendered.split("\n")) {
+      expect(visibleLength(row)).toBeLessThanOrEqual(width);
+    }
+  });
+
+  test("display-width clamps wide glyphs", () => {
+    const width = 34;
+    const rendered = renderHeader({
+      model: "漢字かな交じり文-model",
+      mood: "victorious 🚀🚀🚀",
+      messageCount: 999999,
+      status: "idle",
+      maxWidth: width,
+    });
+
     for (const row of rendered.split("\n")) {
       expect(visibleLength(row)).toBeLessThanOrEqual(width);
     }

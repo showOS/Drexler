@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.13
+
+- Hardened startup panel layout across narrow, standard, and wide terminals.
+- Clamped the embedded Deal Desk to its actual startup-panel column.
+- Improved display-width clipping for Deal Desk, command palette, spinner, status bar, and transcript row budgeting.
+- Added regression coverage for duplicate startup chrome, wide glyphs, long command rows, and short-terminal startup suppression.
+
 ## 0.2.12
 
 - Removed the duplicate startup card render so normal launches show one startup panel.

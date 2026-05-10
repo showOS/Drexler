@@ -16,13 +16,6 @@ interface Props {
 
 const MAX_WITTICISM_LEN = 60;
 
-function clampText(input: string, max: number): string {
-  if (input.length <= max) return input;
-  if (max <= 0) return "";
-  if (max === 1) return "…";
-  return input.slice(0, max - 1) + "…";
-}
-
 function StatusBarInner({
   messageCount,
   witticism,
@@ -40,52 +33,27 @@ function StatusBarInner({
     }),
     [t.primaryLight, t.warning, t.error],
   );
+  const safeWidth =
+    typeof maxWidth === "number" ? Math.max(1, Math.floor(maxWidth)) : undefined;
   const countLabel = `${messageCount} message${messageCount === 1 ? "" : "s"}`;
-  const hintLabel = scrollHint ? `  │  ${scrollHint}` : "";
-  const quoteWidth =
-    typeof maxWidth === "number"
-      ? Math.max(
-          0,
-          maxWidth -
-            "● ".length -
-            countLabel.length -
-            hintLabel.length -
-            "  │  ".length -
-            2,
-        )
-      : MAX_WITTICISM_LEN;
-  const safe = clampText(witticism, Math.min(MAX_WITTICISM_LEN, quoteWidth));
+  const quote = `"${fitDisplayText(witticism, MAX_WITTICISM_LEN)}"`;
+  const line = compact
+    ? `${countLabel}${scrollHint ? `  │  ${scrollHint}` : ""}`
+    : `${countLabel}${scrollHint ? `  │  ${scrollHint}` : ""}  │  ${quote}`;
+  const body = fitDisplayText(line, Math.max(1, (safeWidth ?? 80) - 2));
   const box = compact ? (
     <Box>
       <Text color={dotColor[status]}>● </Text>
-      <Text color={t.dim}>{countLabel}</Text>
-      {scrollHint ? (
-        <>
-          <Text color={t.primaryDim}>{"  │  "}</Text>
-          <Text color={t.primaryLight}>
-            {fitDisplayText(scrollHint, Math.max(1, maxWidth ?? 24))}
-          </Text>
-        </>
-      ) : null}
+      <Text color={t.dim} wrap="truncate">{body}</Text>
     </Box>
   ) : (
     <Box>
       <Text color={dotColor[status]}>● </Text>
-      <Text color={t.dim}>{countLabel}</Text>
-      {scrollHint ? (
-        <>
-          <Text color={t.primaryDim}>{"  │  "}</Text>
-          <Text color={t.primaryLight}>{scrollHint}</Text>
-        </>
-      ) : null}
-      <Text color={t.primaryDim}>{"  │  "}</Text>
-      <Text color={t.dim} italic>
-        "{safe}"
-      </Text>
+      <Text color={t.dim} italic wrap="truncate">{body}</Text>
     </Box>
   );
-  if (typeof maxWidth === "number") {
-    return <Box width={maxWidth}>{box}</Box>;
+  if (typeof safeWidth === "number") {
+    return <Box width={safeWidth}>{box}</Box>;
   }
   return box;
 }

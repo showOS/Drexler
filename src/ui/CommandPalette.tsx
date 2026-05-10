@@ -54,13 +54,18 @@ function paletteHeading(items: ReadonlyArray<SlashCommand>): {
   };
 }
 
+function padDisplayText(input: string, width: number): string {
+  const clipped = fitDisplayText(input, width);
+  return `${clipped}${" ".repeat(Math.max(0, width - displayWidth(clipped)))}`;
+}
+
 function CommandPaletteInner({ items, selectedIdx, width = 80 }: Props) {
   const t = useTheme();
   const safeWidth = Math.max(1, Math.floor(width));
   const tiny = safeWidth < 26;
   const heading = useMemo(() => paletteHeading(items), [items]);
   const maxNameW = useMemo(
-    () => items.reduce((m, i) => Math.max(m, i.name.length), 0),
+    () => items.reduce((m, i) => Math.max(m, displayWidth(i.name)), 0),
     [items],
   );
   if (items.length === 0) return null;
@@ -87,10 +92,21 @@ function CommandPaletteInner({ items, selectedIdx, width = 80 }: Props) {
   }
 
   const innerWidth = Math.max(1, safeWidth - 4);
-  const descBudget = Math.max(8, Math.floor(innerWidth * 0.36));
+  const markerWidth = 2;
+  const nameBudget = Math.max(
+    6,
+    Math.min(maxNameW + 1, Math.floor(innerWidth * 0.44)),
+  );
+  const descBudget = Math.max(
+    6,
+    Math.min(
+      Math.floor(innerWidth * 0.34),
+      innerWidth - markerWidth - nameBudget - 1,
+    ),
+  );
   const hintBudget = Math.max(
     0,
-    innerWidth - 4 - maxNameW - descBudget - 4,
+    innerWidth - markerWidth - nameBudget - 1 - descBudget - 2,
   );
 
   return (
@@ -121,18 +137,12 @@ function CommandPaletteInner({ items, selectedIdx, width = 80 }: Props) {
         const hint =
           item.hint ??
           (isArgumentSuggestion ? "" : COMMAND_HINTS[item.name] ?? item.description);
-        const name = item.name.padEnd(maxNameW + 1);
-        const desc = fitDisplayText(item.description, descBudget);
+        const name = padDisplayText(item.name, nameBudget);
+        const desc = padDisplayText(item.description, descBudget);
         const clippedHint =
           hintBudget > 0 ? fitDisplayText(hint, hintBudget) : "";
-        const rowWidth =
-          2 +
-          displayWidth(name) +
-          1 +
-          displayWidth(desc) +
-          (clippedHint ? 2 + displayWidth(clippedHint) : 0);
         return (
-          <Box key={item.name} width={Math.min(innerWidth, rowWidth)} flexShrink={1}>
+          <Box key={item.name} width={innerWidth} flexShrink={1}>
             <Text color={sel ? t.primaryLight : t.primaryDim} bold={sel}>
               {sel ? "› " : "  "}
             </Text>
@@ -140,7 +150,7 @@ function CommandPaletteInner({ items, selectedIdx, width = 80 }: Props) {
               {name}
             </Text>
             <Text color={t.primaryDim}> </Text>
-            <Text color={sel ? t.text : t.dim} wrap="truncate">
+            <Text color={sel ? t.text : t.dim}>
               {desc}
             </Text>
             {clippedHint ? (

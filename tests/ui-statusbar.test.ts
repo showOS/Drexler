@@ -48,4 +48,20 @@ describe("StatusBar", () => {
       expect(displayWidth(row)).toBeLessThanOrEqual(30);
     }
   });
+
+  test("large counts and long hints stay on one bounded row", () => {
+    const width = 34;
+    const rendered = renderStatusBar({
+      messageCount: 123456789,
+      witticism: "a very long internal memo line that should never wrap",
+      maxWidth: width,
+      scrollHint: "PageUp scrollback through a long ledger",
+    });
+
+    const rows = rendered.split("\n");
+    expect(rows).toHaveLength(1);
+    for (const row of rows) {
+      expect(displayWidth(row)).toBeLessThanOrEqual(width);
+    }
+  });
 });

@@ -136,14 +136,17 @@ export function App({
   const chromeWidth = useMemo(() => Math.max(1, cols), [cols]);
   const statusBarWidth = inputWidth;
   const isCompact = mode === "very-narrow";
-  const integratedIntro = showIntroChrome && typeof greeting === "string";
+  const integratedIntro =
+    showIntroChrome && typeof greeting === "string" && rows >= 32;
+  const introRowBudget =
+    integratedIntro ? (chromeWidth >= 112 ? 14 : chromeWidth >= 72 ? 26 : 6) : 0;
   const maxTranscriptRows = useMemo(
     () =>
       Math.max(
         1,
-        transcriptRowsForTerminalRows(rows) - (integratedIntro ? 10 : 0),
+        transcriptRowsForTerminalRows(rows) - introRowBudget,
       ),
-    [integratedIntro, rows],
+    [introRowBudget, rows],
   );
 
   const [items, setItems] = useState<ChatItem[]>([]);
@@ -716,11 +719,7 @@ export function App({
   const isBusy =
     requestInFlight || streaming !== null || thinking !== null || synergyEvent !== null;
   const headerStatus = isBusy ? "streaming" : deskStatus;
-  const embeddedDealDeskWidth =
-    chromeWidth >= 112
-      ? Math.min(72, Math.max(42, Math.floor(chromeWidth * 0.34)))
-      : Math.max(32, chromeWidth - 8);
-  const dealDeskHeader = (
+  const renderDealDeskHeader = (width: number) => (
     <DealDeskHeader
       model={model}
       mood={mood}
@@ -732,10 +731,11 @@ export function App({
       status={headerStatus}
       compact={isCompact}
       notice={!integratedIntro ? deskNotice ?? undefined : undefined}
-      maxWidth={integratedIntro ? embeddedDealDeskWidth : chromeWidth}
+      maxWidth={integratedIntro ? Math.min(72, Math.max(1, width)) : width}
       marginBottom={integratedIntro ? 0 : 1}
     />
   );
+  const dealDeskHeader = renderDealDeskHeader(chromeWidth);
   const visibleTranscriptRows = synergyEvent
     ? Math.max(1, maxTranscriptRows - synergyEventRows(chromeWidth, isCompact))
     : maxTranscriptRows;
@@ -748,7 +748,7 @@ export function App({
             <MascotDashboard
               greeting={greeting}
               width={chromeWidth}
-              dealDesk={dealDeskHeader}
+              dealDesk={renderDealDeskHeader}
             />
           </Box>
         ) : (
@@ -769,7 +769,7 @@ export function App({
             </Box>
           )}
           {thinking !== null && streaming === null && (
-            <Box paddingX={1} marginBottom={1}>
+            <Box marginBottom={1}>
               <Spinner label={thinking} width={chromeWidth} />
             </Box>
           )}

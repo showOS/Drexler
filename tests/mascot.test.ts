@@ -165,7 +165,7 @@ describe("MascotFrame", () => {
         .find((row) => row.includes("Tips for getting started"));
 
       expect(tipsLine).toBeDefined();
-      expect(tipsLine?.match(/│/g)?.length).toBeGreaterThanOrEqual(3);
+      expect(tipsLine?.match(/│/g)?.length).toBeGreaterThanOrEqual(2);
       expect(tipsLine?.indexOf("Tips for getting started")).toBeGreaterThan(
         tipsLine?.indexOf("│") ?? 0,
       );
@@ -185,7 +185,7 @@ describe("MascotFrame", () => {
         children: React.createElement(MascotDashboard, {
           greeting: "Hello",
           width: 160,
-          dealDesk: React.createElement(DealDeskHeader, {
+          dealDesk: (width: number) => React.createElement(DealDeskHeader, {
             model: "google/gemma-4-26b-a4b-it",
             mood: "paranoid",
             messageCount: 6,
@@ -193,7 +193,7 @@ describe("MascotFrame", () => {
             approximateTokens: 4958,
             latencyMs: 1400,
             compact: true,
-            maxWidth: 70,
+            maxWidth: Math.min(70, width),
             marginBottom: 0,
           }),
         }),
@@ -212,4 +212,37 @@ describe("MascotFrame", () => {
       expect(displayWidth(row)).toBeLessThanOrEqual(160);
     }
   });
+
+  test.each([72, 80, 96, 112, 120, 160, 200])(
+    "dashboard with embedded deal desk stays within %d columns",
+    (width) => {
+      const rendered = renderToString(
+        React.createElement(ThemeProvider, {
+          value: THEMES.apollo,
+          children: React.createElement(MascotDashboard, {
+            greeting: "Attention everyone. Drexler convene meeting. State business.",
+            width,
+            dealDesk: (dealDeskWidth: number) =>
+              React.createElement(DealDeskHeader, {
+                model: "google/gemma-4-26b-a4b-it",
+                mood: "victorious",
+                messageCount: 0,
+                themeName: "apollo",
+                approximateTokens: 4776,
+                latencyMs: null,
+                maxWidth: Math.min(72, dealDeskWidth),
+                marginBottom: 0,
+              }),
+          }),
+        }),
+        { columns: width },
+      ).replace(ANSI_RE, "");
+
+      expect(rendered.match(/Drexler Deal Desk/g)?.length).toBe(1);
+      expect(rendered.match(/Tips for getting started/g)?.length).toBe(1);
+      for (const row of rendered.split("\n")) {
+        expect(displayWidth(row)).toBeLessThanOrEqual(width);
+      }
+    },
+  );
 });

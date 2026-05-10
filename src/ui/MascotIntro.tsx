@@ -127,13 +127,8 @@ const COMPACT_DELAY_MS = 850;
 const SETTLE_HOLD_MS = 1200;
 const FRAME_CHROME_WIDTH = 4;
 const GUTTER_WIDTH = 4;
-const SPLIT_DIVIDER_WIDTH = 3;
 const BOOT_BAR_WIDTH = MASCOT_WIDTH - 1;
-const SPLIT_DIVIDER_HEIGHT = 9;
-const SPLIT_DIVIDER_ROWS: number[] = Array.from(
-  { length: SPLIT_DIVIDER_HEIGHT },
-  (_, i) => i,
-);
+const RIGHT_COLUMN_BORDER_WIDTH = 2;
 
 interface IntroProps {
   greeting: string;
@@ -146,7 +141,7 @@ interface MascotDashboardProps {
   bar?: string;
   barColor?: string;
   mascotStatus?: string;
-  dealDesk?: ReactNode;
+  dealDesk?: (width: number) => ReactNode;
 }
 
 function bootBar(frameIdx: number, total: number): string {
@@ -191,7 +186,7 @@ export function MascotDashboard({
   const tinyTerminal = width < 21;
   const compact = width < 72;
   const sideBySide = width >= 112;
-  const available = compact ? Math.max(1, width - 1) : Math.max(28, width);
+  const available = compact ? Math.max(1, width - 1) : Math.max(28, width - 1);
   const innerWidth = compact
     ? available
     : Math.max(24, available - FRAME_CHROME_WIDTH);
@@ -200,11 +195,17 @@ export function MascotDashboard({
     : sideBySide
     ? Math.max(
         MASCOT_WIDTH + GUTTER_WIDTH + 24,
-        Math.floor((innerWidth - SPLIT_DIVIDER_WIDTH) / 2),
+        Math.floor((innerWidth - RIGHT_COLUMN_BORDER_WIDTH) / 2),
       )
     : innerWidth;
+  const rightColumnWidth = sideBySide
+    ? Math.max(20, innerWidth - leftPanelWidth)
+    : innerWidth;
+  const rightInnerWidth = sideBySide
+    ? Math.max(1, rightColumnWidth - RIGHT_COLUMN_BORDER_WIDTH)
+    : rightColumnWidth;
   const tipsWidth = sideBySide
-    ? Math.max(20, innerWidth - leftPanelWidth - SPLIT_DIVIDER_WIDTH)
+    ? rightInnerWidth
     : innerWidth;
   const copyWidth = compact
     ? available
@@ -220,7 +221,7 @@ export function MascotDashboard({
           Drexler™
         </Text>
         <Text color={t.primaryLight}>{greeting}</Text>
-        {dealDesk ? <Box marginTop={1}>{dealDesk}</Box> : null}
+        {dealDesk ? <Box marginTop={1}>{dealDesk(Math.max(1, available))}</Box> : null}
       </Box>
     );
   }
@@ -234,7 +235,7 @@ export function MascotDashboard({
           Drexler International™
         </Text>
         <Text color={t.primaryLight}>{greeting}</Text>
-        {dealDesk ? <Box marginTop={1}>{dealDesk}</Box> : null}
+        {dealDesk ? <Box marginTop={1}>{dealDesk(Math.max(1, available))}</Box> : null}
       </Box>
     );
   }
@@ -275,27 +276,20 @@ export function MascotDashboard({
           </Box>
         </Box>
         {sideBySide ? (
-          <>
-            <Box flexDirection="column" width={SPLIT_DIVIDER_WIDTH}>
-              {SPLIT_DIVIDER_ROWS.map((idx) => (
-                <Text key={idx} color={t.primaryDim}>
-                  {" │ "}
-                </Text>
-              ))}
-            </Box>
             <Box
               flexDirection="column"
-              width={tipsWidth}
-              paddingRight={1}
+              width={rightColumnWidth}
+              borderLeft
+              borderColor={t.primaryDim}
+              paddingLeft={1}
             >
-              <TipsPanel width={Math.max(1, tipsWidth - 1)} />
-              {dealDesk ? <Box marginTop={1}>{dealDesk}</Box> : null}
+              <TipsPanel width={rightInnerWidth} />
+              {dealDesk ? <Box marginTop={1}>{dealDesk(rightInnerWidth)}</Box> : null}
             </Box>
-          </>
         ) : (
           <Box marginTop={1} width={tipsWidth} flexDirection="column">
             <TipsPanel width={tipsWidth} />
-            {dealDesk ? <Box marginTop={1}>{dealDesk}</Box> : null}
+            {dealDesk ? <Box marginTop={1}>{dealDesk(tipsWidth)}</Box> : null}
           </Box>
         )}
       </Box>

@@ -1,6 +1,6 @@
 import { Box, Text } from "ink";
 import { useEffect, useState } from "react";
-import { fitDisplayText } from "./graphemes.ts";
+import { displayWidth, fitDisplayText } from "./graphemes.ts";
 import { useTheme } from "./ThemeContext.tsx";
 
 const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -47,8 +47,15 @@ export function Spinner({ label, width = 80 }: Props) {
     );
   }
 
-  const labelBudget = Math.max(1, safeWidth - 22);
+  const innerWidth = Math.max(1, safeWidth - 4);
   const showStage = safeWidth >= 42;
+  const stageLabel = showStage ? ` · ${stage}` : "";
+  const secondsLabel = seconds > 0 && safeWidth >= 34 ? ` · ${seconds}s` : "";
+  const fixedWidth =
+    displayWidth(`${FRAMES[i]} WORKING ─ `) +
+    displayWidth(stageLabel) +
+    displayWidth(secondsLabel);
+  const labelBudget = Math.max(1, innerWidth - fixedWidth);
 
   return (
     <Box
@@ -66,13 +73,8 @@ export function Spinner({ label, width = 80 }: Props) {
       <Text color={t.text} wrap="truncate">
         {fitDisplayText(label, labelBudget)}
       </Text>
-      {showStage ? <Text color={t.dim}> · {stage}</Text> : null}
-      {seconds > 0 && safeWidth >= 34 ? (
-        <>
-          <Text color={t.primaryDim}> · </Text>
-          <Text color={t.dim}>{seconds}s</Text>
-        </>
-      ) : null}
+      {stageLabel ? <Text color={t.dim}>{stageLabel}</Text> : null}
+      {secondsLabel ? <Text color={t.dim}>{secondsLabel}</Text> : null}
     </Box>
   );
 }

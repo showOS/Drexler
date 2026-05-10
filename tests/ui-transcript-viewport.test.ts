@@ -156,6 +156,22 @@ describe("TranscriptViewport", () => {
     expect(rendered).not.toContain("child 1");
   });
 
+  test("drops indicators before exceeding maxRows with a full card", () => {
+    const rendered = renderViewport({
+      items: [
+        { id: "old", role: "user", content: "old memo" },
+        { id: "new", role: "assistant", content: "new memo" },
+      ],
+      maxRows: 3,
+      cols: 44,
+    });
+
+    const rows = rendered.split("\n").filter(Boolean);
+    expect(rows).toHaveLength(3);
+    expect(rendered).not.toContain("earlier transcript");
+    expect(rendered).toContain("new memo");
+  });
+
   test("scrollOffset exposes older transcript with newer indicator", () => {
     const rendered = renderViewport({
       items,
