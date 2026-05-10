@@ -4,13 +4,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   defaultPersonaPath,
+  describeApiKeySource,
   ensureApiKey,
+  getDrexlerVersion,
+  getResolvedConfigPath,
   isValidApiKey,
+  LaunchConfigError,
   loadConfigFile,
   parseFlags,
   resolveConfig,
   resolveModel,
   saveConfig,
+  validateLaunchConfig,
 } from "../src/config.ts";
 import { MODEL_FALLBACK, MODEL_PRIMARY } from "../src/types.ts";
 
@@ -575,5 +580,73 @@ describe("ensureApiKey + resolveConfig (no-prompt paths)", () => {
     const cfg = await resolveConfig([]);
     expect(cfg.noIntro).toBe(false);
     expect(cfg.fast).toBe(false);
+  });
+
+  test("validateLaunchConfig succeeds with no API key (key resolution deferred)", async () => {
+    delete process.env.OPENROUTER_API_KEY;
+    const out = await validateLaunchConfig([]);
+    expect(out.model).toBe(MODEL_PRIMARY);
+  });
+
+  test("validateLaunchConfig surfaces 'model-alias' reason", async () => {
+    delete process.env.OPENROUTER_API_KEY;
+    let caught: unknown;
+    try {
+      await validateLaunchConfig(["--model", "garbage"]);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(LaunchConfigError);
+    expect((caught as LaunchConfigError).reason).toBe("model-alias");
+  });
+
+  test("validateLaunchConfig surfaces 'persona-path' reason for missing file", async () => {
+    let caught: unknown;
+    try {
+      await validateLaunchConfig(["--persona", join(dir, "missing.md")]);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(LaunchConfigError);
+    expect((caught as LaunchConfigError).reason).toBe("persona-path");
+  });
+
+  test("resolveConfig api-key-empty throws LaunchConfigError", async () => {
+    delete process.env.OPENROUTER_API_KEY;
+    let caught: unknown;
+    try {
+      await resolveConfig([]);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(LaunchConfigError);
+    expect((caught as LaunchConfigError).reason).toBe("api-key-empty");
+  });
+
+  test("describeApiKeySource reports env when valid env key set", async () => {
+    process.env.OPENROUTER_API_KEY = "sk-or-key-padding1234567890ab";
+    const result = await describeApiKeySource();
+    expect(result.source).toBe("env");
+    expect(result.configPath).toBeNull();
+  });
+
+  test("describeApiKeySource reports config-file when only file has key", async () => {
+    delete process.env.OPENROUTER_API_KEY;
+    await saveConfig({ apiKey: "sk-or-fileonly-padding1234567890" });
+    const result = await describeApiKeySource();
+    expect(result.source).toBe("config-file");
+    expect(result.configPath).toBe(getResolvedConfigPath());
+  });
+
+  test("describeApiKeySource reports missing when no key anywhere", async () => {
+    delete process.env.OPENROUTER_API_KEY;
+    const result = await describeApiKeySource();
+    expect(result.source).toBe("missing");
+  });
+
+  test("getDrexlerVersion returns a non-empty string", () => {
+    const v = getDrexlerVersion();
+    expect(typeof v).toBe("string");
+    expect(v.length).toBeGreaterThan(0);
   });
 });

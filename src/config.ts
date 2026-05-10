@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import {
   chmod,
   lstat,
@@ -15,6 +15,53 @@ import type { CliFlags, Config, ThemeName } from "./types.ts";
 import { MODEL_FALLBACK, MODEL_PRIMARY, THEME_NAMES } from "./types.ts";
 
 const DEFAULT_MAX_HISTORY = 50;
+
+export function getDrexlerVersion(): string {
+  try {
+    const pkgPath = join(import.meta.dir, "..", "package.json");
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    return typeof pkg.version === "string" ? pkg.version : "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+
+export function getConfigPath(): string {
+  return configPath();
+}
+
+export function getLegacyConfigPath(): string {
+  return legacyConfigPath();
+}
+
+export function getResolvedConfigPath(): string | null {
+  const cp = configPath();
+  const lp = legacyConfigPath();
+  if (existsSync(cp)) return cp;
+  if (existsSync(lp)) return lp;
+  return null;
+}
+
+export type ApiKeySource = "env" | "config-file" | "missing";
+
+export class LaunchConfigError extends Error {
+  readonly reason:
+    | "model-alias"
+    | "persona-path"
+    | "config-unreadable"
+    | "api-key-empty";
+  readonly detail: Record<string, unknown>;
+  constructor(
+    reason: LaunchConfigError["reason"],
+    message: string,
+    detail: Record<string, unknown> = {},
+  ) {
+    super(message);
+    this.name = "LaunchConfigError";
+    this.reason = reason;
+    this.detail = detail;
+  }
+}
 
 function getHome(): string {
   return process.env.HOME ?? process.env.USERPROFILE ?? homedir();
@@ -192,26 +239,31 @@ export async function ensureApiKey(opts?: {
   return apiKey;
 }
 
-export async function resolveConfig(argv: string[]): Promise<Config> {
+export interface LaunchStructural {
+  model: string;
+  personaPath: string;
+  theme?: ThemeName;
+  noIntro?: boolean;
+  fast?: boolean;
+  maxHistory: number;
+  fileCfg: Partial<Config>;
+}
+
+export async function validateLaunchConfig(
+  argv: string[],
+): Promise<LaunchStructural> {
   const flags = parseFlags(argv);
   const fileCfg = await loadConfigFile();
-  const envKey = process.env.OPENROUTER_API_KEY;
   const envModel = process.env.DREXLER_MODEL;
 
-  const apiKey = isValidApiKey(envKey)
-    ? envKey.trim()
-    : isValidApiKey(fileCfg.apiKey)
-    ? fileCfg.apiKey.trim()
-    : "";
-
-  if (!apiKey) {
-    throw new Error(
-      "API key missing. Run drexler interactively to set one, or export OPENROUTER_API_KEY.",
-    );
-  }
-
   const modelInput = flags.model ?? envModel ?? fileCfg.model ?? "31b";
-  const model = resolveModel(modelInput);
+  let model: string;
+  try {
+    model = resolveModel(modelInput);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new LaunchConfigError("model-alias", msg, { input: modelInput });
+  }
 
   let personaPath: string;
   if (flags.persona) {
@@ -220,8 +272,10 @@ export async function resolveConfig(argv: string[]): Promise<Config> {
     // the extension check via `ln -s /etc/passwd evil.md`.
     const st = await lstat(resolved).catch(() => null);
     if (!st?.isFile() || !resolved.toLowerCase().endsWith(".md")) {
-      throw new Error(
+      throw new LaunchConfigError(
+        "persona-path",
         `Invalid --persona: ${flags.persona} (must be a regular .md file; symlinks rejected).`,
+        { path: flags.persona },
       );
     }
     personaPath = resolved;
@@ -253,5 +307,43 @@ export async function resolveConfig(argv: string[]): Promise<Config> {
     parseOptionalBoolean(process.env.DREXLER_FAST) ??
     parseOptionalBoolean(fileCfg.fast);
 
-  return { apiKey, model, maxHistory, personaPath, theme, noIntro, fast };
+  return { model, personaPath, theme, noIntro, fast, maxHistory, fileCfg };
+}
+
+export async function describeApiKeySource(): Promise<{
+  source: ApiKeySource;
+  configPath: string | null;
+}> {
+  const envKey = process.env.OPENROUTER_API_KEY;
+  if (isValidApiKey(envKey)) return { source: "env", configPath: null };
+  const fileCfg = await loadConfigFile();
+  if (isValidApiKey(fileCfg.apiKey)) {
+    return { source: "config-file", configPath: getResolvedConfigPath() };
+  }
+  return { source: "missing", configPath: null };
+}
+
+export async function resolveConfig(argv: string[]): Promise<Config> {
+  const structural = await validateLaunchConfig(argv);
+  const envKey = process.env.OPENROUTER_API_KEY;
+  const apiKey = isValidApiKey(envKey)
+    ? envKey.trim()
+    : isValidApiKey(structural.fileCfg.apiKey)
+      ? structural.fileCfg.apiKey.trim()
+      : "";
+  if (!apiKey) {
+    throw new LaunchConfigError(
+      "api-key-empty",
+      "API key missing. Run drexler interactively to set one, or export OPENROUTER_API_KEY.",
+    );
+  }
+  return {
+    apiKey,
+    model: structural.model,
+    maxHistory: structural.maxHistory,
+    personaPath: structural.personaPath,
+    theme: structural.theme,
+    noIntro: structural.noIntro,
+    fast: structural.fast,
+  };
 }

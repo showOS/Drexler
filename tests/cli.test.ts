@@ -76,4 +76,28 @@ describe("drexler CLI fast paths", () => {
     expect(stderr).not.toContain("API key");
     expect(stderr).not.toContain("Drexler notice");
   });
+
+  test("--help mentions /setup and /update", () => {
+    const { stdout, exitCode } = run(["--help"]);
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("/setup");
+    expect(stdout).toContain("/update");
+  });
+});
+
+describe("drexler CLI fail-fast on bad args", () => {
+  test("--model garbage exits 1 BEFORE any API key prompt", () => {
+    const { stderr, exitCode } = run(["--model", "garbage"]);
+    expect(exitCode).toBe(1);
+    expect(stderr).toMatch(/model alias|Unknown model/i);
+    expect(stderr).not.toMatch(/Enter OpenRouter API key/);
+    expect(stderr).not.toMatch(/Drexler notice/);
+  });
+
+  test("--persona /nonexistent.md exits 1 with persona reason", () => {
+    const { stderr, exitCode } = run(["--persona", "/nonexistent-xyzzy-9999.md"]);
+    expect(exitCode).toBe(1);
+    expect(stderr).toMatch(/persona/i);
+    expect(stderr).not.toMatch(/Enter OpenRouter API key/);
+  });
 });

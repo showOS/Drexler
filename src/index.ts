@@ -3,7 +3,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import React from "react";
 import { render } from "ink";
-import { ensureApiKey, resolveConfig } from "./config.ts";
+import {
+  ensureApiKey,
+  LaunchConfigError,
+  resolveConfig,
+  validateLaunchConfig,
+} from "./config.ts";
 import { Conversation } from "./conversation.ts";
 import { moodLine, pickMood } from "./mood.ts";
 import { loadPersona, pickGreeting } from "./persona.ts";
@@ -66,6 +71,8 @@ Slash commands inside REPL:
   /save [path]   archive conversation as markdown
   /save-last [path] save latest response
   /copy-last     copy latest response to clipboard
+  /setup         show config + API key source
+  /update        show upgrade instructions
 
 Ctrl+C exits gracefully.`;
 
@@ -85,18 +92,39 @@ async function main(): Promise<void> {
   const isInteractive =
     process.stdout.isTTY === true && process.stdin.isTTY === true;
 
-  // Acquire API key. Prompts interactively if missing — runs BEFORE banner.
+  // 1. Validate non-secret config FIRST so a bogus --model or --persona
+  //    fails fast before we ask the user for an API key.
+  try {
+    await validateLaunchConfig(argv);
+  } catch (e) {
+    if (e instanceof LaunchConfigError) {
+      console.error(error(formatLaunchError(e)));
+    } else {
+      console.error(
+        error(`Drexler config tantrum: ${e instanceof Error ? e.message : e}`),
+      );
+    }
+    process.exit(1);
+  }
+
+  // 2. Acquire API key (may prompt). Runs after validation so bad CLI args
+  //    no longer trigger the first-run setup flow.
   await ensureApiKey({
     prompt: isInteractive ? promptForApiKeyWithInk : undefined,
   });
 
+  // 3. Resolve full Config (API key now present).
   let config;
   try {
     config = await resolveConfig(argv);
   } catch (e) {
-    console.error(
-      error(`Drexler config tantrum: ${e instanceof Error ? e.message : e}`),
-    );
+    if (e instanceof LaunchConfigError) {
+      console.error(error(formatLaunchError(e)));
+    } else {
+      console.error(
+        error(`Drexler config tantrum: ${e instanceof Error ? e.message : e}`),
+      );
+    }
     process.exit(1);
   }
 
@@ -154,6 +182,7 @@ async function main(): Promise<void> {
   }
 
   // Non-TTY fallback: linear output, readline-based REPL.
+  installFatalHandlers();
   console.log("");
   if (!skipIntro) {
     console.log(banner());
@@ -172,16 +201,33 @@ async function main(): Promise<void> {
   });
 }
 
-process.on("unhandledRejection", (reason) => {
-  const msg = reason instanceof Error ? reason.stack ?? reason.message : String(reason);
-  console.error(error("Unhandled rejection:"), msg);
-  process.exit(1);
-});
+function formatLaunchError(e: LaunchConfigError): string {
+  switch (e.reason) {
+    case "model-alias":
+      return `Bad model alias: ${e.message}`;
+    case "persona-path":
+      return `Bad persona file: ${e.message}`;
+    case "config-unreadable":
+      return `Config file unreadable: ${e.message}`;
+    case "api-key-empty":
+      return `API key required: ${e.message}`;
+  }
+}
 
-process.on("uncaughtException", (err) => {
-  console.error(error("Uncaught exception:"), err.stack ?? err.message);
-  process.exit(1);
-});
+// Fatal handlers are installed only in the non-TTY path; the interactive
+// path lets Ink's signal-exit hooks run cleanup so the alt-screen restores.
+function installFatalHandlers(): void {
+  process.on("unhandledRejection", (reason) => {
+    const msg =
+      reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
+    console.error(error("Unhandled rejection:"), msg);
+    process.exitCode = 1;
+  });
+  process.on("uncaughtException", (err) => {
+    console.error(error("Uncaught exception:"), err.stack ?? err.message);
+    process.exitCode = 1;
+  });
+}
 
 main().catch((e) => {
   console.error(error("Fatal:"), e);
