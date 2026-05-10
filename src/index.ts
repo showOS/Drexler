@@ -20,6 +20,7 @@ import {
 import { startRepl } from "./repl.ts";
 import { App } from "./ui/App.tsx";
 import { MascotIntro } from "./ui/MascotIntro.tsx";
+import { promptForApiKeyWithInk } from "./ui/SetupPrompt.tsx";
 import { ThemeProvider } from "./ui/ThemeContext.tsx";
 import { getActiveTheme, selectTheme, setActiveTheme } from "./ui/themes.ts";
 
@@ -41,7 +42,9 @@ Usage: drexler [options]
 Options:
   --model <31b|26b|id>           model alias or full OpenRouter id
   --persona <path>               custom persona markdown
-  --theme <apollo|amber|mono>    color theme (default apollo)
+  --theme <name>                 color theme (default apollo)
+  --no-intro                     skip startup banner and mascot
+  --fast                         fast startup mode, implies --no-intro
   --version, -v                  print version
   --help, -h                     this help
 
@@ -51,9 +54,18 @@ Slash commands inside REPL:
   /exit          exit
   /synergy       SYNERGY!
   /model [id]    show or switch model
+  /theme [name]  show or switch theme; append save to persist
+  /startup [mode] persist startup mode: fast, no-intro, normal
   /history       message + token count
   /regenerate    re-roll last response
+  /retry [style] re-roll last response as terse or brutal
+  /expand        print latest response
+  /quote         quote latest response
+  /search <term> search transcript
+  /export <fmt> [path] export md, txt, json, or html
   /save [path]   archive conversation as markdown
+  /save-last [path] save latest response
+  /copy-last     copy latest response to clipboard
 
 Ctrl+C exits gracefully.`;
 
@@ -70,8 +82,13 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
+  const isInteractive =
+    process.stdout.isTTY === true && process.stdin.isTTY === true;
+
   // Acquire API key. Prompts interactively if missing — runs BEFORE banner.
-  await ensureApiKey();
+  await ensureApiKey({
+    prompt: isInteractive ? promptForApiKeyWithInk : undefined,
+  });
 
   let config;
   try {
@@ -105,27 +122,27 @@ async function main(): Promise<void> {
     systemPromptWithMood,
     config.maxHistory,
   );
-
-  const isInteractive =
-    process.stdout.isTTY === true && process.stdin.isTTY === true;
+  const skipIntro = config.noIntro === true || config.fast === true;
 
   if (isInteractive) {
-    // Print intro to stdout before Ink mounts. Ink's <Static> can't host
-    // animated state, and we want the banner visible from boot.
-    console.log("");
-    await typewriterBanner();
-    console.log(tagline());
-    console.log("");
-    // Animated welcome card via transient Ink instance.
-    const intro = render(
-      React.createElement(ThemeProvider, {
-        value: getActiveTheme(),
-        children: React.createElement(MascotIntro, { greeting }),
-      }),
-      { exitOnCtrlC: false },
-    );
-    await intro.waitUntilExit();
-    intro.unmount();
+    if (!skipIntro) {
+      // Print intro to stdout before Ink mounts. Ink's <Static> can't host
+      // animated state, and we want the banner visible from boot.
+      console.log("");
+      await typewriterBanner();
+      console.log(tagline());
+      console.log("");
+      // Animated welcome card via transient Ink instance.
+      const intro = render(
+        React.createElement(ThemeProvider, {
+          value: getActiveTheme(),
+          children: React.createElement(MascotIntro, { greeting }),
+        }),
+        { exitOnCtrlC: false },
+      );
+      await intro.waitUntilExit();
+      intro.unmount();
+    }
 
     console.log("");
     console.log("  " + infoLine() + "  ·  mood: " + mood);
@@ -134,7 +151,7 @@ async function main(): Promise<void> {
     const { waitUntilExit } = render(
       React.createElement(ThemeProvider, {
         value: getActiveTheme(),
-        children: React.createElement(App, { conversation, config }),
+        children: React.createElement(App, { conversation, config, mood }),
       }),
       { exitOnCtrlC: false },
     );
@@ -144,11 +161,13 @@ async function main(): Promise<void> {
 
   // Non-TTY fallback: linear output, readline-based REPL.
   console.log("");
-  console.log(banner());
-  console.log(tagline());
-  console.log("");
-  console.log(welcomeBox(greeting, termCols()));
-  console.log("");
+  if (!skipIntro) {
+    console.log(banner());
+    console.log(tagline());
+    console.log("");
+    console.log(welcomeBox(greeting, termCols()));
+    console.log("");
+  }
   console.log("  " + infoLine() + "  ·  mood: " + mood);
   console.log("");
 

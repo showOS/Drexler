@@ -1,20 +1,32 @@
+import { spawnSync } from "node:child_process";
 import { existsSync, writeFileSync } from "node:fs";
 import { resolve as pathResolve } from "node:path";
 import { resolveModel } from "./config.ts";
 import type { Conversation } from "./conversation.ts";
-import { error } from "./renderer.ts";
-import type { Config } from "./types.ts";
+import { error, resetMarkedTheme } from "./renderer.ts";
+import { THEME_NAMES, type Config, type ThemeName } from "./types.ts";
+import {
+  getActiveTheme,
+  isThemeName,
+  setActiveTheme,
+  THEMES,
+} from "./ui/themes.ts";
 
 export type CommandAction =
-  | { type: "continue" }
+  | { type: "continue"; persistConfig?: Partial<Config> }
   | { type: "exit"; message?: string }
-  | { type: "regenerate" };
+  | { type: "regenerate"; instruction?: string; removedAssistant: boolean };
 
 interface CommandContext {
   conversation: Conversation;
   config: Config;
   print: (s: string) => void;
+  copyToClipboard?: (text: string) => ClipboardResult;
 }
+
+type ClipboardResult =
+  | { ok: true; command: string }
+  | { ok: false; reason: string };
 
 const HELP_TEXT = `New memo to staff! Drexler permit following directives:
   /help          - this memo
@@ -22,9 +34,18 @@ const HELP_TEXT = `New memo to staff! Drexler permit following directives:
   /exit          - meeting adjourned
   /synergy       - SYNERGY!
   /model         - show or switch model (e.g. /model 26b)
+  /theme         - show or switch theme (${THEME_NAMES.join(", ")})
+  /startup       - persist startup mode (fast, no-intro, normal)
   /history       - count messages and approximate tokens
   /regenerate    - re-roll Drexler's last response
-  /save [path]   - archive conversation to markdown file`;
+  /retry [style] - re-roll last response, optionally terse or brutal
+  /expand        - print Drexler's latest response
+  /quote         - quote Drexler's latest response
+  /search <term> - search this meeting transcript
+  /export <fmt> [path] - export as md, txt, json, or html
+  /save [path]   - archive conversation to markdown file
+  /save-last [path] - save Drexler's last response
+  /copy-last     - copy Drexler's last response to clipboard`;
 
 const WHITESPACE_RE = /\s+/;
 
@@ -39,9 +60,18 @@ export const COMMAND_PALETTE: ReadonlyArray<SlashCommand> = [
   { name: "/exit", description: "Adjourn meeting" },
   { name: "/synergy", description: "SYNERGY!" },
   { name: "/model", description: "Show or switch model" },
+  { name: "/theme", description: "Show or switch theme" },
+  { name: "/startup", description: "Persist startup mode" },
   { name: "/history", description: "Message + token count" },
   { name: "/regenerate", description: "Re-roll last response" },
+  { name: "/retry", description: "Retry terse or brutal" },
+  { name: "/expand", description: "Print last response" },
+  { name: "/quote", description: "Quote last response" },
+  { name: "/search", description: "Search transcript" },
+  { name: "/export", description: "Export md, txt, json, or html" },
   { name: "/save", description: "Archive conversation as markdown" },
+  { name: "/save-last", description: "Save last Drexler response" },
+  { name: "/copy-last", description: "Copy last response" },
 ];
 
 export function filterPaletteByPrefix(
@@ -49,6 +79,8 @@ export function filterPaletteByPrefix(
 ): ReadonlyArray<SlashCommand> {
   if (!input.startsWith("/") || input.includes(" ")) return [];
   const prefix = input.toLowerCase();
+  const exact = COMMAND_PALETTE.find((c) => c.name.toLowerCase() === prefix);
+  if (exact) return [exact];
   return COMMAND_PALETTE.filter((c) =>
     c.name.toLowerCase().startsWith(prefix),
   );
@@ -110,6 +142,12 @@ export function dispatch(input: string, ctx: CommandContext): CommandAction {
       handleModel(args, ctx);
       return { type: "continue" };
 
+    case "theme":
+      return handleTheme(args, ctx);
+
+    case "startup":
+      return handleStartup(args, ctx);
+
     case "history":
       ctx.print(
         `Drexler ledger: ${ctx.conversation.length} message${
@@ -126,41 +164,65 @@ export function dispatch(input: string, ctx: CommandContext): CommandAction {
         ctx.print("Drexler need input first. State concern.");
         return { type: "continue" };
       }
-      ctx.conversation.popLastAssistant();
+      if (name === "retry" && args.length > 0) {
+        const style = args[0]?.toLowerCase();
+        if (style === "terse" || style === "brutal") {
+          const instruction =
+            style === "terse"
+              ? "Regenerate the previous answer. Make it terse, direct, and no longer than two sentences."
+              : "Regenerate the previous answer. Make it sharper, more skeptical, and more forceful while staying useful.";
+          const removedAssistant = ctx.conversation.popLastAssistant();
+          ctx.print(`Drexler reconsidering. Style mandate: ${style}.`);
+          return { type: "regenerate", instruction, removedAssistant };
+        }
+        ctx.print(error(`Unknown retry style: ${args[0]}. Use terse or brutal.`));
+        return { type: "continue" };
+      }
+      const removedAssistant = ctx.conversation.popLastAssistant();
       ctx.print("Drexler reconsidering. Stand by.");
-      return { type: "regenerate" };
+      return { type: "regenerate", removedAssistant };
     }
+
+    case "expand":
+      handleExpand(ctx);
+      return { type: "continue" };
+
+    case "quote":
+      handleQuote(ctx);
+      return { type: "continue" };
+
+    case "search":
+      handleSearch(commandRemainder(input, name), ctx);
+      return { type: "continue" };
+
+    case "export":
+      handleExport(input, args, ctx);
+      return { type: "continue" };
 
     case "save": {
       const pathArg = stripMatchingQuotes(commandRemainder(input, name));
-      if (pathArg && pathArg.split(/[/\\]/).includes("..")) {
-        ctx.print(
-          error(`Invalid path: ${pathArg} (no '..' segments allowed).`),
-        );
-        return { type: "continue" };
-      }
-      const target = pathArg
-        ? pathResolve(pathArg)
-        : pathResolve(`drexler-${Date.now()}.md`);
-      if (!target.toLowerCase().endsWith(".md")) {
-        ctx.print(error(`Save target must end in .md: ${target}`));
-        return { type: "continue" };
-      }
-      if (existsSync(target)) {
-        ctx.print(
-          error(
-            `File exists: ${target}. Refuse to overwrite. Use a different path.`,
-          ),
-        );
-        return { type: "continue" };
-      }
+      const target = resolveWriteTarget(pathArg, "drexler", ".md", ctx);
+      if (!target) return { type: "continue" };
       try {
-        writeFileSync(target, formatConversationAsMarkdown(ctx.conversation));
+        writeFileSync(
+          target,
+          formatConversationAsMarkdown(ctx.conversation, ctx.config),
+        );
         ctx.print(`Drexler archive sealed: ${target}`);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         ctx.print(error(`Could not save: ${msg}`));
       }
+      return { type: "continue" };
+    }
+
+    case "save-last": {
+      handleSaveLast(commandRemainder(input, name), ctx);
+      return { type: "continue" };
+    }
+
+    case "copy-last": {
+      handleCopyLast(ctx);
       return { type: "continue" };
     }
 
@@ -172,13 +234,51 @@ export function dispatch(input: string, ctx: CommandContext): CommandAction {
   }
 }
 
-function formatConversationAsMarkdown(conv: Conversation): string {
+function resolveWriteTarget(
+  pathArg: string,
+  defaultPrefix: string,
+  requiredExt: string,
+  ctx: CommandContext,
+): string | null {
+  if (pathArg && pathArg.split(/[/\\]/).includes("..")) {
+    ctx.print(error(`Invalid path: ${pathArg} (no '..' segments allowed).`));
+    return null;
+  }
+  const target = pathArg
+    ? pathResolve(pathArg)
+    : pathResolve(`${defaultPrefix}-${Date.now()}${requiredExt}`);
+  if (!target.toLowerCase().endsWith(requiredExt)) {
+    ctx.print(error(`Target must end in ${requiredExt}: ${target}`));
+    return null;
+  }
+  if (existsSync(target)) {
+    ctx.print(
+      error(`File exists: ${target}. Refuse to overwrite. Use a different path.`),
+    );
+    return null;
+  }
+  return target;
+}
+
+function exportMetadata(conv: Conversation, config: Config): string[] {
+  return [
+    `Saved: ${new Date().toISOString()}`,
+    `Messages: ${conv.length}`,
+    `Approx tokens: ${conv.approximateTokens()}`,
+    `Model: ${config.model}`,
+    `Theme: ${config.theme ?? currentThemeName(config)}`,
+  ];
+}
+
+function formatConversationAsMarkdown(
+  conv: Conversation,
+  config: Config,
+): string {
   const snap = conv.snapshot();
   const lines: string[] = [
     `# Drexler Conversation`,
     ``,
-    `Saved: ${new Date().toISOString()}`,
-    `Messages: ${conv.length}`,
+    ...exportMetadata(conv, config),
     ``,
     `---`,
     ``,
@@ -189,6 +289,310 @@ function formatConversationAsMarkdown(conv: Conversation): string {
     lines.push(heading, "", m.content, "", "---", "");
   }
   return lines.join("\n");
+}
+
+function formatConversationAsText(conv: Conversation, config: Config): string {
+  const snap = conv.snapshot();
+  const lines: string[] = [
+    "Drexler Conversation",
+    ...exportMetadata(conv, config),
+    "",
+  ];
+  for (const m of snap) {
+    if (m.role === "system") continue;
+    const heading = m.role === "user" ? "You" : "Drexler";
+    lines.push(`[${heading}]`, m.content, "");
+  }
+  return lines.join("\n");
+}
+
+function formatConversationAsJson(conv: Conversation, config: Config): string {
+  return JSON.stringify(
+    {
+      exportedAt: new Date().toISOString(),
+      messageCount: conv.length,
+      approximateTokens: conv.approximateTokens(),
+      model: config.model,
+      theme: config.theme ?? currentThemeName(config),
+      messages: conv.snapshot().filter((m) => m.role !== "system"),
+    },
+    null,
+    2,
+  );
+}
+
+function escapeHtml(input: string): string {
+  return input
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function formatConversationAsHtml(conv: Conversation, config: Config): string {
+  const exportedAt = new Date().toISOString();
+  const theme = config.theme ?? currentThemeName(config);
+  const rows = conv
+    .snapshot()
+    .filter((m) => m.role !== "system")
+    .map((m) => {
+      const label = m.role === "user" ? "You" : "Drexler";
+      return `<article class="message ${m.role}"><h2>${label}</h2><div>${escapeHtml(
+        m.content,
+      ).replaceAll("\n", "<br>")}</div></article>`;
+    })
+    .join("\n");
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drexler Conversation</title>
+<style>
+:root { color-scheme: dark; --bg: #101216; --panel: #171a21; --line: #303846; --text: #f6f1e8; --muted: #aeb6c4; --gold: #d6b25e; --blue: #8ab4f8; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.55 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+main { max-width: 920px; margin: 0 auto; padding: 44px 24px 56px; }
+header { border-bottom: 1px solid var(--line); margin-bottom: 28px; padding-bottom: 18px; }
+h1 { margin: 0 0 8px; font-size: 34px; letter-spacing: 0; }
+.meta { color: var(--muted); display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 13px; }
+.message { border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px; margin: 16px 0; background: var(--panel); break-inside: avoid; }
+.message h2 { margin: 0 0 10px; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--gold); }
+.message.user h2 { color: var(--blue); }
+@media print {
+  :root { color-scheme: light; --bg: #ffffff; --panel: #ffffff; --line: #d7dce5; --text: #111827; --muted: #4b5563; --gold: #7c5600; --blue: #174ea6; }
+  main { padding: 24px 0; max-width: none; }
+}
+</style>
+</head>
+<body>
+<main>
+<header>
+<h1>Drexler Conversation</h1>
+<div class="meta">
+  <span>Exported ${escapeHtml(exportedAt)}</span>
+  <span>${conv.length} messages</span>
+  <span>~${conv.approximateTokens()} tokens</span>
+  <span>Model ${escapeHtml(config.model)}</span>
+  <span>Theme ${escapeHtml(theme)}</span>
+</div>
+</header>
+${rows || "<p>No transcript yet.</p>"}
+</main>
+</body>
+</html>
+`;
+}
+
+function lastAssistantMessage(conv: Conversation): string | null {
+  const snap = conv.snapshot();
+  for (let i = snap.length - 1; i >= 0; i--) {
+    const m = snap[i];
+    if (m?.role === "assistant") return m.content;
+  }
+  return null;
+}
+
+function formatLastAssistantAsMarkdown(content: string): string {
+  return [
+    "# Drexler Last Response",
+    "",
+    `Saved: ${new Date().toISOString()}`,
+    "",
+    "---",
+    "",
+    content,
+    "",
+  ].join("\n");
+}
+
+function handleSaveLast(rawPath: string, ctx: CommandContext): void {
+  const last = lastAssistantMessage(ctx.conversation);
+  if (!last) {
+    ctx.print("Drexler has not issued a response to save yet.");
+    return;
+  }
+  const target = resolveWriteTarget(
+    stripMatchingQuotes(rawPath.trim()),
+    "drexler-last",
+    ".md",
+    ctx,
+  );
+  if (!target) return;
+  try {
+    writeFileSync(target, formatLastAssistantAsMarkdown(last));
+    ctx.print(`Drexler last response sealed: ${target}`);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    ctx.print(error(`Could not save last response: ${msg}`));
+  }
+}
+
+function handleExpand(ctx: CommandContext): void {
+  const last = lastAssistantMessage(ctx.conversation);
+  if (!last) {
+    ctx.print("Drexler has no response to expand yet.");
+    return;
+  }
+  ctx.print(last);
+}
+
+function handleQuote(ctx: CommandContext): void {
+  const last = lastAssistantMessage(ctx.conversation);
+  if (!last) {
+    ctx.print("Drexler has no response to quote yet.");
+    return;
+  }
+  const quoted = last
+    .split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n");
+  ctx.print(quoted);
+}
+
+export function copyTextToClipboard(text: string): ClipboardResult {
+  const candidates =
+    process.platform === "darwin"
+      ? [{ command: "pbcopy", args: [] }]
+      : process.platform === "win32"
+        ? [{ command: "cmd.exe", args: ["/c", "clip"] }]
+        : [
+            { command: "wl-copy", args: [] },
+            { command: "xclip", args: ["-selection", "clipboard"] },
+            { command: "xsel", args: ["--clipboard", "--input"] },
+          ];
+
+  const failures: string[] = [];
+  for (const candidate of candidates) {
+    const result = spawnSync(candidate.command, candidate.args, {
+      input: text,
+      encoding: "utf8",
+      stdio: ["pipe", "ignore", "pipe"],
+    });
+    if (result.status === 0) {
+      return { ok: true, command: candidate.command };
+    }
+    if (result.error) {
+      failures.push(`${candidate.command}: ${result.error.message}`);
+    } else if (result.stderr) {
+      failures.push(`${candidate.command}: ${String(result.stderr).trim()}`);
+    } else {
+      failures.push(`${candidate.command}: exit ${result.status ?? "unknown"}`);
+    }
+  }
+
+  return {
+    ok: false,
+    reason: failures.length > 0 ? failures.join("; ") : "no clipboard utility found",
+  };
+}
+
+function handleCopyLast(ctx: CommandContext): void {
+  const last = lastAssistantMessage(ctx.conversation);
+  if (!last) {
+    ctx.print("Drexler has not issued a response to copy yet.");
+    return;
+  }
+
+  const result = (ctx.copyToClipboard ?? copyTextToClipboard)(last);
+  if (result.ok) {
+    ctx.print(`Drexler copied last response to clipboard via ${result.command}.`);
+    return;
+  }
+
+  ctx.print(
+    error(
+      `Clipboard unavailable: ${result.reason}. Use /save-last [path] to archive Drexler's last response.`,
+    ),
+  );
+}
+
+function compactSnippet(content: string, term: string): string {
+  const normalized = content.replace(/\s+/g, " ").trim();
+  const idx = normalized.toLowerCase().indexOf(term.toLowerCase());
+  if (idx === -1) return normalized.slice(0, 96);
+  const start = Math.max(0, idx - 32);
+  const end = Math.min(normalized.length, idx + term.length + 48);
+  const prefix = start > 0 ? "..." : "";
+  const suffix = end < normalized.length ? "..." : "";
+  return `${prefix}${normalized.slice(start, end)}${suffix}`;
+}
+
+function handleSearch(rawTerm: string, ctx: CommandContext): void {
+  const term = stripMatchingQuotes(rawTerm.trim());
+  if (!term) {
+    ctx.print(error("Usage: /search <term>"));
+    return;
+  }
+
+  const matches = ctx.conversation
+    .snapshot()
+    .filter((m) => m.role !== "system" && m.content.toLowerCase().includes(term.toLowerCase()));
+
+  if (matches.length === 0) {
+    ctx.print(`No transcript matches for "${term}".`);
+    return;
+  }
+
+  const lines = [`Search results for "${term}": ${matches.length}`];
+  matches.slice(0, 8).forEach((m, i) => {
+    const label = m.role === "user" ? "You" : "Drexler";
+    lines.push(`${i + 1}. ${label}: ${compactSnippet(m.content, term)}`);
+  });
+  if (matches.length > 8) {
+    lines.push(`...${matches.length - 8} more matches`);
+  }
+  ctx.print(lines.join("\n"));
+}
+
+type ExportFormat = "md" | "txt" | "json" | "html";
+
+const EXPORT_EXTENSIONS: Record<ExportFormat, string> = {
+  md: ".md",
+  txt: ".txt",
+  json: ".json",
+  html: ".html",
+};
+
+function isExportFormat(value: string | undefined): value is ExportFormat {
+  return value === "md" || value === "txt" || value === "json" || value === "html";
+}
+
+function handleExport(input: string, args: string[], ctx: CommandContext): void {
+  const requested = args[0]?.toLowerCase();
+  if (!isExportFormat(requested)) {
+    ctx.print(error("Usage: /export md|txt|json|html [path]"));
+    return;
+  }
+
+  const rawRemainder = commandRemainder(input, "export");
+  const rawPath = rawRemainder.slice(args[0]!.length).trim();
+  const target = resolveWriteTarget(
+    stripMatchingQuotes(rawPath),
+    `drexler-export`,
+    EXPORT_EXTENSIONS[requested],
+    ctx,
+  );
+  if (!target) return;
+
+  const body =
+    requested === "md"
+      ? formatConversationAsMarkdown(ctx.conversation, ctx.config)
+      : requested === "txt"
+        ? formatConversationAsText(ctx.conversation, ctx.config)
+        : requested === "json"
+          ? formatConversationAsJson(ctx.conversation, ctx.config)
+          : formatConversationAsHtml(ctx.conversation, ctx.config);
+
+  try {
+    writeFileSync(target, body);
+    ctx.print(`Drexler export filed (${requested}): ${target}`);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    ctx.print(error(`Could not export: ${msg}`));
+  }
 }
 
 function handleModel(args: string[], ctx: CommandContext): void {
@@ -204,4 +608,83 @@ function handleModel(args: string[], ctx: CommandContext): void {
     const msg = e instanceof Error ? e.message : String(e);
     ctx.print(error(msg));
   }
+}
+
+function currentThemeName(config: Config): ThemeName {
+  const activeTheme = getActiveTheme();
+  const match = THEME_NAMES.find((name) => THEMES[name] === activeTheme);
+  return match ?? config.theme ?? "apollo";
+}
+
+function currentStartupMode(config: Config): "fast" | "no-intro" | "normal" {
+  if (config.fast === true) return "fast";
+  if (config.noIntro === true) return "no-intro";
+  return "normal";
+}
+
+function handleStartup(args: string[], ctx: CommandContext): CommandAction {
+  if (args.length === 0) {
+    ctx.print(`Current startup mode: ${currentStartupMode(ctx.config)}`);
+    return { type: "continue" };
+  }
+
+  const requested = args[0]?.toLowerCase();
+  if (requested === "fast") {
+    ctx.config.fast = true;
+    ctx.config.noIntro = true;
+    ctx.print("Drexler save startup mode: fast.");
+    return { type: "continue", persistConfig: { fast: true, noIntro: true } };
+  }
+  if (requested === "no-intro") {
+    ctx.config.fast = false;
+    ctx.config.noIntro = true;
+    ctx.print("Drexler save startup mode: no-intro.");
+    return { type: "continue", persistConfig: { fast: false, noIntro: true } };
+  }
+  if (requested === "normal") {
+    ctx.config.fast = false;
+    ctx.config.noIntro = false;
+    ctx.print("Drexler restore full theatrical entrance.");
+    return { type: "continue", persistConfig: { fast: false, noIntro: false } };
+  }
+
+  ctx.print(error(`Unknown startup mode: ${args[0]}. Use fast, no-intro, or normal.`));
+  return { type: "continue" };
+}
+
+function handleTheme(args: string[], ctx: CommandContext): CommandAction {
+  if (args.length === 0) {
+    ctx.print(`Current theme: ${currentThemeName(ctx.config)}`);
+    return { type: "continue" };
+  }
+
+  if (args[0]?.toLowerCase() === "save") {
+    const current = currentThemeName(ctx.config);
+    ctx.config.theme = current;
+    ctx.print(`Drexler save boardroom decor: ${current}`);
+    return { type: "continue", persistConfig: { theme: current } };
+  }
+
+  const requested = args[0]?.toLowerCase();
+  if (!isThemeName(requested)) {
+    ctx.print(
+      error(
+        `Unknown theme: "${args[0] ?? ""}". Use ${THEME_NAMES.join(", ")}.`,
+      ),
+    );
+    return { type: "continue" };
+  }
+
+  ctx.config.theme = requested;
+  setActiveTheme(requested);
+  resetMarkedTheme();
+  const shouldSave = args.slice(1).some((arg) => arg.toLowerCase() === "save");
+  ctx.print(
+    shouldSave
+      ? `Drexler redecorate boardroom and save: ${requested}`
+      : `Drexler redecorate boardroom: ${requested}`,
+  );
+  return shouldSave
+    ? { type: "continue", persistConfig: { theme: requested } }
+    : { type: "continue" };
 }

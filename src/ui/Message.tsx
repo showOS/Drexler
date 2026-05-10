@@ -1,6 +1,7 @@
 import { Box, Text } from "ink";
 import { memo, useMemo } from "react";
 import { renderMarkdown } from "../renderer.ts";
+import { fitDisplayText } from "./graphemes.ts";
 import { useTheme } from "./ThemeContext.tsx";
 
 interface MessageItem {
@@ -8,48 +9,91 @@ interface MessageItem {
   content: string;
 }
 
+const SEPARATOR_WIDTH = 44;
+
+const ROLE_LABELS: Record<MessageItem["role"], string> = {
+  user: "YOU",
+  assistant: "DREXLER",
+  system: "SYSTEM",
+};
+
 function Separator() {
   const t = useTheme();
   return (
-    <Box paddingX={1} marginBottom={1}>
-      <Text color={t.primaryDim}>{"─".repeat(40)}</Text>
+    <Box paddingX={1} marginBottom={1} flexShrink={1}>
+      <Text color={t.primaryDim} wrap="truncate">
+        {"─".repeat(SEPARATOR_WIDTH)}
+      </Text>
     </Box>
   );
 }
 
 function MessageInner({ role, content }: MessageItem) {
   const t = useTheme();
+  const assistantLines = useMemo(
+    () =>
+      role === "assistant"
+        ? renderMarkdown(content).trimEnd().split("\n")
+        : [],
+    [content, role],
+  );
+
   if (role === "user") {
     return (
       <>
-        <Box paddingX={1} marginBottom={1}>
-          <Text color={t.dim}>❯ </Text>
-          <Text color={t.text}>{content}</Text>
+        <Box paddingX={1} marginBottom={1} flexDirection="column">
+          <Box>
+            <Text color={t.primaryLight} bold>
+              {ROLE_LABELS.user}
+            </Text>
+            <Text color={t.primaryDim}> ─ </Text>
+            <Text color={t.dim}>incoming memo</Text>
+          </Box>
+          <Box paddingLeft={1}>
+            <Text color={t.primary}>› </Text>
+            <Text color={t.text} wrap="wrap">
+              {content}
+            </Text>
+          </Box>
         </Box>
       </>
     );
   }
   if (role === "system") {
     return (
-      <Box paddingX={1} marginBottom={1}>
-        <Text color={t.dim} italic>
-          {content}
-        </Text>
+      <Box paddingX={1} marginBottom={1} flexDirection="column">
+        <Box>
+          <Text color={t.warning} bold>
+            {ROLE_LABELS.system}
+          </Text>
+          <Text color={t.primaryDim}> ─ </Text>
+          <Text color={t.dim}>notice</Text>
+        </Box>
+        <Box paddingLeft={1}>
+          <Text color={t.dim} italic wrap="wrap">
+            {content}
+          </Text>
+        </Box>
       </Box>
     );
   }
-  // assistant: left accent bar + markdown rendering, separator below
-  const lines = useMemo(
-    () => renderMarkdown(content).trimEnd().split("\n"),
-    [content],
-  );
+
   return (
     <>
-      <Box flexDirection="column" marginBottom={1}>
-        {lines.map((ln, i) => (
-          <Box key={i}>
-            <Text color={t.primary}>│ </Text>
-            <Text>{ln}</Text>
+      <Box flexDirection="column" marginBottom={1} paddingX={1}>
+        <Box>
+          <Text color={t.primaryLight} bold>
+            {ROLE_LABELS.assistant}
+          </Text>
+          <Text color={t.primaryDim}> ─ </Text>
+          <Text color={t.dim}>response ledger</Text>
+        </Box>
+        {assistantLines.map((ln, i) => (
+          <Box key={i} paddingLeft={1}>
+            <Text color={i === 0 ? t.primary : t.primaryDim}>│ </Text>
+            <Text color={t.text} wrap="wrap">
+              {ln}
+            </Text>
           </Box>
         ))}
       </Box>
@@ -62,17 +106,43 @@ export const Message = memo(MessageInner);
 
 interface StreamingProps {
   content: string;
+  width?: number;
 }
 
-function StreamingMessageInner({ content }: StreamingProps) {
+function StreamingMessageInner({ content, width = 80 }: StreamingProps) {
   const t = useTheme();
   const lines = useMemo(() => content.split("\n"), [content]);
+  const safeWidth = Math.max(1, Math.floor(width));
+  const contentWidth = Math.max(1, safeWidth - 3);
+
+  if (safeWidth < 18) {
+    const compactLine = fitDisplayText(content.replace(/\s+/g, " "), safeWidth);
+    return (
+      <Box width={safeWidth} flexShrink={1}>
+        <Text color={t.primaryLight} wrap="truncate">
+          {compactLine}
+        </Text>
+      </Box>
+    );
+  }
+
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" paddingX={1} width={safeWidth} flexShrink={1}>
+      <Box>
+        <Text color={t.primaryLight} bold>
+          {ROLE_LABELS.assistant}
+        </Text>
+        <Text color={t.primaryDim}> ─ </Text>
+        <Text color={t.dim}>drafting live</Text>
+      </Box>
       {lines.map((ln, i) => (
-        <Box key={i}>
-          <Text color={t.primary}>│ </Text>
-          <Text color={t.text}>{ln}</Text>
+        <Box key={i} paddingLeft={1}>
+          <Text color={i === lines.length - 1 ? t.primaryLight : t.primary}>
+            │{" "}
+          </Text>
+          <Text color={t.text} wrap="truncate">
+            {fitDisplayText(ln, contentWidth)}
+          </Text>
         </Box>
       ))}
     </Box>

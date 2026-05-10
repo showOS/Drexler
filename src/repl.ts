@@ -5,6 +5,7 @@ import {
   isSlash,
   type CommandAction,
 } from "./commands.ts";
+import { saveConfig } from "./config.ts";
 import type { Conversation } from "./conversation.ts";
 import { streamChat, type FetchFn } from "./llm.ts";
 import type { Message } from "./types.ts";
@@ -40,6 +41,20 @@ export interface ReplDeps {
   print: (s: string) => void;
 }
 
+async function persistPreferences(
+  partial: Partial<Config> | undefined,
+  print: (s: string) => void,
+): Promise<void> {
+  if (!partial) return;
+  try {
+    await saveConfig(partial);
+    print(info("Drexler preferences filed."));
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    print(error(`Could not save preferences: ${msg}`));
+  }
+}
+
 export function pickFallback(currentModel: string): string {
   return currentModel === MODEL_PRIMARY ? MODEL_FALLBACK : MODEL_PRIMARY;
 }
@@ -70,7 +85,10 @@ interface KeypressKey {
 }
 type KeypressListener = (str: string | undefined, key: KeypressKey) => void;
 
-async function streamFromHistory(deps: ReplDeps): Promise<void> {
+async function streamFromHistory(
+  deps: ReplDeps,
+  instruction?: string,
+): Promise<void> {
   const spinner = startSpinner();
   let firstToken = true;
   const accent = createAccentBarWriter();
@@ -102,7 +120,12 @@ async function streamFromHistory(deps: ReplDeps): Promise<void> {
       apiKey: deps.config.apiKey,
       model: deps.config.model,
       fallbackModel: pickFallback(deps.config.model),
-      messages: buildMessagesWithReminder(deps.conversation),
+      messages: instruction
+        ? [
+            ...buildMessagesWithReminder(deps.conversation),
+            { role: "system", content: instruction },
+          ]
+        : buildMessagesWithReminder(deps.conversation),
       onToken,
       signal: abort.signal,
       fetchFn: deps.fetchFn,
@@ -151,8 +174,11 @@ export async function handleLine(
       config: deps.config,
       print: deps.print,
     });
+    if (action.type === "continue") {
+      await persistPreferences(action.persistConfig, deps.print);
+    }
     if (action.type === "regenerate") {
-      await streamFromHistory(deps);
+      await streamFromHistory(deps, action.instruction);
       return { type: "continue" };
     }
     return action;

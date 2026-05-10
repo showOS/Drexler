@@ -11,8 +11,8 @@ import {
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import * as readline from "node:readline/promises";
-import type { CliFlags, Config } from "./types.ts";
-import { MODEL_FALLBACK, MODEL_PRIMARY } from "./types.ts";
+import type { CliFlags, Config, ThemeName } from "./types.ts";
+import { MODEL_FALLBACK, MODEL_PRIMARY, THEME_NAMES } from "./types.ts";
 
 const DEFAULT_MAX_HISTORY = 50;
 
@@ -47,6 +47,10 @@ export function parseFlags(argv: string[]): CliFlags {
       flags.persona = argv[++i];
     } else if (a === "--theme" && valueAfter(i) !== undefined) {
       flags.theme = argv[++i];
+    } else if (a === "--no-intro") {
+      flags.noIntro = true;
+    } else if (a === "--fast") {
+      flags.fast = true;
     } else if (a !== undefined && a.startsWith("--model=")) {
       flags.model = a.slice("--model=".length);
     } else if (a !== undefined && a.startsWith("--persona=")) {
@@ -132,6 +136,25 @@ export function isValidApiKey(k: string | undefined | null): k is string {
   return true;
 }
 
+function parseOptionalBoolean(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") return undefined;
+  switch (value.trim().toLowerCase()) {
+    case "1":
+    case "true":
+    case "yes":
+    case "on":
+      return true;
+    case "0":
+    case "false":
+    case "no":
+    case "off":
+      return false;
+    default:
+      return undefined;
+  }
+}
+
 async function readApiKeyFromStdin(): Promise<string | null> {
   const rl = readline.createInterface({
     input: process.stdin,
@@ -146,16 +169,20 @@ async function readApiKeyFromStdin(): Promise<string | null> {
   }
 }
 
-export async function ensureApiKey(): Promise<string> {
+export async function ensureApiKey(opts?: {
+  prompt?: () => Promise<string | null>;
+}): Promise<string> {
   const fileCfg = await loadConfigFile();
   const envKey = process.env.OPENROUTER_API_KEY;
   if (isValidApiKey(envKey)) return envKey.trim();
   if (isValidApiKey(fileCfg.apiKey)) return fileCfg.apiKey.trim();
 
-  console.log("Drexler notice no API key on file. Even CEO need credentials.");
-  console.log("Get free key at: https://openrouter.ai/keys");
+  if (!opts?.prompt) {
+    console.log("Drexler notice no API key on file. Even CEO need credentials.");
+    console.log("Get free key at: https://openrouter.ai/keys");
+  }
 
-  const entered = await readApiKeyFromStdin();
+  const entered = await (opts?.prompt ?? readApiKeyFromStdin)();
   if (!isValidApiKey(entered)) {
     console.error("No valid API key provided. Drexler refuse to work pro bono.");
     process.exit(1);
@@ -212,11 +239,19 @@ export async function resolveConfig(argv: string[]): Promise<Config> {
   const themeCandidate =
     flags.theme ?? process.env.DREXLER_THEME ?? fileCfg.theme;
   const theme =
-    themeCandidate === "apollo" ||
-    themeCandidate === "amber" ||
-    themeCandidate === "mono"
-      ? themeCandidate
+    typeof themeCandidate === "string" &&
+    THEME_NAMES.includes(themeCandidate as ThemeName)
+      ? (themeCandidate as ThemeName)
       : undefined;
 
-  return { apiKey, model, maxHistory, personaPath, theme };
+  const noIntro =
+    flags.noIntro ??
+    parseOptionalBoolean(process.env.DREXLER_NO_INTRO) ??
+    parseOptionalBoolean(fileCfg.noIntro);
+  const fast =
+    flags.fast ??
+    parseOptionalBoolean(process.env.DREXLER_FAST) ??
+    parseOptionalBoolean(fileCfg.fast);
+
+  return { apiKey, model, maxHistory, personaPath, theme, noIntro, fast };
 }

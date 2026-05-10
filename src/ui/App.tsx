@@ -1,6 +1,12 @@
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { dispatch, filterPaletteByPrefix, isSlash } from "../commands.ts";
+import {
+  dispatch,
+  filterPaletteByPrefix,
+  isSlash,
+  type CommandAction,
+} from "../commands.ts";
+import { saveConfig } from "../config.ts";
 import type { Conversation } from "../conversation.ts";
 import { streamChat, type FetchFn } from "../llm.ts";
 import { pickLayout } from "../renderer.ts";
@@ -17,14 +23,54 @@ import {
   WITTICISMS,
 } from "../sayings.ts";
 import { type Config } from "../types.ts";
-import { useTheme } from "./ThemeContext.tsx";
+import { THEME_NAMES } from "../types.ts";
 import { CommandPalette } from "./CommandPalette.tsx";
+import { DealDeskHeader } from "./DealDeskHeader.tsx";
+import {
+  clampCursor,
+  deleteAtCursor,
+  deleteBeforeCursor,
+  graphemeLength,
+  insertAtCursor,
+} from "./graphemes.ts";
 import { InputBox } from "./InputBox.tsx";
-import { Message, StreamingMessage } from "./Message.tsx";
+import { StreamingMessage } from "./Message.tsx";
 import { Spinner } from "./Spinner.tsx";
 import { StatusBar } from "./StatusBar.tsx";
+import { ThemeProvider } from "./ThemeContext.tsx";
+import { TranscriptViewport } from "./TranscriptViewport.tsx";
+import { getActiveTheme, THEMES } from "./themes.ts";
 
 const MAX_INPUT_WIDTH = 80;
+const TRANSCRIPT_CHROME_ROWS = 12;
+
+export function transcriptRowsForTerminalRows(rows: number): number {
+  return Math.max(1, Math.min(24, rows - TRANSCRIPT_CHROME_ROWS));
+}
+
+export function nextTranscriptScrollOffset({
+  current,
+  itemCount,
+  direction,
+  step = 3,
+}: {
+  current: number;
+  itemCount: number;
+  direction: "older" | "newer";
+  step?: number;
+}): number {
+  const maxOffset = Math.max(0, itemCount - 1);
+  if (direction === "older") {
+    return Math.min(maxOffset, current + step);
+  }
+  return Math.max(0, current - step);
+}
+
+export function shouldRemoveVisibleAssistantForAction(
+  action: CommandAction,
+): boolean {
+  return action.type === "regenerate" && action.removedAssistant;
+}
 
 function pick<T>(arr: readonly T[]): T {
   if (arr.length === 0) {
@@ -42,17 +88,23 @@ interface ChatItem {
 interface AppProps {
   conversation: Conversation;
   config: Config;
+  mood?: string;
   fetchFn?: FetchFn;
 }
 
-export function App({ conversation, config, fetchFn }: AppProps) {
-  const t = useTheme();
+export function App({ conversation, config, mood = "neutral", fetchFn }: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
+  const [activeTheme, setActiveThemeSnapshot] = useState(() => getActiveTheme());
+  const t = activeTheme;
   const [cols, setCols] = useState<number>(stdout?.columns ?? 80);
+  const [rows, setRows] = useState<number>(stdout?.rows ?? 24);
   useEffect(() => {
     if (!stdout) return;
-    const handler = () => setCols(stdout.columns ?? 80);
+    const handler = () => {
+      setCols(stdout.columns ?? 80);
+      setRows(stdout.rows ?? 24);
+    };
     stdout.on("resize", handler);
     return () => {
       stdout.off("resize", handler);
@@ -63,8 +115,16 @@ export function App({ conversation, config, fetchFn }: AppProps) {
     () => Math.max(1, Math.min(cols, MAX_INPUT_WIDTH)),
     [cols],
   );
+  const chromeWidth = useMemo(
+    () => Math.max(1, Math.min(cols, MAX_INPUT_WIDTH)),
+    [cols],
+  );
   const statusBarWidth = useMemo(() => Math.max(1, inputWidth - 2), [inputWidth]);
   const isCompact = mode === "very-narrow";
+  const maxTranscriptRows = useMemo(
+    () => transcriptRowsForTerminalRows(rows),
+    [rows],
+  );
 
   const [items, setItems] = useState<ChatItem[]>([]);
   const itemIdRef = useRef(0);
@@ -80,23 +140,71 @@ export function App({ conversation, config, fetchFn }: AppProps) {
     });
   }, []);
 
-  const [input, setInput] = useState("");
-  const [cursor, setCursor] = useState(0);
+  const [draft, setDraft] = useState({ value: "", cursor: 0 });
+  const draftRef = useRef(draft);
+  const updateDraft = useCallback(
+    (
+      next:
+        | { value: string; cursor: number }
+        | ((prev: { value: string; cursor: number }) => {
+            value: string;
+            cursor: number;
+          }),
+    ) => {
+      const resolved =
+        typeof next === "function" ? next(draftRef.current) : next;
+      draftRef.current = resolved;
+      setDraft(resolved);
+    },
+    [],
+  );
+  const input = draft.value;
+  const cursor = draft.cursor;
   const [streaming, setStreaming] = useState<string | null>(null);
   const [thinking, setThinking] = useState<string | null>(null);
   const [exitMsg, setExitMsg] = useState<string | null>(null);
   const [witticism, setWitticism] = useState<string>(pick(WITTICISMS));
   const [model, setModel] = useState<string>(config.model);
   const [msgCount, setMsgCount] = useState<number>(0);
+  const [tokenCount, setTokenCount] = useState<number>(
+    conversation.approximateTokens(),
+  );
+  const [lastLatencyMs, setLastLatencyMs] = useState<number | null>(null);
+  const [fallbackModel, setFallbackModel] = useState<string | null>(null);
+  const [deskStatus, setDeskStatus] = useState<"idle" | "error">("idle");
+  const [deskNotice, setDeskNotice] = useState<string | null>(null);
   const [history, setHistory] = useState<string[]>([]);
   const [historyIdx, setHistoryIdx] = useState<number | null>(null);
   const [paletteIdx, setPaletteIdx] = useState(0);
+  const [scrollOffset, setScrollOffset] = useState(0);
 
   const paletteItems = useMemo(() => filterPaletteByPrefix(input), [input]);
   const paletteOpen = paletteItems.length > 0;
   useEffect(() => {
     setPaletteIdx(0);
   }, [input]);
+
+  useEffect(() => {
+    setScrollOffset(0);
+  }, [items.length]);
+
+  useEffect(() => {
+    setTokenCount(conversation.approximateTokens());
+  }, [conversation, msgCount]);
+
+  const themeName = useMemo(() => {
+    const active = getActiveTheme();
+    return (
+      THEME_NAMES.find((name) => THEMES[name] === active) ??
+      config.theme ??
+      "apollo"
+    );
+  }, [activeTheme, config.theme]);
+
+  const scrollHint = useMemo(() => {
+    if (items.length <= maxTranscriptRows) return undefined;
+    return scrollOffset > 0 ? "PageDown newer" : "PageUp scrollback";
+  }, [items.length, maxTranscriptRows, scrollOffset]);
 
   // throttle streaming updates so React doesn't re-render every token
   const streamBufRef = useRef("");
@@ -133,8 +241,12 @@ export function App({ conversation, config, fetchFn }: AppProps) {
     [flushStream],
   );
 
-  const runLLM = useCallback(async () => {
+  const runLLM = useCallback(async (instruction?: string) => {
+    const startedAt = Date.now();
     setThinking(pick(THINKING_LINES));
+    setDeskStatus("idle");
+    setDeskNotice(null);
+    setFallbackModel(null);
     streamBufRef.current = "";
     setStreaming(null);
     let firstToken = true;
@@ -146,7 +258,12 @@ export function App({ conversation, config, fetchFn }: AppProps) {
         apiKey: config.apiKey,
         model,
         fallbackModel: pickFallback(model),
-        messages: buildMessagesWithReminder(conversation),
+        messages: instruction
+          ? [
+              ...buildMessagesWithReminder(conversation),
+              { role: "system", content: instruction },
+            ]
+          : buildMessagesWithReminder(conversation),
         onToken: (t) => {
           if (!mountedRef.current) return;
           if (firstToken) {
@@ -173,11 +290,14 @@ export function App({ conversation, config, fetchFn }: AppProps) {
       setThinking(null);
       setStreaming(null);
       addItem("system", `${STREAM_ERROR} [${msg}]`);
+      setDeskStatus("error");
+      setDeskNotice(msg);
       setMsgCount(conversation.length);
       return;
     }
     setThinking(null);
     setStreaming(null);
+    setLastLatencyMs(Date.now() - startedAt);
     if (cancelledRef.current) {
       cancelledRef.current = false;
       if (result?.content) {
@@ -185,24 +305,35 @@ export function App({ conversation, config, fetchFn }: AppProps) {
         addItem("assistant", result.content);
       }
       addItem("system", "(cancelled — Drexler taking lunch)");
+      setDeskNotice("response cancelled");
     } else if (result?.ok) {
       conversation.push("assistant", result.content);
       addItem("assistant", result.content);
+      const notices: string[] = [];
       if (result.fellBack) {
         addItem("system", `(fell back to ${result.modelUsed})`);
+        notices.push(`fallback ${result.modelUsed}`);
+        setFallbackModel(result.modelUsed);
       }
       if (detectPersonaDrift(result.content)) {
         addItem("system", `(persona drift detected — model used 'I')`);
+        notices.push("persona drift detected");
       }
+      setDeskNotice(notices.length > 0 ? notices.join(" · ") : null);
     } else if (result?.interrupted) {
       conversation.push("assistant", result.content);
       addItem("assistant", result.content);
       addItem("system", "(stream interrupted — partial response saved)");
+      setDeskStatus("error");
+      setDeskNotice("stream interrupted; partial response saved");
     } else {
       const detail = result?.error ? ` [${result.error}]` : "";
       addItem("system", `${STREAM_ERROR}${detail}`);
+      setDeskStatus("error");
+      setDeskNotice(result?.error ?? "stream error");
     }
     setMsgCount(conversation.length);
+    setTokenCount(conversation.approximateTokens());
     setWitticism(pick(WITTICISMS));
   }, [
     config,
@@ -227,9 +358,31 @@ export function App({ conversation, config, fetchFn }: AppProps) {
       const lower = line.toLowerCase().trim();
       if (lower === "/clear" || lower.startsWith("/clear ")) {
         setItems([]);
+        setLastLatencyMs(null);
+        setFallbackModel(null);
       }
       if (mutableConfig.model !== model) {
         setModel(mutableConfig.model);
+      }
+      const appliedTheme =
+        lower.startsWith("/theme ") && captured.includes("redecorate boardroom");
+      if (appliedTheme || getActiveTheme() !== activeTheme) {
+        setActiveThemeSnapshot(getActiveTheme());
+        if (mutableConfig.theme) {
+          setDeskStatus("idle");
+          setDeskNotice(`theme ${mutableConfig.theme}`);
+        }
+      }
+      if (action.type === "continue" && action.persistConfig) {
+        try {
+          await saveConfig(action.persistConfig);
+          captured += `${captured ? "\n" : ""}Drexler preferences filed.`;
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          captured += `${captured ? "\n" : ""}Could not save preferences: ${msg}`;
+          setDeskStatus("error");
+          setDeskNotice("preference save failed");
+        }
       }
       if (captured) addItem("system", captured);
       if (action.type === "exit") {
@@ -237,15 +390,19 @@ export function App({ conversation, config, fetchFn }: AppProps) {
         return;
       }
       if (action.type === "regenerate") {
-        removeLastAssistantItem();
-        await runLLM();
+        if (shouldRemoveVisibleAssistantForAction(action)) {
+          removeLastAssistantItem();
+        }
+        await runLLM(action.instruction);
       }
       setMsgCount(conversation.length);
+      setTokenCount(conversation.approximateTokens());
     },
     [
       addItem,
       conversation,
       config,
+      activeTheme,
       model,
       removeLastAssistantItem,
       runLLM,
@@ -267,6 +424,7 @@ export function App({ conversation, config, fetchFn }: AppProps) {
       addItem("user", line);
       conversation.push("user", line);
       setMsgCount(conversation.length);
+      setTokenCount(conversation.approximateTokens());
       await runLLM();
     },
     [addItem, conversation, handleSlashWithMutation, runLLM],
@@ -287,25 +445,45 @@ export function App({ conversation, config, fetchFn }: AppProps) {
     if (paletteOpen && key.tab) {
       const sel = paletteItems[paletteIdx];
       if (sel) {
-        setInput(sel.name + " ");
-        setCursor(sel.name.length + 1);
+        updateDraft({
+          value: sel.name + " ",
+          cursor: graphemeLength(sel.name) + 1,
+        });
       }
+      return;
+    }
+    if (key.pageUp) {
+      setScrollOffset((offset) =>
+        nextTranscriptScrollOffset({
+          current: offset,
+          itemCount: items.length,
+          direction: "older",
+        }),
+      );
+      return;
+    }
+    if (key.pageDown) {
+      setScrollOffset((offset) =>
+        nextTranscriptScrollOffset({
+          current: offset,
+          itemCount: items.length,
+          direction: "newer",
+        }),
+      );
       return;
     }
     if (paletteOpen && key.return) {
       const sel = paletteItems[paletteIdx];
       if (sel) {
-        setInput("");
-        setCursor(0);
+        updateDraft({ value: "", cursor: 0 });
         setHistoryIdx(null);
         void onSubmit(sel.name);
       }
       return;
     }
     if (key.return) {
-      const submitted = input;
-      setInput("");
-      setCursor(0);
+      const submitted = draftRef.current.value;
+      updateDraft({ value: "", cursor: 0 });
       setHistoryIdx(null);
       const trimmedSubmit = submitted.trim();
       if (trimmedSubmit.length > 0) {
@@ -322,26 +500,32 @@ export function App({ conversation, config, fetchFn }: AppProps) {
       return;
     }
     if (paletteOpen && key.escape) {
-      setInput("");
-      setCursor(0);
+      updateDraft({ value: "", cursor: 0 });
       return;
     }
     if (key.tab) {
       return;
     }
-    if (key.backspace || key.delete) {
-      if (cursor > 0) {
-        setInput((prev) => prev.slice(0, cursor - 1) + prev.slice(cursor));
-        setCursor((c) => Math.max(0, c - 1));
-      }
+    if (key.backspace) {
+      updateDraft((prev) => deleteBeforeCursor(prev.value, prev.cursor));
+      return;
+    }
+    if (key.delete) {
+      updateDraft((prev) => deleteAtCursor(prev.value, prev.cursor));
       return;
     }
     if (key.leftArrow) {
-      setCursor((c) => Math.max(0, c - 1));
+      updateDraft((prev) => ({
+        value: prev.value,
+        cursor: Math.max(0, prev.cursor - 1),
+      }));
       return;
     }
     if (key.rightArrow) {
-      setCursor((c) => Math.min(input.length, c + 1));
+      updateDraft((prev) => ({
+        value: prev.value,
+        cursor: Math.min(graphemeLength(prev.value), prev.cursor + 1),
+      }));
       return;
     }
     if (key.upArrow) {
@@ -355,8 +539,7 @@ export function App({ conversation, config, fetchFn }: AppProps) {
       const idx = historyIdx === null ? history.length - 1 : Math.max(0, historyIdx - 1);
       const entry = history[idx] ?? "";
       setHistoryIdx(idx);
-      setInput(entry);
-      setCursor(entry.length);
+      updateDraft({ value: entry, cursor: graphemeLength(entry) });
       return;
     }
     if (key.downArrow) {
@@ -368,27 +551,27 @@ export function App({ conversation, config, fetchFn }: AppProps) {
       const next = historyIdx + 1;
       if (next >= history.length) {
         setHistoryIdx(null);
-        setInput("");
-        setCursor(0);
+        updateDraft({ value: "", cursor: 0 });
       } else {
         const entry = history[next] ?? "";
         setHistoryIdx(next);
-        setInput(entry);
-        setCursor(entry.length);
+        updateDraft({ value: entry, cursor: graphemeLength(entry) });
       }
       return;
     }
     if (key.ctrl && char === "a") {
-      setCursor(0);
+      updateDraft((prev) => ({ value: prev.value, cursor: 0 }));
       return;
     }
     if (key.ctrl && char === "e") {
-      setCursor(input.length);
+      updateDraft((prev) => ({
+        value: prev.value,
+        cursor: graphemeLength(prev.value),
+      }));
       return;
     }
     if (key.ctrl && char === "u") {
-      setInput("");
-      setCursor(0);
+      updateDraft({ value: "", cursor: 0 });
       return;
     }
     // Plain text input. Filter out control chars except printable.
@@ -396,8 +579,13 @@ export function App({ conversation, config, fetchFn }: AppProps) {
       // accept multi-char (paste)
       const filtered = char.replace(/[\x00-\x1f]/g, "");
       if (filtered.length > 0) {
-        setInput((prev) => prev.slice(0, cursor) + filtered + prev.slice(cursor));
-        setCursor((c) => c + filtered.length);
+        updateDraft((prev) =>
+          insertAtCursor(
+            prev.value,
+            clampCursor(prev.value, prev.cursor),
+            filtered,
+          ),
+        );
       }
     }
   });
@@ -416,59 +604,80 @@ export function App({ conversation, config, fetchFn }: AppProps) {
   }, []);
 
   const isBusy = streaming !== null || thinking !== null;
+  const headerStatus = isBusy ? "streaming" : deskStatus;
 
   return (
-    <Box flexDirection="column">
+    <ThemeProvider value={activeTheme}>
       <Box flexDirection="column">
-        {items.map((item) => (
-          <Box key={item.id} flexDirection="column">
-            <Message role={item.role} content={item.content} />
-          </Box>
-        ))}
-      </Box>
+        <DealDeskHeader
+          model={model}
+          mood={mood}
+          messageCount={msgCount}
+          themeName={themeName}
+          approximateTokens={tokenCount}
+          latencyMs={lastLatencyMs}
+          fallbackModel={fallbackModel}
+          status={headerStatus}
+          compact={isCompact}
+          notice={deskNotice ?? undefined}
+          maxWidth={chromeWidth}
+        />
+        <TranscriptViewport
+          items={items}
+          maxRows={maxTranscriptRows}
+          cols={chromeWidth}
+          compact={isCompact}
+          scrollOffset={scrollOffset}
+        />
 
-      <Box flexDirection="column">
-        {streaming !== null && (
-          <Box marginBottom={1}>
-            <StreamingMessage content={streaming} />
-          </Box>
-        )}
-        {thinking !== null && streaming === null && (
-          <Box paddingX={1} marginBottom={1}>
-            <Spinner label={thinking} />
-          </Box>
-        )}
-        {exitMsg !== null ? (
-          <Box paddingX={1} marginBottom={1}>
-            <Text color={t.primaryLight} bold>
-              {exitMsg}
-            </Text>
-          </Box>
-        ) : (
-          <>
-            {paletteOpen && (
-              <CommandPalette items={paletteItems} selectedIdx={paletteIdx} />
-            )}
-            <Box flexDirection="column">
-              <InputBox
-                value={input}
-                cursor={cursor}
-                disabled={isBusy}
-                width={inputWidth}
-              />
+        <Box flexDirection="column">
+          {streaming !== null && (
+            <Box marginBottom={1}>
+              <StreamingMessage content={streaming} width={chromeWidth} />
             </Box>
-            <Box paddingLeft={2}>
-              <StatusBar
-                messageCount={msgCount}
-                witticism={witticism}
-                maxWidth={statusBarWidth}
-                status={isBusy ? "streaming" : "idle"}
-                compact={isCompact}
-              />
+          )}
+          {thinking !== null && streaming === null && (
+            <Box paddingX={1} marginBottom={1}>
+              <Spinner label={thinking} width={chromeWidth} />
             </Box>
-          </>
-        )}
+          )}
+          {exitMsg !== null ? (
+            <Box paddingX={1} marginBottom={1}>
+              <Text color={t.primaryLight} bold>
+                {exitMsg}
+              </Text>
+            </Box>
+          ) : (
+            <>
+              {paletteOpen && (
+                <CommandPalette
+                  items={paletteItems}
+                  selectedIdx={paletteIdx}
+                  width={chromeWidth}
+                />
+              )}
+              <Box flexDirection="column">
+                <InputBox
+                  value={input}
+                  cursor={cursor}
+                  disabled={isBusy}
+                  width={inputWidth}
+                />
+              </Box>
+              <Box paddingLeft={2}>
+                <StatusBar
+                  messageCount={msgCount}
+                  witticism={witticism}
+                  maxWidth={statusBarWidth}
+                  status={isBusy ? "streaming" : deskStatus}
+                  compact={isCompact}
+                  scrollHint={scrollHint}
+                />
+              </Box>
+            </>
+          )}
+        </Box>
       </Box>
-    </Box>
+    </ThemeProvider>
   );
 }

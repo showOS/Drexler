@@ -1,5 +1,6 @@
 import { Box, Text } from "ink";
 import { memo, useMemo } from "react";
+import { fitDisplayText } from "./graphemes.ts";
 import { useTheme } from "./ThemeContext.tsx";
 
 export type StatusDot = "idle" | "streaming" | "error";
@@ -10,6 +11,7 @@ interface Props {
   maxWidth?: number;
   status?: StatusDot;
   compact?: boolean;
+  scrollHint?: string;
 }
 
 const MAX_WITTICISM_LEN = 60;
@@ -27,6 +29,7 @@ function StatusBarInner({
   maxWidth,
   status = "idle",
   compact = false,
+  scrollHint,
 }: Props) {
   const t = useTheme();
   const dotColor = useMemo<Record<StatusDot, string>>(
@@ -38,20 +41,43 @@ function StatusBarInner({
     [t.primaryLight, t.warning, t.error],
   );
   const countLabel = `${messageCount} message${messageCount === 1 ? "" : "s"}`;
+  const hintLabel = scrollHint ? `  │  ${scrollHint}` : "";
   const quoteWidth =
     typeof maxWidth === "number"
-      ? Math.max(0, maxWidth - "● ".length - countLabel.length - "  │  ".length - 2)
+      ? Math.max(
+          0,
+          maxWidth -
+            "● ".length -
+            countLabel.length -
+            hintLabel.length -
+            "  │  ".length -
+            2,
+        )
       : MAX_WITTICISM_LEN;
   const safe = clampText(witticism, Math.min(MAX_WITTICISM_LEN, quoteWidth));
   const box = compact ? (
     <Box>
       <Text color={dotColor[status]}>● </Text>
       <Text color={t.dim}>{countLabel}</Text>
+      {scrollHint ? (
+        <>
+          <Text color={t.primaryDim}>{"  │  "}</Text>
+          <Text color={t.primaryLight}>
+            {fitDisplayText(scrollHint, Math.max(1, maxWidth ?? 24))}
+          </Text>
+        </>
+      ) : null}
     </Box>
   ) : (
     <Box>
       <Text color={dotColor[status]}>● </Text>
       <Text color={t.dim}>{countLabel}</Text>
+      {scrollHint ? (
+        <>
+          <Text color={t.primaryDim}>{"  │  "}</Text>
+          <Text color={t.primaryLight}>{scrollHint}</Text>
+        </>
+      ) : null}
       <Text color={t.primaryDim}>{"  │  "}</Text>
       <Text color={t.dim} italic>
         "{safe}"
