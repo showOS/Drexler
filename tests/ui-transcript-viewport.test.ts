@@ -61,10 +61,10 @@ describe("TranscriptViewport", () => {
     });
 
     expect(rendered).toContain("╭─ YOU");
-    expect(rendered).toContain("incoming memo");
+    expect(rendered).not.toContain("incoming memo");
     expect(rendered).toContain("›  Need covenant readout.");
     expect(rendered).toContain("╭─ DREXLER");
-    expect(rendered).toContain("response ledger");
+    expect(rendered).not.toContain("response ledger");
     expect(rendered).toContain("│  Covenant cushion acceptable.");
   });
 
@@ -82,7 +82,7 @@ describe("TranscriptViewport", () => {
     expect(rendered).not.toContain("\nYOU\n");
   });
 
-  test("clips default item rendering to narrow columns", () => {
+  test("wraps default item rendering to narrow columns", () => {
     const width = 22;
     const rendered = renderViewport({
       items: [
@@ -96,7 +96,9 @@ describe("TranscriptViewport", () => {
       cols: width,
     });
 
-    expect(rendered).toContain("…");
+    expect(rendered).toContain("漢字かな交じり文");
+    expect(rendered).toContain("with a very long");
+    expect(rendered).toContain("memo line");
     for (const row of rendered.split("\n")) {
       expect(displayWidth(row)).toBeLessThanOrEqual(width);
     }

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.9
+
+- Removed transcript card side labels like `incoming memo` and `response ledger`.
+- Made each transcript card use a consistent top and bottom border color.
+
 ## 0.2.8
 
 - Improved transcript readability by wrapping long user and Drexler message lines instead of truncating them.

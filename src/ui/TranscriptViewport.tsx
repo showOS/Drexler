@@ -35,12 +35,6 @@ const ROLE_LABELS: Record<TranscriptViewportItem["role"], string> = {
   system: "SYSTEM",
 };
 
-const ROLE_DETAILS: Record<TranscriptViewportItem["role"], string> = {
-  user: "incoming memo",
-  assistant: "response ledger",
-  system: "system notice",
-};
-
 const ROLE_MARKERS: Record<TranscriptViewportItem["role"], string> = {
   user: "›",
   assistant: "│",
@@ -167,13 +161,8 @@ function DefaultTranscriptItem({
     );
   }
 
-  const detail = ROLE_DETAILS[item.role];
   const headerPrefix = `╭─ ${label} `;
-  const headerSuffix = ` ${detail}`;
-  const headerRuleWidth = Math.max(
-    0,
-    cols - displayWidth(headerPrefix) - displayWidth(headerSuffix),
-  );
+  const headerRuleWidth = Math.max(0, cols - displayWidth(headerPrefix));
   const footerWidth = Math.max(1, cols - 1);
   const bodyPrefix = `${ROLE_MARKERS[item.role]}  `;
   const contentWidth = Math.max(1, cols - displayWidth(bodyPrefix));
@@ -182,7 +171,7 @@ function DefaultTranscriptItem({
     <Box flexDirection="column" width={cols} flexShrink={1}>
       <Text color={accent} bold wrap="truncate">
         {fitDisplayText(
-          `${headerPrefix}${rule("─", headerRuleWidth)}${headerSuffix}`,
+          `${headerPrefix}${rule("─", headerRuleWidth)}`,
           cols,
         )}
       </Text>
@@ -196,7 +185,7 @@ function DefaultTranscriptItem({
           </Text>
         </Box>
       ))}
-      <Text color={item.role === "assistant" ? t.primaryDim : t.dim} wrap="truncate">
+      <Text color={accent} bold={item.role === "user"} wrap="truncate">
         {fitDisplayText(`╰${rule("─", footerWidth)}`, cols)}
       </Text>
     </Box>
