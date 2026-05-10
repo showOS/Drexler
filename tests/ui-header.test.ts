@@ -24,7 +24,6 @@ function visibleLength(input: string): number {
 describe("DealDeskHeader", () => {
   test("renders premium satirical deal chrome with mood-shaped readouts", () => {
     const rendered = renderHeader({
-      model: "openrouter/google/gemma-4-31b",
       mood: "distressed",
       messageCount: 7,
       status: "streaming",
@@ -46,7 +45,6 @@ describe("DealDeskHeader", () => {
   test("clamps every rendered row to the requested width", () => {
     const width = 46;
     const rendered = renderHeader({
-      model: "openrouter/a-very-long-premium-frontier-model-name",
       mood: "aggressively contrarian deal desk posture",
       messageCount: 123,
       status: "idle",
@@ -62,7 +60,6 @@ describe("DealDeskHeader", () => {
 
   test("compact mode keeps essentials and omits secondary copy", () => {
     const rendered = renderHeader({
-      model: "gemma-4-31b",
       mood: "ruthless",
       messageCount: 1,
       status: "error",
@@ -85,7 +82,6 @@ describe("DealDeskHeader", () => {
   test("tiny mode avoids framed chrome that would wrap", () => {
     const width = 12;
     const rendered = renderHeader({
-      model: "gemma-4-31b",
       mood: "ruthless",
       messageCount: 42,
       status: "streaming",
@@ -104,14 +100,12 @@ describe("DealDeskHeader", () => {
     try {
       Math.random = () => 0;
       const first = renderHeader({
-        model: "gemma-4-31b",
         mood: "angry",
         messageCount: 2,
         maxWidth: 96,
       });
       Math.random = () => 0.001;
       const second = renderHeader({
-        model: "gemma-4-31b",
         mood: "angry",
         messageCount: 2,
         maxWidth: 96,
@@ -128,7 +122,6 @@ describe("DealDeskHeader", () => {
   test("display-width clamps wide glyphs", () => {
     const width = 34;
     const rendered = renderHeader({
-      model: "漢字かな交じり文-model",
       mood: "victorious 🚀🚀🚀",
       messageCount: 999999,
       status: "idle",

@@ -23,7 +23,6 @@ import {
   WITTICISMS,
 } from "../sayings.ts";
 import { type Config } from "../types.ts";
-import { THEME_NAMES } from "../types.ts";
 import { CommandPalette } from "./CommandPalette.tsx";
 import { DealDeskHeader } from "./DealDeskHeader.tsx";
 import {
@@ -51,7 +50,7 @@ import {
 } from "./SynergyEvent.tsx";
 import { ThemeProvider } from "./ThemeContext.tsx";
 import { TranscriptViewport } from "./TranscriptViewport.tsx";
-import { getActiveTheme, THEMES } from "./themes.ts";
+import { getActiveTheme } from "./themes.ts";
 
 const TRANSCRIPT_CHROME_ROWS = 12;
 
@@ -136,9 +135,8 @@ export function App({
     };
   }, [stdout]);
   const mode = useMemo(() => pickLayout(cols), [cols]);
-  const inputWidth = useMemo(() => Math.max(1, cols), [cols]);
   const chromeWidth = useMemo(() => Math.max(1, cols), [cols]);
-  const statusBarWidth = inputWidth;
+  const statusBarWidth = chromeWidth;
   const isCompact = mode === "very-narrow";
   const integratedIntro =
     showIntroChrome && typeof greeting === "string" && rows >= 32;
@@ -197,11 +195,6 @@ export function App({
   const [witticism, setWitticism] = useState<string>(pick(WITTICISMS));
   const [model, setModel] = useState<string>(config.model);
   const [msgCount, setMsgCount] = useState<number>(0);
-  const [tokenCount, setTokenCount] = useState<number>(
-    conversation.approximateTokens(),
-  );
-  const [lastLatencyMs, setLastLatencyMs] = useState<number | null>(null);
-  const [fallbackModel, setFallbackModel] = useState<string | null>(null);
   const [deskStatus, setDeskStatus] = useState<"idle" | "error">("idle");
   const [deskNotice, setDeskNotice] = useState<string | null>(null);
   const [history, setHistory] = useState<string[]>([]);
@@ -219,19 +212,6 @@ export function App({
   useEffect(() => {
     setScrollOffset(0);
   }, [items.length]);
-
-  useEffect(() => {
-    setTokenCount(conversation.approximateTokens());
-  }, [conversation, msgCount]);
-
-  const themeName = useMemo(() => {
-    const active = getActiveTheme();
-    return (
-      THEME_NAMES.find((name) => THEMES[name] === active) ??
-      config.theme ??
-      "apollo"
-    );
-  }, [activeTheme, config.theme]);
 
   const scrollHint = useMemo(() => {
     if (items.length <= maxTranscriptRows) return undefined;
@@ -333,12 +313,10 @@ export function App({
     if (requestInFlightRef.current) return;
     requestInFlightRef.current = true;
     setRequestInFlight(true);
-    const startedAt = Date.now();
     try {
       setThinking(pick(THINKING_LINES));
       setDeskStatus("idle");
       setDeskNotice(null);
-      setFallbackModel(null);
       streamBufRef.current = "";
       setStreaming(null);
       let firstToken = true;
@@ -389,7 +367,6 @@ export function App({
       }
       setThinking(null);
       setStreaming(null);
-      setLastLatencyMs(Date.now() - startedAt);
       if (cancelledRef.current) {
         cancelledRef.current = false;
         if (result?.content) {
@@ -405,7 +382,6 @@ export function App({
         if (result.fellBack) {
           addItem("system", `(fell back to ${result.modelUsed})`);
           notices.push(`fallback ${result.modelUsed}`);
-          setFallbackModel(result.modelUsed);
         }
         if (detectPersonaDrift(result.content)) {
           addItem("system", `(persona drift detected — model used 'I')`);
@@ -425,7 +401,6 @@ export function App({
         setDeskNotice(result?.error ?? "stream error");
       }
       setMsgCount(conversation.length);
-      setTokenCount(conversation.approximateTokens());
       setWitticism(pick(WITTICISMS));
     } finally {
       requestInFlightRef.current = false;
@@ -460,8 +435,6 @@ export function App({
       }
       if (lower === "/clear" || lower.startsWith("/clear ")) {
         setItems([]);
-        setLastLatencyMs(null);
-        setFallbackModel(null);
       }
       if (mutableConfig.model !== model) {
         setModel(mutableConfig.model);
@@ -498,7 +471,6 @@ export function App({
         await runLLM(action.instruction);
       }
       setMsgCount(conversation.length);
-      setTokenCount(conversation.approximateTokens());
     },
     [
       addItem,
@@ -528,10 +500,19 @@ export function App({
       addItem("user", line);
       conversation.push("user", line);
       setMsgCount(conversation.length);
-      setTokenCount(conversation.approximateTokens());
       await runLLM();
     },
     [addItem, conversation, handleSlashWithMutation, runLLM],
+  );
+
+  const reportSubmitError = useCallback(
+    (err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      addItem("system", `${STREAM_ERROR} [${msg}]`);
+      setDeskStatus("error");
+      setDeskNotice("submit failed");
+    },
+    [addItem],
   );
 
   useInput((char, key) => {
@@ -590,7 +571,9 @@ export function App({
       if (sel) {
         updateDraft({ value: "", cursor: 0 });
         setHistoryIdx(null);
-        void onSubmit(sel.name);
+        onSubmit(sel.name).catch((err) => {
+          reportSubmitError(err);
+        });
       }
       return;
     }
@@ -605,7 +588,9 @@ export function App({
           return next.length > 50 ? next.slice(-50) : next;
         });
       }
-      void onSubmit(submitted);
+      onSubmit(submitted).catch((err) => {
+        reportSubmitError(err);
+      });
       return;
     }
     if (key.ctrl && char === "c") {
@@ -726,13 +711,8 @@ export function App({
   const headerStatus = isBusy ? "streaming" : deskStatus;
   const renderDealDeskHeader = (width: number) => (
     <DealDeskHeader
-      model={model}
       mood={mood}
       messageCount={msgCount}
-      themeName={themeName}
-      approximateTokens={tokenCount}
-      latencyMs={lastLatencyMs}
-      fallbackModel={fallbackModel}
       status={headerStatus}
       compact={isCompact}
       notice={!integratedIntro ? deskNotice ?? undefined : undefined}
@@ -818,7 +798,7 @@ export function App({
                       ? "(Synergy event running... boardroom locked)"
                       : undefined
                   }
-                  width={inputWidth}
+                  width={chromeWidth}
                 />
               </Box>
               <Box paddingLeft={2}>

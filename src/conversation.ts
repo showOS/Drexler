@@ -63,10 +63,6 @@ export class Conversation {
     return this.messages.length - 1;
   }
 
-  get totalLength(): number {
-    return this.messages.length;
-  }
-
   get userTurns(): number {
     return this.userTurnCount;
   }

@@ -172,6 +172,50 @@ describe("TranscriptViewport", () => {
     }
   });
 
+  test("trims trailing blank assistant rows without removing internal paragraph gaps", () => {
+    const clean = renderViewport({
+      items: [
+        {
+          id: "assistant-clean",
+          role: "assistant",
+          content: "Drexler has one memo.",
+        },
+      ],
+      maxRows: 8,
+      cols: 72,
+    });
+    const withTrailingBlanks = renderViewport({
+      items: [
+        {
+          id: "assistant-trailing",
+          role: "assistant",
+          content: "Drexler has one memo.\n\n",
+        },
+      ],
+      maxRows: 8,
+      cols: 72,
+    });
+    const withInternalBlank = renderViewport({
+      items: [
+        {
+          id: "assistant-internal",
+          role: "assistant",
+          content: "First memo.\n\nSecond memo.",
+        },
+      ],
+      maxRows: 8,
+      cols: 72,
+    });
+
+    expect(withTrailingBlanks.split("\n")).toHaveLength(clean.split("\n").length);
+    expect(withTrailingBlanks).toContain("Drexler has one memo.");
+    expect(withInternalBlank.split("\n").length).toBeGreaterThan(
+      clean.split("\n").length,
+    );
+    expect(withInternalBlank).toContain("First memo.");
+    expect(withInternalBlank).toContain("Second memo.");
+  });
+
   test("unwraps assistant code fences without leaking language tags", () => {
     const rendered = renderViewport({
       items: [

@@ -202,8 +202,15 @@ function displayContentForItem(item: TranscriptViewportItem): string {
 }
 
 function displayLinesForItem(item: TranscriptViewportItem): AssistantDisplayLine[] {
-  if (item.role === "assistant") return assistantDisplayLines(item.content);
-  return item.content.split("\n").map((text) => ({ kind: "text", text }));
+  const lines =
+    item.role === "assistant"
+      ? assistantDisplayLines(item.content)
+      : item.content.split("\n").map((text) => ({ kind: "text" as const, text }));
+  let start = 0;
+  let end = lines.length;
+  while (start < end && lines[start]?.text.trim().length === 0) start += 1;
+  while (end > start && lines[end - 1]?.text.trim().length === 0) end -= 1;
+  return lines.slice(start, end);
 }
 
 function wrappedTranscriptLines(

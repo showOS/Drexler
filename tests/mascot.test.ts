@@ -188,12 +188,8 @@ describe("MascotFrame", () => {
           mood: "paranoid",
           dealDesk: (width: number) =>
             React.createElement(DealDeskHeader, {
-              model: "google/gemma-4-26b-a4b-it",
               mood: "paranoid",
               messageCount: 6,
-              themeName: "apollo",
-              approximateTokens: 4958,
-              latencyMs: 1400,
               compact: true,
               maxWidth: Math.min(70, width),
               marginBottom: 0,
@@ -233,12 +229,8 @@ describe("MascotFrame", () => {
             mood: "victorious",
             dealDesk: (dealDeskWidth: number) =>
               React.createElement(DealDeskHeader, {
-                model: "google/gemma-4-26b-a4b-it",
                 mood: "victorious",
                 messageCount: 0,
-                themeName: "apollo",
-                approximateTokens: 4776,
-                latencyMs: null,
                 maxWidth: Math.min(72, dealDeskWidth),
                 marginBottom: 0,
               }),
@@ -408,11 +400,8 @@ describe("MascotFrame", () => {
           mood: "paranoid",
           dealDesk: (dealDeskWidth: number) =>
             React.createElement(DealDeskHeader, {
-              model: "google/gemma-4-26b-a4b-it",
               mood: "paranoid",
               messageCount: 0,
-              themeName: "apollo",
-              approximateTokens: 4776,
               maxWidth: dealDeskWidth,
               marginBottom: 0,
             }),
@@ -445,11 +434,8 @@ describe("MascotFrame", () => {
             bootProgress,
             dealDesk: (dealDeskWidth: number) =>
               React.createElement(DealDeskHeader, {
-                model: "google/gemma-4-26b-a4b-it",
                 mood: "victorious",
                 messageCount: 0,
-                themeName: "apollo",
-                approximateTokens: 4776,
                 maxWidth: dealDeskWidth,
                 marginBottom: 0,
               }),
@@ -497,11 +483,8 @@ describe("MascotFrame", () => {
             mood: "victorious",
             dealDesk: (dealDeskWidth: number) =>
               React.createElement(DealDeskHeader, {
-                model: "google/gemma-4-26b-a4b-it",
                 mood: "victorious",
                 messageCount: 0,
-                themeName: "apollo",
-                approximateTokens: 4776,
                 maxWidth: dealDeskWidth,
                 marginBottom: 0,
               }),
@@ -541,11 +524,8 @@ describe("MascotFrame", () => {
           mood: "exhausted",
           dealDesk: (dealDeskWidth: number) =>
             React.createElement(DealDeskHeader, {
-              model: "google/gemma-4-26b-a4b-it",
               mood: "exhausted",
               messageCount: 0,
-              themeName: "apollo",
-              approximateTokens: 4776,
               maxWidth: dealDeskWidth,
               marginBottom: 0,
             }),

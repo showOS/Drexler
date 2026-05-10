@@ -34,12 +34,8 @@ function renderVisual(width: number): string {
         React.Fragment,
         null,
         React.createElement(DealDeskHeader, {
-          model: "openrouter/google/gemma-4-31b",
           mood: "ruthless",
           messageCount: 6,
-          themeName: "midnight",
-          approximateTokens: 420,
-          latencyMs: 835,
           status: "idle",
           notice: "PageUp scrollback",
           maxWidth: width,

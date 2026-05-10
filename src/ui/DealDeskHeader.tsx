@@ -6,13 +6,8 @@ import { useTheme } from "./ThemeContext.tsx";
 export type DealDeskHeaderStatus = "idle" | "streaming" | "error";
 
 export interface DealDeskHeaderProps {
-  model: string;
   mood: string;
   messageCount: number;
-  themeName?: string;
-  approximateTokens?: number;
-  latencyMs?: number | null;
-  fallbackModel?: string | null;
   status?: DealDeskHeaderStatus;
   compact?: boolean;
   notice?: string;

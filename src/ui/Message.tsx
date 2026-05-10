@@ -1,6 +1,5 @@
 import { Box, Text } from "ink";
-import { memo, useMemo } from "react";
-import { renderMarkdown } from "../renderer.ts";
+import { memo } from "react";
 import {
   firstDisplayLine,
   normalizeAssistantDisplayContent,
@@ -10,109 +9,7 @@ import { fitDisplayText } from "./graphemes.ts";
 import { MarkdownBody } from "./MarkdownBody.tsx";
 import { useTheme } from "./ThemeContext.tsx";
 
-interface MessageItem {
-  role: "user" | "assistant" | "system";
-  content: string;
-}
-
-const SEPARATOR_WIDTH = 44;
-
-const ROLE_LABELS: Record<MessageItem["role"], string> = {
-  user: "YOU",
-  assistant: "DREXLER",
-  system: "SYSTEM",
-};
-
-function Separator() {
-  const t = useTheme();
-  return (
-    <Box paddingX={1} marginBottom={1} flexShrink={1}>
-      <Text color={t.primaryDim} wrap="truncate">
-        {"─".repeat(SEPARATOR_WIDTH)}
-      </Text>
-    </Box>
-  );
-}
-
-function MessageInner({ role, content }: MessageItem) {
-  const t = useTheme();
-  const displayContent =
-    role === "assistant"
-      ? normalizeAssistantMarkdownRenderContent(content)
-      : content;
-  const assistantLines = useMemo(
-    () =>
-      role === "assistant"
-        ? renderMarkdown(displayContent).trimEnd().split("\n")
-        : [],
-    [displayContent, role],
-  );
-
-  if (role === "user") {
-    return (
-      <>
-        <Box paddingX={1} marginBottom={1} flexDirection="column">
-          <Box>
-            <Text color={t.primaryLight} bold>
-              {ROLE_LABELS.user}
-            </Text>
-            <Text color={t.primaryDim}> ─ </Text>
-            <Text color={t.dim}>incoming memo</Text>
-          </Box>
-          <Box paddingLeft={1}>
-            <Text color={t.primary}>› </Text>
-            <Text color={t.text} wrap="wrap">
-              {content}
-            </Text>
-          </Box>
-        </Box>
-      </>
-    );
-  }
-  if (role === "system") {
-    return (
-      <Box paddingX={1} marginBottom={1} flexDirection="column">
-        <Box>
-          <Text color={t.warning} bold>
-            {ROLE_LABELS.system}
-          </Text>
-          <Text color={t.primaryDim}> ─ </Text>
-          <Text color={t.dim}>notice</Text>
-        </Box>
-        <Box paddingLeft={1}>
-          <Text color={t.dim} italic wrap="wrap">
-            {content}
-          </Text>
-        </Box>
-      </Box>
-    );
-  }
-
-  return (
-    <>
-      <Box flexDirection="column" marginBottom={1} paddingX={1}>
-        <Box>
-          <Text color={t.primaryLight} bold>
-            {ROLE_LABELS.assistant}
-          </Text>
-          <Text color={t.primaryDim}> ─ </Text>
-          <Text color={t.dim}>response ledger</Text>
-        </Box>
-        {assistantLines.map((ln, i) => (
-          <Box key={i} paddingLeft={1}>
-            <Text color={i === 0 ? t.primary : t.primaryDim}>│ </Text>
-            <Text color={t.text} wrap="wrap">
-              {ln}
-            </Text>
-          </Box>
-        ))}
-      </Box>
-      <Separator />
-    </>
-  );
-}
-
-export const Message = memo(MessageInner);
+const ROLE_LABELS = { assistant: "DREXLER" } as const;
 
 interface StreamingProps {
   content: string;
