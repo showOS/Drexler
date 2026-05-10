@@ -1,7 +1,13 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, writeFileSync } from "node:fs";
 import { resolve as pathResolve } from "node:path";
-import { resolveModel } from "./config.ts";
+import {
+  getConfigPath,
+  getDrexlerVersion,
+  getResolvedConfigPath,
+  isValidApiKey,
+  resolveModel,
+} from "./config.ts";
 import type { Conversation } from "./conversation.ts";
 import { error, resetMarkedTheme } from "./renderer.ts";
 import { THEME_NAMES, type Config, type ThemeName } from "./types.ts";
@@ -16,6 +22,14 @@ export type CommandAction =
   | { type: "continue"; persistConfig?: Partial<Config> }
   | { type: "exit"; message?: string }
   | { type: "regenerate"; instruction?: string; removedAssistant: boolean };
+
+export type CommandGroup =
+  | "directives"
+  | "themes"
+  | "models"
+  | "startup"
+  | "retry"
+  | "export";
 
 interface CommandContext {
   conversation: Conversation;
@@ -46,7 +60,9 @@ const HELP_TEXT = `New memo to staff! Drexler permit following directives:
   /export <fmt> [path] - export as md, txt, json, or html
   /save [path]   - archive conversation to markdown file
   /save-last [path] - save Drexler's last response
-  /copy-last     - copy Drexler's last response to clipboard`;
+  /copy-last     - copy Drexler's last response to clipboard
+  /setup         - show config + API key source
+  /update        - show upgrade instructions`;
 
 const WHITESPACE_RE = /\s+/;
 
@@ -54,27 +70,30 @@ export interface SlashCommand {
   readonly name: string;
   readonly description: string;
   readonly hint?: string;
+  readonly group?: CommandGroup;
 }
 
 export const COMMAND_PALETTE: ReadonlyArray<SlashCommand> = [
-  { name: "/help", description: "Show directives" },
-  { name: "/clear", description: "Reset conversation" },
-  { name: "/exit", description: "Adjourn meeting" },
-  { name: "/synergy", description: "SYNERGY!" },
-  { name: "/model", description: "Show or switch model" },
-  { name: "/theme", description: "Show or switch theme" },
-  { name: "/startup", description: "Persist startup mode" },
-  { name: "/history", description: "Message + token count" },
-  { name: "/regenerate", description: "Re-roll last response" },
-  { name: "/redo", description: "Alias for regenerate" },
-  { name: "/retry", description: "Retry terse or brutal" },
-  { name: "/expand", description: "Print last response" },
-  { name: "/quote", description: "Quote last response" },
-  { name: "/search", description: "Search transcript" },
-  { name: "/export", description: "Export md, txt, json, or html" },
-  { name: "/save", description: "Archive conversation as markdown" },
-  { name: "/save-last", description: "Save last Drexler response" },
-  { name: "/copy-last", description: "Copy last response" },
+  { name: "/help", description: "Show directives", group: "directives" },
+  { name: "/clear", description: "Reset conversation", group: "directives" },
+  { name: "/exit", description: "Adjourn meeting", group: "directives" },
+  { name: "/synergy", description: "SYNERGY!", group: "directives" },
+  { name: "/model", description: "Show or switch model", group: "models" },
+  { name: "/theme", description: "Show or switch theme", group: "themes" },
+  { name: "/startup", description: "Persist startup mode", group: "startup" },
+  { name: "/history", description: "Message + token count", group: "directives" },
+  { name: "/regenerate", description: "Re-roll last response", group: "directives" },
+  { name: "/redo", description: "Alias for regenerate", group: "directives" },
+  { name: "/retry", description: "Retry terse or brutal", group: "retry" },
+  { name: "/expand", description: "Print last response", group: "directives" },
+  { name: "/quote", description: "Quote last response", group: "directives" },
+  { name: "/search", description: "Search transcript", group: "directives" },
+  { name: "/export", description: "Export md, txt, json, or html", group: "export" },
+  { name: "/save", description: "Archive conversation as markdown", group: "directives" },
+  { name: "/save-last", description: "Save last Drexler response", group: "directives" },
+  { name: "/copy-last", description: "Copy last response", group: "directives" },
+  { name: "/setup", description: "Show config + key source", group: "directives" },
+  { name: "/update", description: "Show upgrade instructions", group: "directives" },
 ];
 
 const THEME_PALETTE_COPY: Record<
@@ -265,6 +284,21 @@ export function filterPaletteByPrefix(
   );
 }
 
+const ARGUMENT_BASE_NAMES: ReadonlySet<string> = new Set(
+  ARGUMENT_PALETTE.map((g) => g.command),
+);
+
+/**
+ * True if `name` is a bare command (no space) that has child argument
+ * suggestions. Palette Enter on such a name should NOT execute — it should
+ * open the chooser.
+ */
+export function isArgumentParentCommand(name: string): boolean {
+  if (!name.startsWith("/")) return false;
+  if (name.includes(" ")) return false;
+  return ARGUMENT_BASE_NAMES.has(name.toLowerCase());
+}
+
 export function isSlash(input: string): boolean {
   return input.startsWith("/");
 }
@@ -406,6 +440,14 @@ export function dispatch(input: string, ctx: CommandContext): CommandAction {
       handleCopyLast(ctx);
       return { type: "continue" };
     }
+
+    case "setup":
+      handleSetup(ctx);
+      return { type: "continue" };
+
+    case "update":
+      handleUpdate(ctx);
+      return { type: "continue" };
 
     default:
       ctx.print(
@@ -868,4 +910,39 @@ function handleTheme(args: string[], ctx: CommandContext): CommandAction {
   return shouldSave
     ? { type: "continue", persistConfig: { theme: requested } }
     : { type: "continue" };
+}
+
+function handleSetup(ctx: CommandContext): void {
+  const envValid = isValidApiKey(process.env.OPENROUTER_API_KEY);
+  const target = getResolvedConfigPath() ?? getConfigPath();
+  const keySourceLabel = envValid
+    ? "(env: OPENROUTER_API_KEY)"
+    : isValidApiKey(ctx.config.apiKey)
+      ? `(config file: ${target})`
+      : "(missing — first-run prompt will request one)";
+
+  const lines = [
+    "Drexler setup ledger:",
+    `  version       : ${getDrexlerVersion()}`,
+    `  config file   : ${target}`,
+    `  API key       : ${keySourceLabel}`,
+    `  model         : ${ctx.config.model}`,
+    `  theme         : ${currentThemeName(ctx.config)}`,
+    `  startup mode  : ${currentStartupMode(ctx.config)}`,
+    `  persona file  : ${ctx.config.personaPath}`,
+  ];
+  ctx.print(lines.join("\n"));
+}
+
+function handleUpdate(ctx: CommandContext): void {
+  const lines = [
+    `Drexler upgrade dossier (drexler v${getDrexlerVersion()}):`,
+    "",
+    "  bun:  bun install -g drexler@latest",
+    "  npm:  npm install -g drexler@latest",
+    "  pnpm: pnpm add -g drexler@latest",
+    "",
+    "Drexler will not run installs. Type the command into your shell.",
+  ];
+  ctx.print(lines.join("\n"));
 }

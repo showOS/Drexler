@@ -3,6 +3,7 @@ import {
   COMMAND_PALETTE,
   dispatch,
   filterPaletteByPrefix,
+  isArgumentParentCommand,
   isSlash,
   parseSlash,
 } from "../src/commands.ts";
@@ -64,6 +65,8 @@ describe("dispatch (V7, V8, V16, V17)", () => {
     expect(printed).toContain("/quote");
     expect(printed).toContain("/save-last [path]");
     expect(printed).toContain("/copy-last");
+    expect(printed).toContain("/setup");
+    expect(printed).toContain("/update");
   });
 
   test("/HELP works case-insensitive (V8)", () => {
@@ -302,6 +305,85 @@ describe("dispatch (V7, V8, V16, V17)", () => {
     const printed = out.join("\n");
     expect(printed).toContain("line one\nline two");
     expect(printed).toContain("> line one\n> line two");
+  });
+
+  test("/setup prints version, config path, key source, model, theme, startup, persona", () => {
+    const { ctx, out } = makeCtx();
+    const orig = process.env.OPENROUTER_API_KEY;
+    process.env.OPENROUTER_API_KEY = "sk-or-test-padding1234567890";
+    try {
+      const action = dispatch("/setup", ctx);
+      expect(action.type).toBe("continue");
+      const printed = out.join("\n");
+      expect(printed).toMatch(/Drexler setup ledger/);
+      expect(printed).toContain("version");
+      expect(printed).toContain("config file");
+      expect(printed).toContain("API key");
+      expect(printed).toContain("(env: OPENROUTER_API_KEY)");
+      expect(printed).toContain(MODEL_PRIMARY);
+      expect(printed).not.toContain("sk-or-test-padding1234567890");
+    } finally {
+      if (orig === undefined) delete process.env.OPENROUTER_API_KEY;
+      else process.env.OPENROUTER_API_KEY = orig;
+    }
+  });
+
+  test("/setup reports startup mode 'fast' / 'no-intro' / 'normal'", () => {
+    const { ctx, out } = makeCtx();
+    ctx.config.fast = true;
+    ctx.config.noIntro = true;
+    dispatch("/setup", ctx);
+    expect(out.join("\n")).toMatch(/startup mode\s*: fast/);
+
+    out.length = 0;
+    ctx.config.fast = false;
+    ctx.config.noIntro = true;
+    dispatch("/setup", ctx);
+    expect(out.join("\n")).toMatch(/startup mode\s*: no-intro/);
+
+    out.length = 0;
+    ctx.config.fast = false;
+    ctx.config.noIntro = false;
+    dispatch("/setup", ctx);
+    expect(out.join("\n")).toMatch(/startup mode\s*: normal/);
+  });
+
+  test("/update prints bun/npm/pnpm instructions and refuses to execute", () => {
+    const { ctx, out } = makeCtx();
+    const action = dispatch("/update", ctx);
+    expect(action.type).toBe("continue");
+    const printed = out.join("\n");
+    expect(printed).toContain("bun install -g drexler@latest");
+    expect(printed).toContain("npm install -g drexler@latest");
+    expect(printed).toContain("pnpm add -g drexler@latest");
+    expect(printed).toMatch(/will not run installs/);
+  });
+});
+
+describe("isArgumentParentCommand", () => {
+  test("true for /theme, /model, /startup, /retry, /export", () => {
+    for (const n of ["/theme", "/model", "/startup", "/retry", "/export"]) {
+      expect(isArgumentParentCommand(n)).toBe(true);
+    }
+  });
+  test("false for commands without chooser", () => {
+    for (const n of [
+      "/help", "/clear", "/exit", "/synergy", "/history",
+      "/expand", "/quote", "/copy-last", "/setup", "/update",
+    ]) {
+      expect(isArgumentParentCommand(n)).toBe(false);
+    }
+  });
+  test("false when arg already present", () => {
+    expect(isArgumentParentCommand("/theme apollo")).toBe(false);
+    expect(isArgumentParentCommand("/model 26b")).toBe(false);
+  });
+  test("case-insensitive", () => {
+    expect(isArgumentParentCommand("/THEME")).toBe(true);
+  });
+  test("false for non-slash input", () => {
+    expect(isArgumentParentCommand("theme")).toBe(false);
+    expect(isArgumentParentCommand("")).toBe(false);
   });
 });
 
@@ -668,7 +750,7 @@ describe("filterPaletteByPrefix", () => {
 
   test("theme command appears in palette", () => {
     const out = filterPaletteByPrefix("/t");
-    expect(out).toEqual([
+    expect(out).toMatchObject([
       { name: "/theme", description: "Show or switch theme" },
     ]);
   });
@@ -700,14 +782,16 @@ describe("filterPaletteByPrefix", () => {
 
   test("save-last command appears after overlapping prefix", () => {
     const out = filterPaletteByPrefix("/save-");
-    expect(out).toEqual([
+    expect(out).toMatchObject([
       { name: "/save-last", description: "Save last Drexler response" },
     ]);
   });
 
   test("copy-last command advertises clipboard behavior", () => {
     const out = filterPaletteByPrefix("/copy");
-    expect(out).toEqual([{ name: "/copy-last", description: "Copy last response" }]);
+    expect(out).toMatchObject([
+      { name: "/copy-last", description: "Copy last response" },
+    ]);
   });
 
   test("known commands with constrained args show argument suggestions", () => {
