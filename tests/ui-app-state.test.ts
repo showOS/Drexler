@@ -6,6 +6,7 @@ import { Conversation } from "../src/conversation.ts";
 import type { FetchFn } from "../src/llm.ts";
 import { App } from "../src/ui/App.tsx";
 import {
+  historyNavStep,
   nextTranscriptScrollOffset,
   shouldRemoveVisibleAssistantForAction,
   transcriptRowsForTerminalRows,
@@ -183,5 +184,73 @@ describe("App state helpers", () => {
     for (const row of rendered.split("\n")) {
       expect(displayWidth(row)).toBeLessThanOrEqual(columns);
     }
+  });
+});
+
+describe("historyNavStep", () => {
+  test("up-arrow from empty draft snapshots empty and loads newest entry", () => {
+    const result = historyNavStep(
+      { historyIdx: null, draft: { value: "", cursor: 0 }, historyDraft: null },
+      ["a", "b", "c"],
+      "up",
+    );
+    expect(result.historyIdx).toBe(2);
+    expect(result.draft).toEqual({ value: "c", cursor: 1 });
+    expect(result.historyDraft).toEqual({ value: "", cursor: 0 });
+  });
+
+  test("up-arrow snapshots non-empty unsent draft", () => {
+    const result = historyNavStep(
+      { historyIdx: null, draft: { value: "typing", cursor: 6 }, historyDraft: null },
+      ["a", "b"],
+      "up",
+    );
+    expect(result.historyDraft).toEqual({ value: "typing", cursor: 6 });
+    expect(result.draft.value).toBe("b");
+  });
+
+  test("down-arrow past newest restores snapshot", () => {
+    const result = historyNavStep(
+      {
+        historyIdx: 1,
+        draft: { value: "b", cursor: 1 },
+        historyDraft: { value: "typing", cursor: 6 },
+      },
+      ["a", "b"],
+      "down",
+    );
+    expect(result.historyIdx).toBeNull();
+    expect(result.draft).toEqual({ value: "typing", cursor: 6 });
+    expect(result.historyDraft).toBeNull();
+  });
+
+  test("down-arrow past newest with no snapshot clears", () => {
+    const result = historyNavStep(
+      { historyIdx: 0, draft: { value: "a", cursor: 1 }, historyDraft: null },
+      ["a"],
+      "down",
+    );
+    expect(result.historyIdx).toBeNull();
+    expect(result.draft).toEqual({ value: "", cursor: 0 });
+  });
+
+  test("subsequent up-arrows preserve original snapshot", () => {
+    const first = historyNavStep(
+      { historyIdx: null, draft: { value: "typed", cursor: 5 }, historyDraft: null },
+      ["a", "b", "c"],
+      "up",
+    );
+    const second = historyNavStep(first, ["a", "b", "c"], "up");
+    expect(second.historyDraft).toEqual({ value: "typed", cursor: 5 });
+    expect(second.draft.value).toBe("b");
+  });
+
+  test("up-arrow on empty history is a no-op", () => {
+    const state = {
+      historyIdx: null,
+      draft: { value: "x", cursor: 1 },
+      historyDraft: null,
+    };
+    expect(historyNavStep(state, [], "up")).toEqual(state);
   });
 });

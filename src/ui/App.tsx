@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   dispatch,
   filterPaletteByPrefix,
+  isArgumentParentCommand,
   isSlash,
   type CommandAction,
 } from "../commands.ts";
@@ -80,6 +81,46 @@ export function shouldRemoveVisibleAssistantForAction(
   action: CommandAction,
 ): boolean {
   return action.type === "regenerate" && action.removedAssistant;
+}
+
+export interface HistoryNavState {
+  historyIdx: number | null;
+  draft: { value: string; cursor: number };
+  historyDraft: { value: string; cursor: number } | null;
+}
+
+export function historyNavStep(
+  state: HistoryNavState,
+  history: readonly string[],
+  direction: "up" | "down",
+): HistoryNavState {
+  if (direction === "up") {
+    if (history.length === 0) return state;
+    const snapshot =
+      state.historyIdx === null ? { ...state.draft } : state.historyDraft;
+    const idx =
+      state.historyIdx === null
+        ? history.length - 1
+        : Math.max(0, state.historyIdx - 1);
+    const entry = history[idx] ?? "";
+    return {
+      historyIdx: idx,
+      draft: { value: entry, cursor: graphemeLength(entry) },
+      historyDraft: snapshot,
+    };
+  }
+  if (state.historyIdx === null) return state;
+  const next = state.historyIdx + 1;
+  if (next >= history.length) {
+    const restored = state.historyDraft ?? { value: "", cursor: 0 };
+    return { historyIdx: null, draft: restored, historyDraft: null };
+  }
+  const entry = history[next] ?? "";
+  return {
+    historyIdx: next,
+    draft: { value: entry, cursor: graphemeLength(entry) },
+    historyDraft: state.historyDraft,
+  };
 }
 
 function pick<T>(arr: readonly T[]): T {
@@ -229,6 +270,7 @@ export function App({
   const exitingRef = useRef(false);
   const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const synergyTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const historyDraftRef = useRef<{ value: string; cursor: number } | null>(null);
   const flushStream = useCallback(() => {
     if (!mountedRef.current) return;
     setStreaming(streamBufRef.current);
@@ -516,6 +558,28 @@ export function App({
   );
 
   useInput((char, key) => {
+    // Scroll keys are always live — they only mutate scrollOffset and never
+    // commit input, so we let the user review history during streaming.
+    if (key.pageUp) {
+      setScrollOffset((offset) =>
+        nextTranscriptScrollOffset({
+          current: offset,
+          itemCount: items.length,
+          direction: "older",
+        }),
+      );
+      return;
+    }
+    if (key.pageDown) {
+      setScrollOffset((offset) =>
+        nextTranscriptScrollOffset({
+          current: offset,
+          itemCount: items.length,
+          direction: "newer",
+        }),
+      );
+      return;
+    }
     const busy =
       requestInFlightRef.current ||
       synergyActiveRef.current ||
@@ -546,31 +610,22 @@ export function App({
       }
       return;
     }
-    if (key.pageUp) {
-      setScrollOffset((offset) =>
-        nextTranscriptScrollOffset({
-          current: offset,
-          itemCount: items.length,
-          direction: "older",
-        }),
-      );
-      return;
-    }
-    if (key.pageDown) {
-      setScrollOffset((offset) =>
-        nextTranscriptScrollOffset({
-          current: offset,
-          itemCount: items.length,
-          direction: "newer",
-        }),
-      );
-      return;
-    }
     if (paletteOpen && key.return) {
       const sel = paletteItems[paletteIdx];
       if (sel) {
+        // Bare /theme, /model, etc. — open the chooser, do not execute.
+        if (isArgumentParentCommand(sel.name)) {
+          const filled = sel.name + " ";
+          updateDraft({
+            value: filled,
+            cursor: graphemeLength(filled),
+          });
+          setPaletteIdx(0);
+          return;
+        }
         updateDraft({ value: "", cursor: 0 });
         setHistoryIdx(null);
+        historyDraftRef.current = null;
         onSubmit(sel.name).catch((err) => {
           reportSubmitError(err);
         });
@@ -581,6 +636,7 @@ export function App({
       const submitted = draftRef.current.value;
       updateDraft({ value: "", cursor: 0 });
       setHistoryIdx(null);
+      historyDraftRef.current = null;
       const trimmedSubmit = submitted.trim();
       if (trimmedSubmit.length > 0) {
         setHistory((prev) => {
@@ -634,10 +690,18 @@ export function App({
         return;
       }
       if (history.length === 0) return;
-      const idx = historyIdx === null ? history.length - 1 : Math.max(0, historyIdx - 1);
-      const entry = history[idx] ?? "";
-      setHistoryIdx(idx);
-      updateDraft({ value: entry, cursor: graphemeLength(entry) });
+      const next = historyNavStep(
+        {
+          historyIdx,
+          draft: draftRef.current,
+          historyDraft: historyDraftRef.current,
+        },
+        history,
+        "up",
+      );
+      historyDraftRef.current = next.historyDraft;
+      setHistoryIdx(next.historyIdx);
+      updateDraft(next.draft);
       return;
     }
     if (key.downArrow) {
@@ -646,15 +710,18 @@ export function App({
         return;
       }
       if (historyIdx === null) return;
-      const next = historyIdx + 1;
-      if (next >= history.length) {
-        setHistoryIdx(null);
-        updateDraft({ value: "", cursor: 0 });
-      } else {
-        const entry = history[next] ?? "";
-        setHistoryIdx(next);
-        updateDraft({ value: entry, cursor: graphemeLength(entry) });
-      }
+      const next = historyNavStep(
+        {
+          historyIdx,
+          draft: draftRef.current,
+          historyDraft: historyDraftRef.current,
+        },
+        history,
+        "down",
+      );
+      historyDraftRef.current = next.historyDraft;
+      setHistoryIdx(next.historyIdx);
+      updateDraft(next.draft);
       return;
     }
     if (key.ctrl && char === "a") {
