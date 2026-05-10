@@ -133,7 +133,7 @@ async function main(): Promise<void> {
     }
 
     console.log("");
-    console.log("  " + infoLine() + "  ·  mood: " + mood);
+    console.log("  " + infoLine());
     console.log("");
 
     const { waitUntilExit } = render(

@@ -185,17 +185,19 @@ describe("MascotFrame", () => {
         children: React.createElement(MascotDashboard, {
           greeting: "Hello",
           width: 160,
-          dealDesk: (width: number) => React.createElement(DealDeskHeader, {
-            model: "google/gemma-4-26b-a4b-it",
-            mood: "paranoid",
-            messageCount: 6,
-            themeName: "apollo",
-            approximateTokens: 4958,
-            latencyMs: 1400,
-            compact: true,
-            maxWidth: Math.min(70, width),
-            marginBottom: 0,
-          }),
+          mood: "paranoid",
+          dealDesk: (width: number) =>
+            React.createElement(DealDeskHeader, {
+              model: "google/gemma-4-26b-a4b-it",
+              mood: "paranoid",
+              messageCount: 6,
+              themeName: "apollo",
+              approximateTokens: 4958,
+              latencyMs: 1400,
+              compact: true,
+              maxWidth: Math.min(70, width),
+              marginBottom: 0,
+            }),
         }),
       }),
     ).replace(ANSI_RE, "");
@@ -206,6 +208,10 @@ describe("MascotFrame", () => {
 
     expect(tipsIdx).toBeGreaterThan(-1);
     expect(deskIdx).toBeGreaterThan(tipsIdx);
+    expect(rendered).toContain("Mood");
+    expect(rendered).toContain("PARANOID");
+    expect(rendered).not.toContain("boot audit");
+    expect(rendered).not.toContain("locked 100%");
     expect(rows[deskIdx]).toContain("╭─ Drexler");
     expect(dividerRows.length).toBeGreaterThanOrEqual(8);
     expect(rows[tipsIdx]).toContain(" │ ");
@@ -224,6 +230,7 @@ describe("MascotFrame", () => {
           children: React.createElement(MascotDashboard, {
             greeting: "Attention everyone. Drexler convene meeting. State business.",
             width,
+            mood: "victorious",
             dealDesk: (dealDeskWidth: number) =>
               React.createElement(DealDeskHeader, {
                 model: "google/gemma-4-26b-a4b-it",
@@ -242,11 +249,242 @@ describe("MascotFrame", () => {
 
       expect(rendered.match(/Drexler Deal Desk/g)?.length).toBe(1);
       expect(rendered.match(/╭─ Tips/g)?.length).toBe(1);
+      expect(rendered).toContain("Mood");
+      expect(rendered).toContain("VICTORIOUS");
       for (const row of rendered.split("\n")) {
         expect(displayWidth(row)).toBeLessThanOrEqual(width);
       }
     },
   );
+
+  test("dashboard boot mood shows gauge without settled mood copy", () => {
+    const rendered = renderToString(
+      React.createElement(ThemeProvider, {
+        value: THEMES.apollo,
+        children: React.createElement(MascotDashboard, {
+          greeting: "Hello",
+          width: 120,
+          mood: "ruthless",
+          bootProgress: 0.4,
+        }),
+      }),
+      { columns: 120 },
+    ).replace(ANSI_RE, "");
+
+    expect(rendered).toContain("Mood");
+    expect(rendered).toContain(" 40%");
+    expect(rendered).toContain("fee antenna: extending");
+    expect(rendered).not.toContain("RUTHLESS");
+    expect(rendered).not.toContain("FEE HAWK");
+    for (const row of rendered.split("\n")) {
+      expect(displayWidth(row)).toBeLessThanOrEqual(120);
+    }
+  });
+
+  test("dashboard boot mood gauge keeps a constant width across phases", () => {
+    const rowsByProgress = [0.1, 0.4, 0.6, 0.9].map((bootProgress) =>
+      renderToString(
+        React.createElement(ThemeProvider, {
+          value: THEMES.apollo,
+          children: React.createElement(MascotDashboard, {
+            greeting: "Hello",
+            width: 120,
+            mood: "ruthless",
+            bootProgress,
+          }),
+        }),
+        { columns: 120 },
+      )
+        .replace(ANSI_RE, "")
+        .split("\n")
+        .find((row) => row.includes("[") && row.includes("%")),
+    );
+
+    expect(rowsByProgress.every(Boolean)).toBe(true);
+    expect(new Set(rowsByProgress.map((row) => displayWidth(row!))).size).toBe(1);
+    for (const row of rowsByProgress) {
+      expect(row).not.toContain("risk sniff");
+      expect(row).not.toContain("fee capture");
+      expect(row).not.toContain("covenant stare");
+      expect(row).not.toContain("board vote");
+    }
+  });
+
+  test.each([
+    "angry",
+    "exhausted",
+    "generous",
+    "manic",
+    "paranoid",
+    "ruthless",
+    "victorious",
+  ])("dashboard settled mood maps %s to satirical copy", (mood) => {
+    const rendered = renderToString(
+      React.createElement(ThemeProvider, {
+        value: THEMES.apollo,
+        children: React.createElement(MascotDashboard, {
+          greeting: "Hello",
+          width: 120,
+          mood,
+          bootProgress: 1,
+        }),
+      }),
+      { columns: 120 },
+    ).replace(ANSI_RE, "");
+
+    expect(rendered).toContain(mood.toUpperCase());
+    expect(rendered).not.toContain("%");
+    for (const row of rendered.split("\n")) {
+      expect(displayWidth(row)).toBeLessThanOrEqual(120);
+    }
+  });
+
+  test("dashboard mood copy rotates for the same mood across seeds", () => {
+    const originalRandom = Math.random;
+    const renderWithRandom = (value: number) => {
+      Math.random = () => value;
+      return renderToString(
+        React.createElement(ThemeProvider, {
+          value: THEMES.apollo,
+          children: React.createElement(MascotDashboard, {
+            greeting: "Hello",
+            width: 120,
+            mood: "generous",
+            bootProgress: 1,
+          }),
+        }),
+        { columns: 120 },
+      ).replace(ANSI_RE, "");
+    };
+
+    try {
+      const first = renderWithRandom(0);
+      const second = renderWithRandom(0.000000001);
+
+      expect(first).toContain("GENEROUS");
+      expect(second).toContain("GENEROUS");
+      expect(first).not.toBe(second);
+      for (const rendered of [first, second]) {
+        for (const row of rendered.split("\n")) {
+          expect(displayWidth(row)).toBeLessThanOrEqual(120);
+        }
+      }
+    } finally {
+      Math.random = originalRandom;
+    }
+  });
+
+  test.each([12, 17, 18, 20, 21, 24, 38, 42, 60, 71, 72, 111, 112])(
+    "dashboard mood stays bounded at %d columns",
+    (width) => {
+      for (const bootProgress of [0.5, 1]) {
+        const rendered = renderToString(
+          React.createElement(ThemeProvider, {
+            value: THEMES.apollo,
+            children: React.createElement(MascotDashboard, {
+              greeting: "Hello",
+              width,
+              mood: "aggressively contrarian deal desk posture",
+              bootProgress,
+            }),
+          }),
+          { columns: width },
+        ).replace(ANSI_RE, "");
+
+        for (const row of rendered.split("\n")) {
+          expect(displayWidth(row)).toBeLessThanOrEqual(width);
+        }
+      }
+    },
+  );
+
+  test("wide dashboard aligns mood with deal desk", () => {
+    const rendered = renderToString(
+      React.createElement(ThemeProvider, {
+        value: THEMES.apollo,
+        children: React.createElement(MascotDashboard, {
+          greeting: "Hello",
+          width: 200,
+          mood: "paranoid",
+          dealDesk: (dealDeskWidth: number) =>
+            React.createElement(DealDeskHeader, {
+              model: "google/gemma-4-26b-a4b-it",
+              mood: "paranoid",
+              messageCount: 0,
+              themeName: "apollo",
+              approximateTokens: 4776,
+              maxWidth: dealDeskWidth,
+              marginBottom: 0,
+            }),
+        }),
+      }),
+      { columns: 200 },
+    ).replace(ANSI_RE, "");
+
+    const alignedRow = rendered
+      .split("\n")
+      .find(
+        (row) =>
+          row.includes("╭─ Mood") &&
+          row.includes("╭─ Drexler Deal Desk"),
+      );
+
+    expect(alignedRow).toBeDefined();
+    expect(displayWidth(alignedRow!)).toBeLessThanOrEqual(200);
+  });
+
+  test("wide dashboard keeps boot and settled mood geometry stable", () => {
+    const renderDashboard = (bootProgress: number) =>
+      renderToString(
+        React.createElement(ThemeProvider, {
+          value: THEMES.apollo,
+          children: React.createElement(MascotDashboard, {
+            greeting: "Hello",
+            width: 200,
+            mood: "victorious",
+            bootProgress,
+            dealDesk: (dealDeskWidth: number) =>
+              React.createElement(DealDeskHeader, {
+                model: "google/gemma-4-26b-a4b-it",
+                mood: "victorious",
+                messageCount: 0,
+                themeName: "apollo",
+                approximateTokens: 4776,
+                maxWidth: dealDeskWidth,
+                marginBottom: 0,
+              }),
+          }),
+        }),
+        { columns: 200 },
+      ).replace(ANSI_RE, "");
+
+    const bootRows = renderDashboard(0.5).split("\n");
+    const settledRows = renderDashboard(1).split("\n");
+    const bootPostureIdx = bootRows.findIndex((row) =>
+      row.includes("╭─ Mood"),
+    );
+    const settledPostureIdx = settledRows.findIndex((row) =>
+      row.includes("╭─ Mood"),
+    );
+
+    expect(bootRows.length).toBe(settledRows.length);
+    expect(bootPostureIdx).toBe(settledPostureIdx);
+    expect(bootRows[bootPostureIdx + 1]).toContain("50%");
+    expect(bootRows[bootPostureIdx + 1]).not.toContain("covenant stare");
+    expect(bootRows[bootPostureIdx + 2]).toContain("counsel posture");
+    expect(bootRows[bootPostureIdx + 3]).toContain("╰");
+    expect(settledRows[settledPostureIdx + 1]).toContain("VICTORIOUS");
+    expect(settledRows[settledPostureIdx + 2]).toContain("│");
+    expect(settledRows[settledPostureIdx + 2]).not.toContain("╰");
+    expect(settledRows[settledPostureIdx + 3]).toContain("╰");
+    expect(bootRows[bootRows.length - 2]).toContain("╰");
+    expect(settledRows[settledRows.length - 2]).toContain("╰");
+    for (const rows of [bootRows, settledRows]) {
+      for (const row of rows) {
+        expect(displayWidth(row)).toBeLessThanOrEqual(200);
+      }
+    }
+  });
 
   test("wide dashboard keeps embedded deal desk inset symmetric", () => {
     const rendered = renderToString(
@@ -255,6 +493,7 @@ describe("MascotFrame", () => {
         children: React.createElement(MascotDashboard, {
           greeting: "Hello",
           width: 200,
+          mood: "exhausted",
           dealDesk: (dealDeskWidth: number) =>
             React.createElement(DealDeskHeader, {
               model: "google/gemma-4-26b-a4b-it",
@@ -274,8 +513,8 @@ describe("MascotFrame", () => {
       .find((row) => row.includes("Drexler Deal Desk"));
 
     expect(deskRow).toBeDefined();
-    const centerDivider = deskRow!.indexOf("│", 1);
-    const deskLeft = deskRow!.indexOf("╭");
+    const deskLeft = deskRow!.indexOf("╭─ Drexler Deal Desk");
+    const centerDivider = deskRow!.lastIndexOf("│", deskLeft);
     const deskRight = deskRow!.lastIndexOf("╮");
     const outerRight = deskRow!.lastIndexOf("│");
 

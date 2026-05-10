@@ -1,5 +1,11 @@
 import { Box, Text } from "ink";
 import { Children, memo, useMemo, type ReactNode } from "react";
+import {
+  assistantDisplayLines,
+  firstDisplayLine,
+  normalizeAssistantDisplayContent,
+  type AssistantDisplayLine,
+} from "./displayContent.ts";
 import { displayWidth, fitDisplayText, splitGraphemes } from "./graphemes.ts";
 import { useTheme } from "./ThemeContext.tsx";
 
@@ -43,6 +49,86 @@ const ROLE_MARKERS: Record<TranscriptViewportItem["role"], string> = {
 
 const BODY_SUFFIX = " │";
 const CONTINUATION_PREFIX = "│   ";
+const CODE_GUTTER = "┃ ";
+const DRACULA_CODE = {
+  text: "#f8f8f2",
+  keyword: "#ff79c6",
+  function: "#50fa7b",
+  string: "#f1fa8c",
+  number: "#bd93f9",
+  comment: "#6272a4",
+  operator: "#8be9fd",
+  gutter: "#6272a4",
+};
+
+interface WrappedTranscriptLine {
+  kind: AssistantDisplayLine["kind"];
+  text: string;
+  language?: string;
+}
+
+interface CodeToken {
+  kind:
+    | "plain"
+    | "keyword"
+    | "function"
+    | "string"
+    | "number"
+    | "comment"
+    | "operator";
+  text: string;
+}
+
+const CODE_KEYWORDS = new Set([
+  "and",
+  "as",
+  "async",
+  "await",
+  "break",
+  "case",
+  "catch",
+  "class",
+  "const",
+  "continue",
+  "def",
+  "default",
+  "do",
+  "elif",
+  "else",
+  "except",
+  "export",
+  "extends",
+  "false",
+  "finally",
+  "for",
+  "from",
+  "function",
+  "if",
+  "import",
+  "in",
+  "interface",
+  "let",
+  "new",
+  "none",
+  "not",
+  "null",
+  "or",
+  "pass",
+  "return",
+  "switch",
+  "throw",
+  "true",
+  "try",
+  "type",
+  "var",
+  "while",
+  "with",
+  "yield",
+]);
+
+const CODE_OPERATOR_RE = /^[()[\]{}.,:;+\-*/%=<>!&|^~?]+/u;
+const CODE_NUMBER_RE = /^\b(?:0x[\da-f]+|\d+(?:\.\d+)?)\b/iu;
+const CODE_IDENTIFIER_RE = /^[A-Za-z_$][\w$]*/u;
 
 function bodyPrefixForRole(role: TranscriptViewportItem["role"]): string {
   if (role === "user") return "│ › ";
@@ -110,10 +196,99 @@ function wrapDisplayLine(input: string, maxWidth: number): string[] {
   return rows.filter((row, index) => row.length > 0 || index === 0);
 }
 
-function wrappedContentRows(content: string, width: number): string[] {
-  return content
-    .split("\n")
-    .flatMap((line) => wrapDisplayLine(line, width));
+function displayContentForItem(item: TranscriptViewportItem): string {
+  if (item.role !== "assistant") return item.content;
+  return normalizeAssistantDisplayContent(item.content);
+}
+
+function displayLinesForItem(item: TranscriptViewportItem): AssistantDisplayLine[] {
+  if (item.role === "assistant") return assistantDisplayLines(item.content);
+  return item.content.split("\n").map((text) => ({ kind: "text", text }));
+}
+
+function wrappedTranscriptLines(
+  item: TranscriptViewportItem,
+  contentWidth: number,
+): WrappedTranscriptLine[] {
+  return displayLinesForItem(item).flatMap((line) => {
+    const width =
+      line.kind === "code"
+        ? Math.max(1, contentWidth - displayWidth(CODE_GUTTER))
+        : contentWidth;
+    return wrapDisplayLine(line.text, width).map((text) => ({
+      kind: line.kind,
+      text,
+      language: line.language,
+    }));
+  });
+}
+
+function tokenizeCodeLine(line: string): CodeToken[] {
+  const tokens: CodeToken[] = [];
+  let rest = line;
+
+  while (rest.length > 0) {
+    const comment =
+      rest.startsWith("#") || rest.startsWith("//") ? rest : undefined;
+    if (comment !== undefined) {
+      tokens.push({ kind: "comment", text: comment });
+      break;
+    }
+
+    const stringQuote = rest[0];
+    if (stringQuote === "\"" || stringQuote === "'" || stringQuote === "`") {
+      let end = 1;
+      let escaped = false;
+      while (end < rest.length) {
+        const char = rest[end];
+        if (escaped) {
+          escaped = false;
+        } else if (char === "\\") {
+          escaped = true;
+        } else if (char === stringQuote) {
+          end += 1;
+          break;
+        }
+        end += 1;
+      }
+      tokens.push({ kind: "string", text: rest.slice(0, end) });
+      rest = rest.slice(end);
+      continue;
+    }
+
+    const number = CODE_NUMBER_RE.exec(rest)?.[0];
+    if (number) {
+      tokens.push({ kind: "number", text: number });
+      rest = rest.slice(number.length);
+      continue;
+    }
+
+    const identifier = CODE_IDENTIFIER_RE.exec(rest)?.[0];
+    if (identifier) {
+      const after = rest.slice(identifier.length);
+      const kind =
+        CODE_KEYWORDS.has(identifier.toLowerCase())
+          ? "keyword"
+          : /^\s*\(/u.test(after)
+            ? "function"
+            : "plain";
+      tokens.push({ kind, text: identifier });
+      rest = rest.slice(identifier.length);
+      continue;
+    }
+
+    const operator = CODE_OPERATOR_RE.exec(rest)?.[0];
+    if (operator) {
+      tokens.push({ kind: "operator", text: operator });
+      rest = rest.slice(operator.length);
+      continue;
+    }
+
+    tokens.push({ kind: "plain", text: rest[0]! });
+    rest = rest.slice(1);
+  }
+
+  return tokens;
 }
 
 function itemRows(
@@ -123,7 +298,7 @@ function itemRows(
 ): number {
   if (compact) return 1;
   const contentWidth = transcriptContentWidth(item.role, cols);
-  return 2 + wrappedContentRows(item.content, contentWidth).length;
+  return 2 + wrappedTranscriptLines(item, contentWidth).length;
 }
 
 function roleAccentColor(
@@ -159,12 +334,39 @@ function DefaultTranscriptItem({
   const t = useTheme();
   const label = ROLE_LABELS[item.role];
   const accent = roleAccentColor(item.role, t);
+  const renderCodeLine = (line: string) =>
+    tokenizeCodeLine(line).map((token, tokenIndex) => {
+      const color =
+        token.kind === "keyword"
+          ? DRACULA_CODE.keyword
+          : token.kind === "function"
+            ? DRACULA_CODE.function
+            : token.kind === "string"
+              ? DRACULA_CODE.string
+              : token.kind === "number" || token.kind === "operator"
+                ? token.kind === "number"
+                  ? DRACULA_CODE.number
+                  : DRACULA_CODE.operator
+                : token.kind === "comment"
+                  ? DRACULA_CODE.comment
+                  : DRACULA_CODE.text;
+      return (
+        <Text
+          key={tokenIndex}
+          color={color}
+          bold={token.kind === "keyword" || token.kind === "function"}
+          italic={token.kind === "comment"}
+        >
+          {token.text}
+        </Text>
+      );
+    });
 
   if (compact) {
     const marker = item.role === "assistant" ? "◆" : ROLE_MARKERS[item.role];
     const prefix = `${label} ${marker} `;
     const budget = Math.max(1, cols - displayWidth(prefix));
-    const firstLine = item.content.split("\n")[0] ?? "";
+    const firstLine = firstDisplayLine(displayContentForItem(item));
     return (
       <Box width={cols} flexShrink={1}>
         <Text color={accent} bold>
@@ -184,6 +386,7 @@ function DefaultTranscriptItem({
   const footerWidth = Math.max(0, cols - 2);
   const bodyPrefix = bodyPrefixForRole(item.role);
   const contentWidth = transcriptContentWidth(item.role, cols);
+  const displayLines = wrappedTranscriptLines(item, contentWidth);
 
   return (
     <Box flexDirection="column" width={cols} flexShrink={1}>
@@ -193,17 +396,38 @@ function DefaultTranscriptItem({
           cols,
         )}
       </Text>
-      {wrappedContentRows(item.content, contentWidth).map((line, index) => (
+      {displayLines.map((line, index) => (
         <Box key={index} width={cols} flexShrink={1}>
           <Text color={accent} bold={item.role === "user"}>
             {index === 0 ? bodyPrefix : CONTINUATION_PREFIX}
           </Text>
-          <Text color={roleBodyColor(item.role, t)}>
-            {fitDisplayText(line, contentWidth)}
+          {line.kind === "code" ? (
+            <Text color={DRACULA_CODE.gutter}>{CODE_GUTTER}</Text>
+          ) : null}
+          <Text
+            color={
+              line.kind === "code"
+                ? DRACULA_CODE.text
+                : roleBodyColor(item.role, t)
+            }
+          >
+            {line.kind === "code"
+              ? renderCodeLine(
+                  fitDisplayText(
+                    line.text,
+                    Math.max(1, contentWidth - displayWidth(CODE_GUTTER)),
+                  ),
+                )
+              : fitDisplayText(line.text, contentWidth)}
           </Text>
           <Text color={accent} bold={item.role === "user"}>
             {`${" ".repeat(
-              Math.max(0, contentWidth - displayWidth(line)),
+              Math.max(
+                0,
+                contentWidth -
+                  displayWidth(line.text) -
+                  (line.kind === "code" ? displayWidth(CODE_GUTTER) : 0),
+              ),
             )}${BODY_SUFFIX}`}
           </Text>
         </Box>

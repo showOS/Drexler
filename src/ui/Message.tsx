@@ -1,6 +1,11 @@
 import { Box, Text } from "ink";
 import { memo, useMemo } from "react";
 import { renderMarkdown } from "../renderer.ts";
+import {
+  firstDisplayLine,
+  normalizeAssistantDisplayContent,
+  normalizeAssistantMarkdownRenderContent,
+} from "./displayContent.ts";
 import { fitDisplayText } from "./graphemes.ts";
 import { MarkdownBody } from "./MarkdownBody.tsx";
 import { useTheme } from "./ThemeContext.tsx";
@@ -31,12 +36,16 @@ function Separator() {
 
 function MessageInner({ role, content }: MessageItem) {
   const t = useTheme();
+  const displayContent =
+    role === "assistant"
+      ? normalizeAssistantMarkdownRenderContent(content)
+      : content;
   const assistantLines = useMemo(
     () =>
       role === "assistant"
-        ? renderMarkdown(content).trimEnd().split("\n")
+        ? renderMarkdown(displayContent).trimEnd().split("\n")
         : [],
-    [content, role],
+    [displayContent, role],
   );
 
   if (role === "user") {
@@ -114,9 +123,14 @@ function StreamingMessageInner({ content, width = 80 }: StreamingProps) {
   const t = useTheme();
   const safeWidth = Math.max(1, Math.floor(width));
   const innerWidth = Math.max(1, safeWidth - 2);
+  const compactDisplayContent = normalizeAssistantDisplayContent(content);
+  const markdownDisplayContent = normalizeAssistantMarkdownRenderContent(content);
 
   if (safeWidth < 18) {
-    const compactLine = fitDisplayText(content.replace(/\s+/g, " "), safeWidth);
+    const compactLine = fitDisplayText(
+      firstDisplayLine(compactDisplayContent).replace(/\s+/g, " "),
+      safeWidth,
+    );
     return (
       <Box width={safeWidth} flexShrink={1}>
         <Text color={t.primaryLight} wrap="truncate">
@@ -136,7 +150,7 @@ function StreamingMessageInner({ content, width = 80 }: StreamingProps) {
         <Text color={t.dim}>drafting live</Text>
       </Box>
       <MarkdownBody
-        content={content}
+        content={markdownDisplayContent}
         baseColor={t.text}
         accentColor={t.primaryLight}
         dimColor={t.dim}

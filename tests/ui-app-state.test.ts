@@ -146,6 +146,9 @@ describe("App state helpers", () => {
     expect(rendered).toContain("╭─ Tips");
     expect(rendered).toContain("Drexler Deal Desk");
     expect(rendered).toContain("◆ Briefcase boot");
+    expect(rendered).toContain("Mood");
+    expect(rendered).toContain("committee pulse: suspicious");
+    expect(rendered).not.toContain("RUTHLESS");
     expect(rendered).toContain("▰▰");
     expect(rendered).toContain("BOARDROOM");
     expect(rendered).toContain("0 memos");

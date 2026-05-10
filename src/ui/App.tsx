@@ -754,6 +754,8 @@ export function App({
             <MascotDashboard
               greeting={greeting}
               width={chromeWidth}
+              mood={mood}
+              bootProgress={intro.progress}
               state={intro.state}
               bar={intro.bar}
               barColor={introBarColor}

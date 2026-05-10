@@ -89,6 +89,39 @@ describe("live chrome width handling", () => {
     }
   });
 
+  test("streaming message hides fenced markdown and code wrappers", () => {
+    const width = 80;
+    const rendered = renderChrome(
+      React.createElement(StreamingMessage, {
+        content:
+          "```markdown\n1. Procure 80/20 beef.\n```\n\n```python\nprint(\"Synergy achieved.\")\n```",
+        width,
+      }),
+    );
+
+    expect(rendered).toContain("1. Procure 80/20 beef.");
+    expect(rendered).toContain('print("Synergy achieved.")');
+    expect(rendered).not.toContain("```");
+    expect(rendered).not.toContain("[markdown]");
+    expect(rendered).not.toContain("[python]");
+    for (const row of rendered.split("\n")) {
+      expect(displayWidth(row)).toBeLessThanOrEqual(width);
+    }
+  });
+
+  test("tiny streaming message starts with useful fenced content", () => {
+    const rendered = renderChrome(
+      React.createElement(StreamingMessage, {
+        content: "```python\nprint(\"fees\")\n```",
+        width: 16,
+      }),
+    );
+
+    expect(rendered).toContain('print("fees")');
+    expect(rendered).not.toContain("```");
+    expect(rendered).not.toContain("python");
+  });
+
   test("spinner uses compact output for tiny widths", () => {
     const width = 16;
     const rendered = renderChrome(

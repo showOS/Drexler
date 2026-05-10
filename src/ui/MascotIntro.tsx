@@ -143,6 +143,8 @@ interface IntroProps {
 interface MascotDashboardProps {
   greeting: string;
   width: number;
+  mood?: string;
+  bootProgress?: number;
   state?: MascotState;
   bar?: string;
   barColor?: string;
@@ -156,6 +158,19 @@ function introBootBar(frameIdx: number, total: number): string {
     Math.ceil(((frameIdx + 1) / total) * BOOT_BAR_WIDTH),
   );
   return " " + "▰".repeat(active) + "▱".repeat(BOOT_BAR_WIDTH - active);
+}
+
+function introBootProgress(frameIdx: number, total: number): number {
+  return Math.max(0, Math.min(1, (frameIdx + 1) / total));
+}
+
+function gaugeBar(progress: number, width: number): string {
+  const safeWidth = Math.max(1, width);
+  const filled = Math.max(
+    0,
+    Math.min(safeWidth, Math.round(progress * safeWidth)),
+  );
+  return `${"█".repeat(filled)}${"░".repeat(safeWidth - filled)}`;
 }
 
 function titledPanelBottom(width: number): string {
@@ -208,6 +223,7 @@ function introSnapshot(frameIdx: number, width: number) {
     colorPhase: introColorPhase(frameIdx, total),
     frameIdx: boundedFrameIdx,
     note,
+    progress: introBootProgress(boundedFrameIdx, total),
     state,
     status: `${INTRO_STATUS_PREFIX}${note}`,
     total,
@@ -290,9 +306,331 @@ function TipsPanel({ width }: { width: number }) {
   );
 }
 
+type MoodTone = "error" | "primaryLight" | "warning";
+
+interface MoodPosture {
+  badge: string;
+  detail: string;
+  tone: MoodTone;
+}
+
+const NAMED_MOOD_POSTURES: Record<string, readonly MoodPosture[]> = {
+  angry: [
+    {
+      badge: "HOSTILE TENDER",
+      detail: "board patience: vaporized",
+      tone: "error",
+    },
+    {
+      badge: "REDLINE FEVER",
+      detail: "counsel posture: braced",
+      tone: "error",
+    },
+    {
+      badge: "FEE HAWK",
+      detail: "intern confidence: first pass only",
+      tone: "warning",
+    },
+  ],
+  exhausted: [
+    {
+      badge: "COFFEE DEBT",
+      detail: "intern confidence: ceremonial",
+      tone: "warning",
+    },
+    {
+      badge: "QUORUM NAPPING",
+      detail: "board patience: on fumes",
+      tone: "primaryLight",
+    },
+    {
+      badge: "LATE CLOSE",
+      detail: "risk posture: blinking slowly",
+      tone: "warning",
+    },
+  ],
+  generous: [
+    {
+      badge: "FEE HOLIDAY",
+      detail: "board patience: briefly subsidized",
+      tone: "primaryLight",
+    },
+    {
+      badge: "SOFT CLOSE",
+      detail: "risk posture: laminated optimism",
+      tone: "primaryLight",
+    },
+    {
+      badge: "COUNSEL NEAR",
+      detail: "intern confidence: first pass only",
+      tone: "error",
+    },
+  ],
+  manic: [
+    {
+      badge: "DEAL SPIRAL",
+      detail: "committee pulse: overclocked",
+      tone: "warning",
+    },
+    {
+      badge: "CALENDAR HEAT",
+      detail: "board patience: rescheduled twice",
+      tone: "warning",
+    },
+    {
+      badge: "TERM SHEET TORNADO",
+      detail: "risk posture: wearing a helmet",
+      tone: "error",
+    },
+  ],
+  paranoid: [
+    {
+      badge: "RISK BUNKER",
+      detail: "board patience: subpoena-ready",
+      tone: "error",
+    },
+    {
+      badge: "BURNER ROOM",
+      detail: "counsel posture: whispering",
+      tone: "warning",
+    },
+    {
+      badge: "BOARD LOCKED",
+      detail: "committee pulse: encrypted",
+      tone: "error",
+    },
+  ],
+  ruthless: [
+    {
+      badge: "FEE HAWK",
+      detail: "risk posture: smiling through counsel",
+      tone: "primaryLight",
+    },
+    {
+      badge: "MANDATE CLAW",
+      detail: "board patience: non-appealable",
+      tone: "warning",
+    },
+    {
+      badge: "COVENANT TEETH",
+      detail: "intern confidence: collateralized",
+      tone: "error",
+    },
+  ],
+  victorious: [
+    {
+      badge: "TAPE PARADE",
+      detail: "intern confidence: legally inadvisable",
+      tone: "warning",
+    },
+    {
+      badge: "BELL RUNG",
+      detail: "board patience: temporarily restored",
+      tone: "primaryLight",
+    },
+    {
+      badge: "TROPHY FILING",
+      detail: "counsel posture: drafting confetti",
+      tone: "warning",
+    },
+  ],
+};
+
+const FALLBACK_MOOD_POSTURES: readonly MoodPosture[] = [
+  {
+    badge: "CALENDAR HEAT",
+    detail: "board patience: rescheduled twice",
+    tone: "warning",
+  },
+  {
+    badge: "SOFT CLOSE",
+    detail: "risk posture: laminated optimism",
+    tone: "primaryLight",
+  },
+  {
+    badge: "COUNSEL NEAR",
+    detail: "intern confidence: first pass only",
+    tone: "error",
+  },
+];
+
+function hashText(input: string): number {
+  return Array.from(input).reduce(
+    (sum, char) => sum + (char.codePointAt(0) ?? 0),
+    0,
+  );
+}
+
+function moodPosture(mood: string, seed: number): MoodPosture {
+  const key = mood.trim().toLowerCase();
+  const pool = NAMED_MOOD_POSTURES[key] ?? FALLBACK_MOOD_POSTURES;
+  return pool[Math.abs(hashText(key) + seed) % pool.length] ?? pool[0]!;
+}
+
+function moodToneColor(t: ReturnType<typeof useTheme>, tone: MoodTone): string {
+  return tone === "error"
+    ? t.error
+    : tone === "warning"
+    ? t.warning
+    : t.primaryLight;
+}
+
+function bootPostureDetail(progress: number): string {
+  if (progress < 0.25) return "committee pulse: suspicious";
+  if (progress < 0.5) return "fee antenna: extending";
+  if (progress < 0.75) return "counsel posture: stiffening";
+  return "board patience: nearly loaded";
+}
+
+function MoodReadout({
+  mood,
+  progress = 1,
+  progressColor,
+  width,
+}: {
+  mood?: string;
+  progress?: number;
+  progressColor?: string;
+  width: number;
+}) {
+  const t = useTheme();
+  if (!mood) return null;
+
+  const postureSeed = useMemo(() => Math.floor(Math.random() * 1_000_000_000), []);
+  const boundedProgress = Math.max(0, Math.min(1, progress));
+  const normalizedMood = mood.toUpperCase();
+  const posture = moodPosture(mood, postureSeed);
+  const postureColor = moodToneColor(t, posture.tone);
+  const moodPrefix = "";
+  const pct = `${Math.round(boundedProgress * 100)
+    .toString()
+    .padStart(3, " ")}%`;
+
+  if (width < 24) {
+    const tinyText =
+      boundedProgress >= 1
+        ? `${normalizedMood} / ${posture.badge}`
+        : pct;
+    return (
+      <Box width={Math.max(1, width)}>
+        <Text
+          color={
+            boundedProgress >= 1 ? postureColor : progressColor ?? t.primaryLight
+          }
+        >
+          {fitDisplayText(tinyText, Math.max(1, width))}
+        </Text>
+      </Box>
+    );
+  }
+
+  const panelWidth = Math.max(18, Math.min(44, width));
+  const innerWidth = Math.max(1, panelWidth - 4);
+  const title = "Mood";
+  const isSettled = boundedProgress >= 1;
+  const topPrefix = "╭─ ";
+  const topSuffix = " ";
+  const topRule = "─".repeat(
+    Math.max(
+      0,
+      panelWidth -
+        displayWidth(topPrefix) -
+        displayWidth(title) -
+        displayWidth(topSuffix) -
+        displayWidth("╮"),
+    ),
+  );
+  const settledSuffix = ` / ${posture.badge}`;
+  const compactSettledSuffix = ` / ${fitDisplayText(posture.badge, 8)}`;
+  const activeSettledSuffix =
+    displayWidth(moodPrefix) +
+      displayWidth(normalizedMood) +
+      displayWidth(settledSuffix) <=
+    innerWidth
+      ? settledSuffix
+      : compactSettledSuffix;
+  const moodTextWidth = Math.max(
+    1,
+    innerWidth -
+      displayWidth(moodPrefix) -
+      (isSettled ? displayWidth(activeSettledSuffix) : 0),
+  );
+  const moodText = fitDisplayText(normalizedMood, moodTextWidth);
+  const settledContent = `${moodPrefix}${moodText}${activeSettledSuffix}`;
+  const detailText = fitDisplayText(
+    isSettled ? posture.detail : bootPostureDetail(boundedProgress),
+    innerWidth,
+  );
+  const pctWidth = displayWidth(pct);
+  const barWidth = Math.max(4, innerWidth - pctWidth - 4);
+  const bar = gaugeBar(boundedProgress, barWidth);
+  const gaugeContent = `[${bar}] ${pct}`;
+
+  return (
+    <Box flexDirection="column" width={panelWidth}>
+      <Text color={t.primaryDim}>
+        {topPrefix}
+        <Text bold color={t.warning}>
+          {title}
+        </Text>
+        {topSuffix}
+        {topRule}
+        ╮
+      </Text>
+      {isSettled ? (
+        <>
+          <Text>
+            <Text color={t.primaryDim}>│ </Text>
+            <Text bold color={postureColor}>
+              {moodText}
+            </Text>
+            <Text color={t.primaryDim}>{activeSettledSuffix}</Text>
+            <Text color={t.primaryDim}>
+              {" ".repeat(
+                Math.max(0, innerWidth - displayWidth(settledContent)),
+              )}
+              {" │"}
+            </Text>
+          </Text>
+          <Text>
+            <Text color={t.primaryDim}>│ </Text>
+            <Text color={t.dim}>{detailText}</Text>
+            <Text color={t.primaryDim}>
+              {" ".repeat(Math.max(0, innerWidth - displayWidth(detailText)))} │
+            </Text>
+          </Text>
+        </>
+      ) : (
+        <>
+          <Text>
+            <Text color={t.primaryDim}>│ </Text>
+            <Text color={t.primaryDim}>[</Text>
+            <Text color={progressColor ?? t.primaryLight}>{bar}</Text>
+            <Text color={t.primaryDim}>] </Text>
+            <Text color={t.primaryLight}>{pct}</Text>
+            <Text color={t.primaryDim}>
+              {" ".repeat(Math.max(0, innerWidth - displayWidth(gaugeContent)))} │
+            </Text>
+          </Text>
+          <Text>
+            <Text color={t.primaryDim}>│ </Text>
+            <Text color={t.dim}>{detailText}</Text>
+            <Text color={t.primaryDim}>
+              {" ".repeat(Math.max(0, innerWidth - displayWidth(detailText)))} │
+            </Text>
+          </Text>
+        </>
+      )}
+      <Text color={t.primaryDim}>{titledPanelBottom(panelWidth)}</Text>
+    </Box>
+  );
+}
+
 export function MascotDashboard({
   greeting,
   width,
+  mood,
+  bootProgress = 1,
   state = INTRO_FRAMES[INTRO_FRAMES.length - 1]!,
   bar = introBootBar(INTRO_FRAMES.length - 1, INTRO_FRAMES.length),
   barColor,
@@ -339,6 +677,14 @@ export function MascotDashboard({
           Drexler™
         </Text>
         <Text color={t.primaryLight}>{greeting}</Text>
+        <Box marginTop={1}>
+          <MoodReadout
+            mood={mood}
+            progress={bootProgress}
+            progressColor={resolvedBarColor}
+            width={available}
+          />
+        </Box>
         {dealDesk ? <Box marginTop={1}>{dealDesk(Math.max(1, available))}</Box> : null}
       </Box>
     );
@@ -353,6 +699,14 @@ export function MascotDashboard({
           Drexler International™
         </Text>
         <Text color={t.primaryLight}>{greeting}</Text>
+        <Box marginTop={1}>
+          <MoodReadout
+            mood={mood}
+            progress={bootProgress}
+            progressColor={resolvedBarColor}
+            width={available}
+          />
+        </Box>
         {dealDesk ? <Box marginTop={1}>{dealDesk(Math.max(1, available))}</Box> : null}
       </Box>
     );
@@ -390,7 +744,13 @@ export function MascotDashboard({
             </Text>
             <Box height={1} />
             <Text color={t.primaryLight}>{greeting}</Text>
-            <Box height={1} />
+            <Box height={sideBySide ? 2 : 1} />
+            <MoodReadout
+              mood={mood}
+              progress={bootProgress}
+              progressColor={resolvedBarColor}
+              width={copyWidth}
+            />
           </Box>
         </Box>
         {sideBySide ? (

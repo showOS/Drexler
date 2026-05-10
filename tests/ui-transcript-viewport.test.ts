@@ -148,6 +148,165 @@ describe("TranscriptViewport", () => {
     }
   });
 
+  test("unwraps assistant markdown fences used only for formatted prose", () => {
+    const rendered = renderViewport({
+      items: [
+        {
+          id: "assistant-markdown",
+          role: "assistant",
+          content:
+            "Drexler not chef.\n\n```markdown\n1. Procure 80/20 beef.\n2. Sear on high heat.\n```\n\nIf burger is mid, Drexler initiate hostile takeover of BBQ.",
+        },
+      ],
+      maxRows: 12,
+      cols: 92,
+    });
+
+    expect(rendered).toContain("│ ◆ Drexler not chef.");
+    expect(rendered).toContain("1. Procure 80/20 beef.");
+    expect(rendered).toContain("2. Sear on high heat.");
+    expect(rendered).not.toContain("```");
+    expect(rendered).not.toContain("markdown");
+    for (const row of rendered.split("\n")) {
+      expect(displayWidth(row)).toBeLessThanOrEqual(92);
+    }
+  });
+
+  test("unwraps assistant code fences without leaking language tags", () => {
+    const rendered = renderViewport({
+      items: [
+        {
+          id: "assistant-code",
+          role: "assistant",
+          content:
+            "Specify asset class.\n\n```python\nprint(\"Synergy achieved.\")\n```\n\nCode must deliver ROI.",
+        },
+      ],
+      maxRows: 12,
+      cols: 92,
+    });
+
+    expect(rendered).toContain("│ ◆ Specify asset class.");
+    expect(rendered).toContain('┃ print("Synergy achieved.")');
+    expect(rendered).toContain("Code must deliver ROI.");
+    expect(rendered).not.toContain("```");
+    expect(rendered).not.toContain("python");
+    for (const row of rendered.split("\n")) {
+      expect(displayWidth(row)).toBeLessThanOrEqual(92);
+    }
+  });
+
+  test("unwraps multiple tilde and CRLF fences in assistant display", () => {
+    const rendered = renderViewport({
+      items: [
+        {
+          id: "assistant-mixed-fences",
+          role: "assistant",
+          content:
+            "First memo\r\n~~~md\r\n- Raise fee\r\n~~~\r\nThen code\r\n```\r\nconst fee = \"absurd\";\r\n```",
+        },
+      ],
+      maxRows: 14,
+      cols: 92,
+    });
+
+    expect(rendered).toContain("First memo");
+    expect(rendered).toContain("- Raise fee");
+    expect(rendered).toContain("Then code");
+    expect(rendered).toContain('┃ const fee = "absurd";');
+    expect(rendered).not.toContain("~~~");
+    expect(rendered).not.toContain("```");
+    expect(rendered).not.toContain("md");
+    for (const row of rendered.split("\n")) {
+      expect(displayWidth(row)).toBeLessThanOrEqual(92);
+    }
+  });
+
+  test("hides an unclosed assistant fence marker while preserving content", () => {
+    const rendered = renderViewport({
+      items: [
+        {
+          id: "assistant-unclosed-fence",
+          role: "assistant",
+          content: "Drexler draft:\n```ts\nconst memo = true;",
+        },
+      ],
+      maxRows: 8,
+      cols: 72,
+    });
+
+    expect(rendered).toContain("Drexler draft:");
+    expect(rendered).toContain("┃ const memo = true;");
+    expect(rendered).not.toContain("```");
+    expect(rendered).not.toContain("ts");
+    for (const row of rendered.split("\n")) {
+      expect(displayWidth(row)).toBeLessThanOrEqual(72);
+    }
+  });
+
+  test("compact assistant preview skips leading fences and blank rows", () => {
+    const rendered = renderViewport({
+      items: [
+        {
+          id: "compact-fence",
+          role: "assistant",
+          content: "\n```markdown\n1. Alpha memo\n2. Beta memo\n```",
+        },
+      ],
+      maxRows: 2,
+      cols: 42,
+      compact: true,
+    });
+
+    expect(rendered).toContain("DREXLER ◆ 1. Alpha memo");
+    expect(rendered).not.toContain("```");
+    expect(rendered).not.toContain("markdown");
+  });
+
+  test("expands assistant tabs before width fitting", () => {
+    const rendered = renderViewport({
+      items: [
+        {
+          id: "assistant-tabbed-code",
+          role: "assistant",
+          content: "```python\nif deal:\n\tprint(\"fees\")\n```",
+        },
+      ],
+      maxRows: 8,
+      cols: 36,
+    });
+
+    expect(rendered).toContain('┃   print("fees")');
+    expect(rendered).not.toContain("\t");
+    for (const row of rendered.split("\n")) {
+      expect(displayWidth(row)).toBeLessThanOrEqual(36);
+    }
+  });
+
+  test("renders multi-line fenced code as a distinct in-card block", () => {
+    const rendered = renderViewport({
+      items: [
+        {
+          id: "assistant-fizzbuzz",
+          role: "assistant",
+          content:
+            '```python\nfor i in range(1, 101):\n  if i % 3 == 0 and i % 5 == 0: print("FizzBuzz")\n  elif i % 3 == 0: print("Fizz")\n  elif i % 5 == 0: print("Buzz")\n  else: print(i)\n```\n\nDrexler check code for leaks.',
+        },
+      ],
+      maxRows: 14,
+      cols: 118,
+    });
+
+    expect(rendered).toContain("│ ◆ ┃ for i in range(1, 101):");
+    expect(rendered).toContain('│   ┃   if i % 3 == 0 and i % 5 == 0: print("FizzBuzz")');
+    expect(rendered).toContain("Drexler check code for leaks.");
+    expect(rendered).not.toContain("```");
+    expect(rendered).not.toContain("python");
+    for (const row of rendered.split("\n")) {
+      expect(displayWidth(row)).toBeLessThanOrEqual(118);
+    }
+  });
+
   test("windows children from the bottom by default", () => {
     const rendered = renderViewport({
       maxRows: 3,
