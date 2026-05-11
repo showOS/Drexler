@@ -13,7 +13,7 @@ import {
 import { displayWidth } from "../src/ui/graphemes.ts";
 
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
-const EXPECTED_SCENE_ROWS = 16;
+const EXPECTED_SCENE_ROWS = 18;
 const OLD_SCENE_ARTIFACTS = [
   "╔══TV════╗",
   "│ ~~~~ │",
@@ -68,13 +68,16 @@ describe("PetScene", () => {
     }
     expect(rendered).toContain("DREXLER OFFICE");
     expect(rendered).toContain("Deal Board");
-    expect(rendered).toContain("laptop");
-    expect(rendered).toContain("papers");
-    expect(rendered).toContain("coffee");
+    expect(rendered).toContain("╭──────╮");
+    expect(rendered).toContain("▱▱▱");
+    expect(rendered).toContain("╰c~╯");
     expect(rendered).toContain("FILE");
-    expect(rendered).toContain("skyline");
+    expect(rendered).toContain("city");
     expect(rendered).toContain("PIPE");
-    expect(rendered).toContain("DESK");
+    expect(rendered).toContain("DREXLER DEAL DESK");
+    expect(rendered).toContain("deal-room carpet shadow");
+    expect(rendered).not.toContain("laptop");
+    expect(rendered).not.toContain("coffee");
     expectNoLegacyArtifacts(rendered);
   });
 
@@ -106,7 +109,7 @@ describe("PetScene", () => {
       lastSaved: 1,
     });
 
-    expect(rendered).toContain("DL:100%");
+    expect(rendered).toContain("DL 100%");
     expect(rendered).toContain("DREXLER OFFICE");
     for (const row of rendered.split("\n")) {
       expect(displayWidth(row)).toBeLessThanOrEqual(PET_SCENE_WIDTH);
