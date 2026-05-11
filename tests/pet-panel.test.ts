@@ -66,22 +66,21 @@ describe("PetScene", () => {
     for (const line of BRIEFCASE_FINAL) {
       expect(rendered).toContain(line.trimEnd());
     }
+    // Title bar identifies the room and shows the worst stat as a
+    // right-aligned readout (no chrome echo with the desk strip below).
     expect(rendered).toContain("DREXLER OFFICE");
-    expect(rendered).toContain("Deal Board");
-    expect(rendered).toContain("╭───╮");
-    expect(rendered).toContain("│╲│ │");
-    expect(rendered).toContain("╭──────╮");
-    expect(rendered).toContain("▱▱▱");
+    // Boardroom window frames an animated city skyline with a quiet
+    // time label.
+    expect(rendered).toContain("Skyline");
+    expect(rendered).toMatch(/\d{2}:\d{2}/);
+    // Skyscraper silhouettes use half-block density gradients.
+    expect(rendered).toMatch(/[▆▇█]/);
+    // Steaming mug sits on the desk horizon.
     expect(rendered).toContain("╭c~╮");
-    expect(rendered).toContain("FILE");
-    expect(rendered).toContain("╰────╯");
-    expect(rendered).toContain("city");
-    expect(rendered).toContain("PIPE");
+    // Single horizon line carries the desk label, no bordered strip.
     expect(rendered).toContain("DREXLER DEAL DESK");
-    expect(rendered).toContain("│▤▤│");
-    expect(rendered).not.toContain("deal-room carpet shadow");
-    expect(rendered).not.toContain("laptop");
-    expect(rendered).not.toContain("coffee");
+    // Nameplate replaces the laptop/papers clutter.
+    expect(rendered).toContain("▭ DREX");
     expectNoLegacyArtifacts(rendered);
   });
 
@@ -128,6 +127,7 @@ describe("PetScene", () => {
 
       expect(rows.length).toBe(EXPECTED_SCENE_ROWS);
       expect(rendered).toContain("DREXLER OFFICE");
+      // Working activity drives the window's bottom label.
       expect(rendered).toContain("term sheet live");
       expectNoLegacyArtifacts(rendered);
       for (const row of rows) {

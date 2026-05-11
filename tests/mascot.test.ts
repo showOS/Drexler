@@ -303,11 +303,10 @@ describe("MascotFrame", () => {
     expect(rendered).toContain("activity playing · office");
     expect(rendered).toContain("DREXLER OFFICE");
     expect(rendered).toContain("DREXLER DEAL DESK");
-    expect(rendered).toContain("╭───╮");
-    expect(rendered).toContain("╭──────╮");
+    expect(rendered).toContain("Skyline");
+    expect(rendered).toMatch(/[▆▇█]/);
     expect(rendered).toContain("╭c~╮");
-    expect(rendered).toContain("FILE");
-    expect(rendered).toContain("city");
+    expect(rendered).toContain("▭ DREX");
     expect(rendered).toContain("happy");
     expect(rendered).toContain("hunger");
     expect(rendered).toContain("energy");
@@ -386,8 +385,8 @@ describe("MascotFrame", () => {
       expect(rendered).toContain("Drexler Pet Desk [office]");
       expect(rendered).toContain("DREXLER OFFICE");
       expect(rendered).toContain("DREXLER DEAL DESK");
-      expect(rendered).toContain("╭───╮");
-      expect(rendered).toContain("╭──────╮");
+      expect(rendered).toContain("Skyline");
+      expect(rendered).toMatch(/[▆▇█]/);
       expect(rendered).toContain("╭c-╮");
       expect(rendered).not.toContain("[outdoors]");
       expect(rendered).not.toContain("env outdoors");
