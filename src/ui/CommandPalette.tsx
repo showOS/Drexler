@@ -10,7 +10,7 @@ interface Props {
   width?: number;
 }
 
-const COMMAND_HINTS: Record<string, string> = {
+export const COMMAND_HINTS: Record<string, string> = {
   "/help": "open directive list",
   "/clear": "reset transcript",
   "/exit": "close session",
@@ -31,6 +31,15 @@ const COMMAND_HINTS: Record<string, string> = {
   "/copy-last": "copy latest response",
   "/setup": "show config + key source",
   "/update": "bun update -g drexler --latest",
+  "/pet": "open pet deal desk",
+  "/feed": "feed Drexler a deal memo",
+  "/play": "corporate synergy game",
+  "/work": "grind the deal pipeline",
+  "/praise": "affirm Drexler's contributions",
+  "/rest": "strategic nap",
+  "/vibe": "let Drexler pick the move",
+  "/name": "/name Bartholomew",
+  "/profile": "print personnel file",
 };
 
 const ARGUMENT_TITLES: Record<string, { title: string; hint: string }> = {

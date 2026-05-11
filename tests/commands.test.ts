@@ -110,6 +110,8 @@ describe("dispatch (V7, V8, V16, V17)", () => {
       "/praise",
       "/rest",
       "/vibe",
+      "/name Bartholomew",
+      "/profile",
     ]) {
       const { ctx, out } = makeCtx();
       const action = dispatch(command, ctx);
@@ -867,6 +869,24 @@ describe("filterPaletteByPrefix", () => {
 
   test("no-match prefix returns empty", () => {
     expect(filterPaletteByPrefix("/zzz")).toEqual([]);
+  });
+
+  test("uppercase argument-parent command still opens the chooser", () => {
+    const rows = filterPaletteByPrefix("/THEME");
+    expect(rows[0]?.name).toBe("/theme");
+    expect(rows.some((r) => r.name === "/theme apollo")).toBe(true);
+  });
+
+  test("uppercase argument suggestion prefix filters the values", () => {
+    const rows = filterPaletteByPrefix("/THEME ");
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => r.name.startsWith("/theme "))).toBe(true);
+  });
+
+  test("partial argument prefix narrows suggestions", () => {
+    const rows = filterPaletteByPrefix("/theme mid");
+    expect(rows.map((r) => r.name)).toContain("/theme midnight");
+    expect(rows.every((r) => r.name.startsWith("/theme mid"))).toBe(true);
   });
 });
 

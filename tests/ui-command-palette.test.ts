@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { renderToString } from "ink";
 import React from "react";
-import type { SlashCommand } from "../src/commands.ts";
-import { CommandPalette } from "../src/ui/CommandPalette.tsx";
+import { COMMAND_PALETTE, type SlashCommand } from "../src/commands.ts";
+import { CommandPalette, COMMAND_HINTS } from "../src/ui/CommandPalette.tsx";
 import { displayWidth } from "../src/ui/graphemes.ts";
 import { ThemeProvider } from "../src/ui/ThemeContext.tsx";
 import { THEMES } from "../src/ui/themes.ts";
@@ -132,5 +132,12 @@ describe("CommandPalette", () => {
     for (const row of rendered.split("\n")) {
       expect(displayWidth(row)).toBeLessThanOrEqual(width);
     }
+  });
+
+  test("every COMMAND_PALETTE entry has a COMMAND_HINTS hint", () => {
+    const missing = COMMAND_PALETTE.map((c) => c.name).filter(
+      (name) => !(name in COMMAND_HINTS),
+    );
+    expect(missing).toEqual([]);
   });
 });
