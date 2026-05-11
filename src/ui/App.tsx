@@ -1,16 +1,28 @@
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  accrueLifetimeDeals,
+  actionCooldown,
   applyFeed,
   applyMinuteDecay,
+  applyName,
   applyPlay,
   applyPraise,
   applyRest,
   applyVibe,
   applyWork,
+  formatCooldownRemaining,
+  formatTenure,
+  getPetMood,
+  getPetRank,
   isPetDead,
   loadPetState,
+  petTenureMs,
+  rankLabel,
+  sanitizePetName,
   savePetState,
+  stampAction,
+  type PetActionKey,
   type PetActivity,
   type PetStats,
 } from "../pet/petState.ts";
@@ -369,6 +381,23 @@ export function App({
       return next;
     });
   }, []);
+  const applyPetAction = useCallback(
+    (action: PetActionKey, mutator: (stats: PetStats) => PetStats) => {
+      const before = getPetRank(petStatsRef.current);
+      updatePetStats((s) => {
+        const next = stampAction(mutator(s), action);
+        return accrueLifetimeDeals(next, action);
+      });
+      const after = getPetRank(petStatsRef.current);
+      if (after !== before) {
+        addItem(
+          "system",
+          `PROMOTION MEMO: Drexler ranked up to ${rankLabel(after)}. Reward: more meetings.`,
+        );
+      }
+    },
+    [updatePetStats, addItem],
+  );
 
   useEffect(() => {
     petStatsRef.current = petStats;
@@ -645,41 +674,123 @@ export function App({
         runSynergyEvent();
         return;
       }
+      const isPetCommand =
+        slashCommand === "/feed" ||
+        slashCommand === "/play" ||
+        slashCommand === "/work" ||
+        slashCommand === "/praise" ||
+        slashCommand === "/rest" ||
+        slashCommand === "/vibe";
+      if (isPetCommand && isDead) {
+        addItem("system", "Drexler is in HR. Restructuring paperwork pending — try again after revival.");
+        return;
+      }
+      const cooldownAction: PetActionKey | null =
+        slashCommand === "/feed" ? "feed"
+        : slashCommand === "/play" ? "play"
+        : slashCommand === "/work" ? "work"
+        : slashCommand === "/praise" ? "praise"
+        : slashCommand === "/rest" ? "rest"
+        : slashCommand === "/vibe" ? "vibe"
+        : null;
+      if (cooldownAction !== null) {
+        const cd = actionCooldown(petStatsRef.current, cooldownAction);
+        if (!cd.ok) {
+          addItem(
+            "system",
+            `Drexler ${cooldownAction === "feed" ? "just ate" : cooldownAction === "play" ? "just played" : cooldownAction === "work" ? "just worked" : cooldownAction === "praise" ? "just got praised" : cooldownAction === "rest" ? "just rested" : "just vibed"}. Wait ${formatCooldownRemaining(cd.remainingMs)} before the next attempt. Drexler resents micromanagement.`,
+          );
+          return;
+        }
+      }
       if (slashCommand === "/feed") {
-        updatePetStats(applyFeed);
+        applyPetAction("feed", applyFeed);
         triggerPetActivity("eating", 3500);
         addItem("system", pick(PET_MESSAGES.feed));
         return;
       }
       if (slashCommand === "/play") {
-        updatePetStats(applyPlay);
+        applyPetAction("play", applyPlay);
         triggerPetActivity("playing", 4000);
         addItem("system", pick(PET_MESSAGES.play));
         return;
       }
       if (slashCommand === "/work") {
-        updatePetStats(applyWork);
+        applyPetAction("work", applyWork);
         triggerPetActivity("working", 5000);
         addItem("system", pick(PET_MESSAGES.work));
         return;
       }
       if (slashCommand === "/praise") {
-        updatePetStats(applyPraise);
+        applyPetAction("praise", applyPraise);
         triggerPetActivity("praised", 3000);
         addItem("system", pick(PET_MESSAGES.praise));
         return;
       }
       if (slashCommand === "/rest") {
-        updatePetStats(applyRest);
+        applyPetAction("rest", applyRest);
         triggerPetActivity("sleeping", 5000);
         addItem("system", pick(PET_MESSAGES.rest));
         return;
       }
       if (slashCommand === "/vibe") {
         const result = applyVibe(petStatsRef.current);
-        updatePetStats(() => result.stats);
+        applyPetAction("vibe", () => result.stats);
         triggerPetActivity("vibing", 3500);
         addItem("system", result.message);
+        return;
+      }
+      if (slashCommand === "/name") {
+        const arg = line.slice("/name".length).trim();
+        if (arg.length === 0) {
+          const current = petStatsRef.current.name;
+          addItem(
+            "system",
+            current
+              ? `Drexler's pet name on file: "${current}". /name <new> to reassign.`
+              : "No pet name on file. /name <name> to issue corporate identity.",
+          );
+          return;
+        }
+        const cleaned = sanitizePetName(arg);
+        if (cleaned.length === 0) {
+          addItem(
+            "system",
+            "Drexler refuses unprintable identity. Pick letters, numbers, spaces, dots, or apostrophes (≤16 chars).",
+          );
+          return;
+        }
+        updatePetStats((s) => applyName(s, cleaned));
+        addItem("system", `Pet renamed: "${cleaned}". Memo distributed to all departments.`);
+        return;
+      }
+      if (slashCommand === "/profile") {
+        const s = petStatsRef.current;
+        const tenure = formatTenure(petTenureMs(s));
+        const mood = getPetMood(s);
+        const stats = [
+          ["hunger", s.hunger],
+          ["happiness", s.happiness],
+          ["energy", s.energy],
+          ["deals", s.deals],
+        ] as const;
+        const dominant = stats.reduce(
+          (best, cur) => (cur[1] > best[1] ? cur : best),
+        );
+        const rank = getPetRank(s);
+        const lines = [
+          "Drexler personnel file:",
+          `  name      : ${s.name ?? "(unnamed associate)"}`,
+          `  rank      : ${rankLabel(rank)}`,
+          `  tenure    : ${tenure}`,
+          `  mood      : ${mood}`,
+          `  hunger    : ${Math.round(s.hunger)}%`,
+          `  happiness : ${Math.round(s.happiness)}%`,
+          `  energy    : ${Math.round(s.energy)}%`,
+          `  deals     : ${Math.round(s.deals)}%`,
+          `  standout  : ${dominant[0]} (${Math.round(dominant[1])}%)`,
+        ];
+        addItem("system", lines.join("\n"));
         return;
       }
 

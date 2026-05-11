@@ -3,12 +3,30 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  accrueLifetimeDeals,
+  actionCooldown,
   applyFeed,
   applyMinuteDecay,
+  applyName,
+  applyPlay,
+  applyPraise,
   applyRest,
+  applyVibe,
+  applyWork,
+  formatCooldownRemaining,
+  formatTenure,
+  getPetMood,
+  getPetRank,
   isPetDead,
+  lifetimeDeals,
   loadPetState,
+  PET_COOLDOWN_MS,
+  petTenureMs,
+  rankLabel,
+  sanitizePetName,
   savePetState,
+  stampAction,
+  type PetStats,
 } from "../src/pet/petState.ts";
 
 describe("pet state", () => {
@@ -131,5 +149,341 @@ describe("pet state", () => {
     expect(decayed.happiness).toBeGreaterThanOrEqual(0);
     expect(decayed.energy).toBeGreaterThanOrEqual(0);
     expect(decayed.deals).toBeGreaterThanOrEqual(0);
+  });
+
+  test("applyPlay boosts happiness, costs energy, nudges deals", () => {
+    const base: PetStats = {
+      hunger: 80,
+      happiness: 50,
+      energy: 80,
+      deals: 40,
+      lastSaved: Date.now(),
+    };
+    const next = applyPlay(base);
+    expect(next.happiness).toBe(70);
+    expect(next.energy).toBe(70);
+    expect(next.deals).toBe(45);
+    expect(next.hunger).toBe(80);
+  });
+
+  test("applyWork drives deals up while spending energy and hunger", () => {
+    const base: PetStats = {
+      hunger: 80,
+      happiness: 60,
+      energy: 80,
+      deals: 40,
+      lastSaved: Date.now(),
+    };
+    const next = applyWork(base);
+    expect(next.deals).toBe(60);
+    expect(next.energy).toBe(65);
+    expect(next.hunger).toBe(75);
+    expect(next.happiness).toBe(60);
+  });
+
+  test("applyPraise only changes happiness", () => {
+    const base: PetStats = {
+      hunger: 50,
+      happiness: 40,
+      energy: 50,
+      deals: 50,
+      lastSaved: Date.now(),
+    };
+    const next = applyPraise(base);
+    expect(next.happiness).toBe(55);
+    expect(next.hunger).toBe(50);
+    expect(next.energy).toBe(50);
+    expect(next.deals).toBe(50);
+  });
+
+  test("applyVibe nap branch fires when energy < 30", () => {
+    const base: PetStats = {
+      hunger: 80,
+      happiness: 60,
+      energy: 20,
+      deals: 50,
+      lastSaved: Date.now(),
+    };
+    const { stats, message } = applyVibe(base);
+    expect(stats.energy).toBe(40);
+    expect(message).toMatch(/nap/);
+  });
+
+  test("applyVibe feed branch fires when hunger < 30 and energy ok", () => {
+    const base: PetStats = {
+      hunger: 20,
+      happiness: 60,
+      energy: 50,
+      deals: 50,
+      lastSaved: Date.now(),
+    };
+    const { stats, message } = applyVibe(base);
+    expect(stats.hunger).toBe(45);
+    expect(message).toMatch(/eats it|forgotten deal memo/);
+  });
+
+  test("applyVibe rolls through deterministic seeded branches", () => {
+    const base: PetStats = {
+      hunger: 80,
+      happiness: 60,
+      energy: 80,
+      deals: 40,
+      lastSaved: Date.now(),
+    };
+    const orig = Math.random;
+    try {
+      const seeds = [0.1, 0.3, 0.6, 0.9];
+      const seen = new Set<string>();
+      for (const s of seeds) {
+        Math.random = () => s;
+        const { message } = applyVibe(base);
+        seen.add(message);
+      }
+      expect(seen.size).toBe(4);
+    } finally {
+      Math.random = orig;
+    }
+  });
+
+  test("getPetMood returns each mood label across stat profiles", () => {
+    const base = (overrides: Partial<PetStats>): PetStats => ({
+      hunger: 60,
+      happiness: 60,
+      energy: 60,
+      deals: 40,
+      lastSaved: Date.now(),
+      ...overrides,
+    });
+    expect(getPetMood(base({ energy: 10 }))).toBe("exhausted");
+    expect(getPetMood(base({ hunger: 10 }))).toBe("hungry");
+    expect(getPetMood(base({ happiness: 95 }))).toBe("manic");
+    expect(getPetMood(base({ happiness: 10 }))).toBe("distressed");
+    expect(getPetMood(base({ deals: 90 }))).toBe("victorious");
+    expect(getPetMood(base({}))).toBe("operational");
+  });
+
+  test("isPetDead trips at the lower boundary on each fatal stat", () => {
+    const live: PetStats = {
+      hunger: 10,
+      happiness: 10,
+      energy: 10,
+      deals: 10,
+      lastSaved: Date.now(),
+    };
+    expect(isPetDead(live)).toBe(false);
+    expect(isPetDead({ ...live, hunger: 0 })).toBe(true);
+    expect(isPetDead({ ...live, happiness: 0 })).toBe(true);
+    expect(isPetDead({ ...live, energy: 0 })).toBe(true);
+    expect(isPetDead({ ...live, deals: 0 })).toBe(false);
+  });
+
+  test("repeated /feed never exceeds the upper stat bound", () => {
+    let stats: PetStats = {
+      hunger: 60,
+      happiness: 60,
+      energy: 60,
+      deals: 60,
+      lastSaved: Date.now(),
+    };
+    for (let i = 0; i < 50; i++) stats = applyFeed(stats);
+    expect(stats.hunger).toBeLessThanOrEqual(100);
+    expect(stats.happiness).toBeLessThanOrEqual(100);
+    expect(stats.deals).toBeLessThanOrEqual(100);
+  });
+
+  test("sanitizePetName strips control chars and caps length", () => {
+    expect(sanitizePetName("")).toBe("");
+    expect(sanitizePetName("   ")).toBe("");
+    expect(sanitizePetName("Mr. Drexler")).toBe("Mr. Drexler");
+    expect(sanitizePetName("<<>>Drexler<<>>")).toBe("Drexler");
+    expect(sanitizePetName("ctrl\x07char")).toBe("ctrlchar");
+    expect(sanitizePetName("a".repeat(40))).toHaveLength(16);
+    expect(sanitizePetName("  spaced   out  ")).toBe("spaced out");
+  });
+
+  test("applyName persists sanitized name on stats", () => {
+    const base: PetStats = {
+      hunger: 50,
+      happiness: 50,
+      energy: 50,
+      deals: 50,
+      lastSaved: Date.now(),
+    };
+    expect(applyName(base, "Bartholomew").name).toBe("Bartholomew");
+    expect(applyName(base, "   ").name).toBeUndefined();
+    expect(applyName(base, "<<<>>>").name).toBeUndefined();
+  });
+
+  test("petTenureMs measures since createdAt; 0 when missing", () => {
+    const now = Date.now();
+    expect(petTenureMs({
+      hunger: 50,
+      happiness: 50,
+      energy: 50,
+      deals: 50,
+      lastSaved: now,
+      createdAt: now - 5_000,
+    }, now)).toBe(5_000);
+    expect(petTenureMs({
+      hunger: 50,
+      happiness: 50,
+      energy: 50,
+      deals: 50,
+      lastSaved: now,
+    }, now)).toBe(0);
+  });
+
+  test("formatTenure renders d/h/m bands", () => {
+    expect(formatTenure(0)).toBe("0m");
+    expect(formatTenure(30_000)).toBe("0m");
+    expect(formatTenure(5 * 60_000)).toBe("5m");
+    expect(formatTenure(90 * 60_000)).toBe("1h 30m");
+    expect(formatTenure(2 * 86_400_000 + 4 * 3_600_000)).toBe("2d 4h");
+  });
+
+  test("savePetState + loadPetState round-trips name and createdAt", async () => {
+    const created = Date.now() - 60_000;
+    savePetState({
+      hunger: 70,
+      happiness: 60,
+      energy: 50,
+      deals: 40,
+      lastSaved: Date.now(),
+      name: "Drexler Jr.",
+      createdAt: created,
+    });
+    const loaded = loadPetState();
+    expect(loaded.name).toBe("Drexler Jr.");
+    expect(loaded.createdAt).toBe(created);
+  });
+
+  test("actionCooldown is ok when no prior action stamped", () => {
+    const base: PetStats = {
+      hunger: 50,
+      happiness: 50,
+      energy: 50,
+      deals: 50,
+      lastSaved: Date.now(),
+    };
+    expect(actionCooldown(base, "feed")).toEqual({ ok: true, remainingMs: 0 });
+  });
+
+  test("actionCooldown blocks within cooldown window then unblocks after", () => {
+    const now = Date.now();
+    const base: PetStats = {
+      hunger: 50,
+      happiness: 50,
+      energy: 50,
+      deals: 50,
+      lastSaved: now,
+    };
+    const stamped = stampAction(base, "feed", now);
+    const within = actionCooldown(stamped, "feed", now + 30_000);
+    expect(within.ok).toBe(false);
+    expect(within.remainingMs).toBeGreaterThan(0);
+
+    const after = actionCooldown(stamped, "feed", now + PET_COOLDOWN_MS + 1);
+    expect(after.ok).toBe(true);
+  });
+
+  test("actionCooldown tracks each action independently", () => {
+    const now = Date.now();
+    const base: PetStats = {
+      hunger: 50,
+      happiness: 50,
+      energy: 50,
+      deals: 50,
+      lastSaved: now,
+    };
+    const fed = stampAction(base, "feed", now);
+    expect(actionCooldown(fed, "feed", now + 10_000).ok).toBe(false);
+    expect(actionCooldown(fed, "play", now + 10_000).ok).toBe(true);
+  });
+
+  test("formatCooldownRemaining renders seconds and minutes", () => {
+    expect(formatCooldownRemaining(15_000)).toBe("15s");
+    expect(formatCooldownRemaining(59_000)).toBe("59s");
+    expect(formatCooldownRemaining(60_000)).toBe("1m");
+    expect(formatCooldownRemaining(125_000)).toBe("2m 5s");
+  });
+
+  test("lastActionAt persists across save/load round-trips", () => {
+    const now = Date.now();
+    const stats: PetStats = {
+      hunger: 50,
+      happiness: 50,
+      energy: 50,
+      deals: 50,
+      lastSaved: now,
+      lastActionAt: { feed: now - 30_000, work: now - 10_000 },
+    };
+    savePetState(stats);
+    const loaded = loadPetState();
+    expect(loaded.lastActionAt?.feed).toBe(now - 30_000);
+    expect(loaded.lastActionAt?.work).toBe(now - 10_000);
+  });
+
+  test("lifetimeDeals falls back to current deals when missing", () => {
+    const base: PetStats = {
+      hunger: 50,
+      happiness: 50,
+      energy: 50,
+      deals: 42,
+      lastSaved: Date.now(),
+    };
+    expect(lifetimeDeals(base)).toBe(42);
+    expect(lifetimeDeals({ ...base, lifetimeDeals: 300 })).toBe(300);
+  });
+
+  test("getPetRank crosses every threshold", () => {
+    const base: PetStats = {
+      hunger: 50,
+      happiness: 50,
+      energy: 50,
+      deals: 0,
+      lastSaved: Date.now(),
+    };
+    expect(getPetRank({ ...base, lifetimeDeals: 0 })).toBe("intern");
+    expect(getPetRank({ ...base, lifetimeDeals: 199 })).toBe("intern");
+    expect(getPetRank({ ...base, lifetimeDeals: 200 })).toBe("analyst");
+    expect(getPetRank({ ...base, lifetimeDeals: 400 })).toBe("associate");
+    expect(getPetRank({ ...base, lifetimeDeals: 600 })).toBe("vp");
+    expect(getPetRank({ ...base, lifetimeDeals: 999 })).toBe("md");
+  });
+
+  test("rankLabel renders human-friendly titles", () => {
+    expect(rankLabel("intern")).toBe("Intern");
+    expect(rankLabel("vp")).toBe("Vice President");
+    expect(rankLabel("md")).toBe("Managing Director");
+  });
+
+  test("accrueLifetimeDeals adds per-action weight; rest/praise are free", () => {
+    const base: PetStats = {
+      hunger: 50,
+      happiness: 50,
+      energy: 50,
+      deals: 50,
+      lastSaved: Date.now(),
+      lifetimeDeals: 100,
+    };
+    expect(accrueLifetimeDeals(base, "work").lifetimeDeals).toBe(108);
+    expect(accrueLifetimeDeals(base, "feed").lifetimeDeals).toBe(102);
+    expect(accrueLifetimeDeals(base, "vibe").lifetimeDeals).toBe(103);
+    expect(accrueLifetimeDeals(base, "play").lifetimeDeals).toBe(101);
+    expect(accrueLifetimeDeals(base, "rest").lifetimeDeals).toBe(100);
+    expect(accrueLifetimeDeals(base, "praise").lifetimeDeals).toBe(100);
+  });
+
+  test("lifetimeDeals persists across save/load round-trips", () => {
+    const now = Date.now();
+    savePetState({
+      hunger: 50,
+      happiness: 50,
+      energy: 50,
+      deals: 50,
+      lastSaved: now,
+      lifetimeDeals: 250,
+    });
+    expect(loadPetState().lifetimeDeals).toBe(250);
   });
 });
