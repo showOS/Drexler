@@ -29,6 +29,7 @@ import {
 import { DeathScreen } from "./DeathScreen.tsx";
 import {
   CompactPetPanel,
+  COMPACT_PET_PANEL_MIN_WIDTH,
   COMPACT_PET_PANEL_ROWS,
   PetPanel,
   PET_PANEL_WIDTH,
@@ -93,7 +94,6 @@ import { getActiveTheme } from "./themes.ts";
 
 const TRANSCRIPT_CHROME_ROWS = 12;
 const PET_PANEL_MIN_MAIN_COLUMNS = 75;
-const COMPACT_PET_PANEL_MIN_COLUMNS = 48;
 const PET_PANEL_GAP_COLUMNS = 1;
 const PET_PANEL_MIN_COLUMNS =
   PET_PANEL_WIDTH + PET_PANEL_GAP_COLUMNS + PET_PANEL_MIN_MAIN_COLUMNS;
@@ -233,7 +233,7 @@ export function App({
   const showPetSidePanel = cols >= PET_PANEL_MIN_COLUMNS && !integratedIntro;
   const showCompactPetPanel = !showPetSidePanel && !integratedIntro;
   const compactPetRowBudget = showCompactPetPanel
-    ? cols >= COMPACT_PET_PANEL_MIN_COLUMNS
+    ? cols >= COMPACT_PET_PANEL_MIN_WIDTH
       ? COMPACT_PET_PANEL_ROWS
       : TINY_PET_PANEL_ROWS
     : 0;
