@@ -171,7 +171,7 @@ const RIGHT_COLUMN_PAD_RIGHT = 1;
 const LEFT_PANEL_MIN_COPY = 24;
 const PET_STATS_MIN_WIDTH = 24;
 const PET_STATS_MAX_WIDTH = 58;
-const PET_SPLIT_DIVIDER_HEIGHT = 17;
+const PET_SPLIT_DIVIDER_HEIGHT = 19;
 const PET_SPLIT_DIVIDER_ROWS: number[] = Array.from(
   { length: PET_SPLIT_DIVIDER_HEIGHT },
   (_, i) => i,
