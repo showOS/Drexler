@@ -190,7 +190,44 @@ describe("App state helpers", () => {
     }
   });
 
-  test("App renders the pet side panel without exceeding terminal width", async () => {
+  test.each([
+    [90, 30],
+    [100, 30],
+    [120, 30],
+    [127, 40],
+    [128, 33],
+  ])(
+    "App keeps %d-column terminals full-width without the pet side panel",
+    async (columns, rows) => {
+      const origHome = process.env.HOME;
+      const home = await mkdtemp(join(tmpdir(), "drexler-app-no-pet-"));
+      try {
+        process.env.HOME = home;
+        const ctx = makeCtx();
+        const rendered = renderAppWithStdout(
+          {
+            conversation: ctx.conversation,
+            config: ctx.config,
+            mood: "ruthless",
+          },
+          columns,
+          rows,
+        );
+
+        expect(rendered).not.toContain("happy");
+        expect(rendered).toContain("Drexler Deal Desk");
+        for (const row of rendered.split("\n")) {
+          expect(displayWidth(row)).toBeLessThanOrEqual(columns);
+        }
+      } finally {
+        if (origHome !== undefined) process.env.HOME = origHome;
+        else delete process.env.HOME;
+        await rm(home, { recursive: true, force: true });
+      }
+    },
+  );
+
+  test("App renders the pet side panel with bounded rows on wide terminals", async () => {
     const origHome = process.env.HOME;
     const home = await mkdtemp(join(tmpdir(), "drexler-app-pet-"));
     try {
@@ -202,14 +239,45 @@ describe("App state helpers", () => {
           config: ctx.config,
           mood: "ruthless",
         },
-        120,
-        30,
+        128,
+        40,
       );
 
-      expect(rendered).toContain("DREXLER HQ");
+      expect(rendered).toContain("happy");
       expect(rendered).toContain("Drexler Deal Desk");
+      expect(rendered.split("\n").length).toBeLessThanOrEqual(40);
       for (const row of rendered.split("\n")) {
-        expect(displayWidth(row)).toBeLessThanOrEqual(120);
+        expect(displayWidth(row)).toBeLessThanOrEqual(128);
+      }
+    } finally {
+      if (origHome !== undefined) process.env.HOME = origHome;
+      else delete process.env.HOME;
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("App suppresses pet side panel during integrated intro to preserve startup geometry", async () => {
+    const origHome = process.env.HOME;
+    const home = await mkdtemp(join(tmpdir(), "drexler-app-intro-no-pet-"));
+    try {
+      process.env.HOME = home;
+      const ctx = makeCtx();
+      const rendered = renderAppWithStdout(
+        {
+          conversation: ctx.conversation,
+          config: ctx.config,
+          mood: "ruthless",
+          greeting: "Hello",
+          showIntroChrome: true,
+        },
+        128,
+        40,
+      );
+
+      expect(rendered).toContain("╭─ Tips");
+      expect(rendered).not.toContain("happy");
+      for (const row of rendered.split("\n")) {
+        expect(displayWidth(row)).toBeLessThanOrEqual(128);
       }
     } finally {
       if (origHome !== undefined) process.env.HOME = origHome;

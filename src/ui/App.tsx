@@ -15,7 +15,12 @@ import {
   type PetStats,
 } from "../pet/petState.ts";
 import { DeathScreen } from "./DeathScreen.tsx";
-import { PetPanel, PET_PANEL_WIDTH, type Environment } from "./PetPanel.tsx";
+import {
+  PetPanel,
+  PET_PANEL_ROWS,
+  PET_PANEL_WIDTH,
+  type Environment,
+} from "./PetPanel.tsx";
 import {
   dispatch,
   filterPaletteByPrefix,
@@ -73,6 +78,11 @@ import {
 import { getActiveTheme } from "./themes.ts";
 
 const TRANSCRIPT_CHROME_ROWS = 12;
+const PET_PANEL_MIN_MAIN_COLUMNS = 91;
+const PET_PANEL_GAP_COLUMNS = 1;
+const PET_PANEL_MIN_COLUMNS =
+  PET_PANEL_WIDTH + PET_PANEL_GAP_COLUMNS + PET_PANEL_MIN_MAIN_COLUMNS;
+const PET_PANEL_MIN_ROWS = TRANSCRIPT_CHROME_ROWS + PET_PANEL_ROWS;
 
 export function transcriptRowsForTerminalRows(rows: number): number {
   return Math.max(1, Math.min(24, rows - TRANSCRIPT_CHROME_ROWS));
@@ -203,13 +213,19 @@ export function App({
   }, [stdout]);
   const mode = useMemo(() => pickLayout(cols), [cols]);
   const chromeWidth = useMemo(() => Math.max(1, cols), [cols]);
-  const showPetPanel = cols >= 90;
-  const contentWidth = showPetPanel ? Math.max(1, cols - PET_PANEL_WIDTH) : chromeWidth;
-  const contentInputWidth = Math.max(1, contentWidth);
-  const contentStatusWidth = Math.max(1, contentInputWidth - 2);
   const isCompact = mode === "very-narrow";
   const integratedIntro =
     showIntroChrome && typeof greeting === "string" && rows >= 32;
+  const showPetPanel =
+    cols >= PET_PANEL_MIN_COLUMNS && rows >= PET_PANEL_MIN_ROWS && !integratedIntro;
+  const petPanelReservedWidth = showPetPanel
+    ? PET_PANEL_WIDTH + PET_PANEL_GAP_COLUMNS
+    : 0;
+  const contentWidth = showPetPanel
+    ? Math.max(1, cols - petPanelReservedWidth)
+    : chromeWidth;
+  const contentInputWidth = Math.max(1, contentWidth);
+  const contentStatusWidth = Math.max(1, contentInputWidth - 2);
   const introRowBudget =
     integratedIntro ? (chromeWidth >= 112 ? 14 : chromeWidth >= 72 ? 26 : 6) : 0;
   const maxTranscriptRows = useMemo(
@@ -278,8 +294,8 @@ export function App({
   const [isDead, setIsDead] = useState(false);
   const [deathReason, setDeathReason] = useState("energy");
   const [deathVariant, setDeathVariant] = useState(0);
+  const petStatsRef = useRef<PetStats>(petStats);
   const petActivityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const petSaveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const petDecayTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const petEnv = useMemo((): Environment => {
@@ -348,45 +364,53 @@ export function App({
   const updatePetStats = useCallback((updater: (stats: PetStats) => PetStats) => {
     setPetStats((stats) => {
       const next = updater(stats);
+      petStatsRef.current = next;
       savePetState(next);
       return next;
     });
   }, []);
 
-  // Persist pet state every 30 s
   useEffect(() => {
-    petSaveTimerRef.current = setInterval(() => {
-      setPetStats((s) => { savePetState(s); return s; });
-    }, 30_000);
-    return () => {
-      if (petSaveTimerRef.current !== null) clearInterval(petSaveTimerRef.current);
-      if (petActivityTimerRef.current !== null) clearTimeout(petActivityTimerRef.current);
-      if (petDecayTimerRef.current !== null) clearInterval(petDecayTimerRef.current);
-    };
-  }, []);
+    petStatsRef.current = petStats;
+  }, [petStats]);
 
-  // Real-time stat decay — every 30 s, one minute's worth per tick
+  // Real-time stat decay matches the offline per-hour decay rate.
   useEffect(() => {
+    if (!showPetPanel) {
+      return () => {
+        savePetState(petStatsRef.current);
+      };
+    }
     petDecayTimerRef.current = setInterval(() => {
-      setPetStats((s) => applyMinuteDecay(s));
-    }, 30_000);
+      updatePetStats(applyMinuteDecay);
+    }, 60_000);
     return () => {
-      if (petDecayTimerRef.current !== null) clearInterval(petDecayTimerRef.current);
+      if (petDecayTimerRef.current !== null) {
+        clearInterval(petDecayTimerRef.current);
+        petDecayTimerRef.current = null;
+      }
+      if (petActivityTimerRef.current !== null) {
+        clearTimeout(petActivityTimerRef.current);
+        petActivityTimerRef.current = null;
+      }
+      savePetState(petStatsRef.current);
     };
-  }, []);
+  }, [showPetPanel, updatePetStats]);
 
   // Death detection
   useEffect(() => {
-    if (isDead || !isPetDead(petStats)) return;
+    if (!showPetPanel || isDead || !isPetDead(petStats)) return;
     const reason =
       petStats.hunger <= 0 ? "hunger" :
       petStats.happiness <= 0 ? "happiness" : "energy";
     setDeathReason(reason);
     setDeathVariant(Math.floor(Math.random() * 5));
     setIsDead(true);
-    savePetState({ ...petStats, dead: true });
+    const deadStats = { ...petStats, dead: true };
+    petStatsRef.current = deadStats;
+    savePetState(deadStats);
     exitTimerRef.current = setTimeout(() => exit(), 5000);
-  }, [petStats, isDead, exit]);
+  }, [petStats, showPetPanel, isDead, exit]);
 
   const paletteItems = useMemo(() => filterPaletteByPrefix(input), [input]);
   const paletteOpen = paletteItems.length > 0;
@@ -433,6 +457,7 @@ export function App({
       if (exitingRef.current) return;
       exitingRef.current = true;
       abortRef.current?.abort();
+      savePetState(petStatsRef.current);
       if (streamTimerRef.current !== null) {
         clearTimeout(streamTimerRef.current);
         streamTimerRef.current = null;
@@ -613,44 +638,45 @@ export function App({
   const handleSlashWithMutation = useCallback(
     async (line: string): Promise<void> => {
       const lower = line.toLowerCase().trim();
+      const [slashCommand = lower] = lower.split(/\s+/, 1);
 
       // Pet commands — handled before dispatch so they don't hit the unknown-command path
       if (lower === "/synergy") {
         runSynergyEvent();
         return;
       }
-      if (lower === "/feed") {
+      if (slashCommand === "/feed") {
         updatePetStats(applyFeed);
         triggerPetActivity("eating", 3500);
         addItem("system", pick(PET_MESSAGES.feed));
         return;
       }
-      if (lower === "/play") {
+      if (slashCommand === "/play") {
         updatePetStats(applyPlay);
         triggerPetActivity("playing", 4000);
         addItem("system", pick(PET_MESSAGES.play));
         return;
       }
-      if (lower === "/work") {
+      if (slashCommand === "/work") {
         updatePetStats(applyWork);
         triggerPetActivity("working", 5000);
         addItem("system", pick(PET_MESSAGES.work));
         return;
       }
-      if (lower === "/praise") {
+      if (slashCommand === "/praise") {
         updatePetStats(applyPraise);
         triggerPetActivity("praised", 3000);
         addItem("system", pick(PET_MESSAGES.praise));
         return;
       }
-      if (lower === "/rest") {
+      if (slashCommand === "/rest") {
         updatePetStats(applyRest);
         triggerPetActivity("sleeping", 5000);
         addItem("system", pick(PET_MESSAGES.rest));
         return;
       }
-      if (lower === "/vibe") {
-        const result = applyVibe(petStats);
+      if (slashCommand === "/vibe") {
+        const result = applyVibe(petStatsRef.current);
         updatePetStats(() => result.stats);
         triggerPetActivity("vibing", 3500);
         addItem("system", result.message);
@@ -1017,7 +1043,14 @@ export function App({
         )}
         <Box flexDirection="row" alignItems="flex-start">
           {showPetPanel && (
-            <PetPanel stats={petStats} activity={petActivity} env={petEnv} isPaused={isBusy} />
+            <Box marginRight={PET_PANEL_GAP_COLUMNS}>
+              <PetPanel
+                stats={petStats}
+                activity={petActivity}
+                env={petEnv}
+                isPaused={isBusy}
+              />
+            </Box>
           )}
           <Box flexDirection="column" flexGrow={1}>
             <TranscriptViewport

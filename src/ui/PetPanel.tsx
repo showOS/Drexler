@@ -1,13 +1,17 @@
 import { Box, Text } from "ink";
 import { memo, useEffect, useState } from "react";
 import { getPetMood, type PetActivity, type PetStats } from "../pet/petState.ts";
+import { displayWidth, fitDisplayText } from "./graphemes.ts";
 import { useTheme } from "./ThemeContext.tsx";
 import { type Theme } from "./themes.ts";
 
 export const PET_PANEL_WIDTH = 36;
+export const PET_PANEL_ROWS = 22;
 export type Environment = "office" | "home" | "outdoors";
 
-const CONTENT = 32; // 36 - 2 border - 2 paddingX
+const PANEL_BORDER_COLUMNS = 2;
+const PANEL_PADDING_COLUMNS = 2;
+const CONTENT = PET_PANEL_WIDTH - PANEL_BORDER_COLUMNS - PANEL_PADDING_COLUMNS;
 const SPRITE_W = 8;
 
 const R_SKY   = 0;
@@ -34,7 +38,8 @@ function place(base: string, text: string, x: number): string {
   return chars.join("");
 }
 function pad(s: string, n: number): string {
-  return s.length >= n ? s.slice(0, n) : s + " ".repeat(n - s.length);
+  const fitted = fitDisplayText(s, n);
+  return fitted + " ".repeat(Math.max(0, n - displayWidth(fitted)));
 }
 
 // ─── sprite (8 wide × 6 tall) ────────────────────────────────────────────────
@@ -85,16 +90,16 @@ function drawOffice(rows: string[], frame: number, stats: PetStats): void {
 
   rows[R_SKY] = "─".repeat(CONTENT);
 
-  // Window left (6 wide) + deals board right (11 wide at x=21)
+  // Window left (6 wide) + deals board right (12 wide at x=20)
   const sky = isDay
     ? (frame % 10 < 5 ? "─^──" : "──^─")
     : (frame % 10 < 5 ? "─*──" : "──*─");
   rows[R_BGA] = place(rows[R_BGA], `╭${sky}╮`, 0);
   rows[R_BGB] = place(rows[R_BGB], "╰────╯", 0);
 
-  const dl = String(Math.round(stats.deals)).padStart(2);
-  rows[R_BGA] = place(rows[R_BGA], "╔═DEALS═══╗", 21);
-  rows[R_BGB] = place(rows[R_BGB], `║ DL:${dl}%  ║`, 21);
+  const dl = String(Math.round(stats.deals)).padStart(3);
+  rows[R_BGA] = place(rows[R_BGA], "╔═DEALS════╗", 20);
+  rows[R_BGB] = place(rows[R_BGB], `║ DL:${dl}%  ║`, 20);
 
   // Desk (rows 7–9, right: 10 wide at x=22)
   rows[R_SP0 + 3] = place(rows[R_SP0 + 3], "╔════════╗", 22);
@@ -380,29 +385,29 @@ function statLevel(v: number): MsgLevel {
 }
 
 const MESSAGES: Record<string, readonly string[]> = {
-  "hunger.critical": ["Feed him. Now.","Pipeline empty. Stomach emptier.","Caloric intake: zero. Unacceptable.","Drexler requires deal intake. Urgently.","No sustenance. Board: concerned."],
-  "hunger.low":      ["Could use a deal snack.","Peckish. Dangerously so.","Running on fumes and spite.","Lunch was conceptual at best.","Hunger creeping. Bad sign."],
-  "hunger.ok":       ["Fed. Functional.","Satiated. Marginally.","Adequate nourishment confirmed.","Operating within caloric parameters.","Pipeline: sufficient."],
-  "hunger.good":     ["Well fed. Projecting strength.","Deal appetite: temporarily satisfied.","Lunch: successful. Board: impressed.","Caloric position: strong.","Nutritionally sound."],
-  "hunger.great":    ["Fully loaded. Ready to close.","Peak caloric window open.","The briefcase is well-stocked.","Drexler has eaten. Fear him.","Maximum deal absorption achieved."],
+  "hunger.critical": ["Feed him. Now.","Pipeline empty. Stomach emptier.","Caloric intake: zero.","Deal intake required. Urgent.","No lunch. Board concerned."],
+  "hunger.low":      ["Could use a deal snack.","Peckish. Dangerously so.","Running on fumes and spite.","Lunch was conceptual.","Hunger creeping. Bad sign."],
+  "hunger.ok":       ["Fed. Functional.","Satiated. Marginally.","Nourishment confirmed.","Caloric metrics acceptable.","Pipeline: sufficient."],
+  "hunger.good":     ["Well fed. Projecting strength.","Deal appetite satisfied.","Lunch closed. Board nods.","Caloric position: strong.","Nutritionally sound."],
+  "hunger.great":    ["Fully loaded. Ready to close.","Peak caloric window open.","Briefcase well-stocked.","Drexler has eaten. Fear him.","Maximum deal absorption."],
 
-  "happiness.critical": ["Morale: sub-basement.","Joy metrics: catastrophic.","Drexler is deeply dissatisfied.","Considering restructuring himself.","Send help. Immediately."],
-  "happiness.low":      ["Confidence is flagging.","Sentiment: negative. Action required.","Drexler is not thriving.","The market is ungrateful, apparently.","Spirits: declining. Alarming."],
-  "happiness.ok":       ["Maintaining composure.","Cautiously optimistic.","Neutral on outlook. For now.","Equilibrium: tenuous but present.","Tolerable. Barely."],
-  "happiness.good":     ["Pipeline: robust. Spirits: elevated.","Drexler is in the zone.","Good day in the deal room.","Shareholders pleased. Briefly.","Morale: acceptable."],
-  "happiness.great":    ["Unstoppable. Frankly.","Peak performance window detected.","Manic energy. Deploy wisely.","Drexler is ascendant. Watch out.","Maximum euphoria. Imminent."],
+  "happiness.critical": ["Morale: sub-basement.","Joy metrics: catastrophic.","Drexler deeply dissatisfied.","Considering self-restructure.","Send help. Immediately."],
+  "happiness.low":      ["Confidence is flagging.","Sentiment negative. Act now.","Drexler is not thriving.","Market ungrateful, apparently.","Spirits declining. Alarming."],
+  "happiness.ok":       ["Maintaining composure.","Cautiously optimistic.","Neutral outlook. For now.","Equilibrium: tenuous.","Tolerable. Barely."],
+  "happiness.good":     ["Pipeline robust. Spirits up.","Drexler is in the zone.","Good day in the deal room.","Shareholders pleased. Briefly.","Morale: acceptable."],
+  "happiness.great":    ["Unstoppable. Frankly.","Peak performance window.","Manic energy. Deploy wisely.","Drexler ascendant. Watch out.","Maximum euphoria. Imminent."],
 
-  "energy.critical": ["Running on fumes. Critical.","System depleted. Recharge required.","Drexler is barely upright.","Energy: dangerous lows.","Rest. Now. Non-negotiable."],
-  "energy.low":      ["Coffee required. Urgently.","Flagging slightly. Or a lot.","Energy deficit detected.","Could use a strategic nap.","Reserves low. Efficiency: questionable."],
-  "energy.ok":       ["Operational. Barely.","Chugging along.","Energy: acceptable. Ask again later.","Functional. Not inspired.","Adequate. For now."],
+  "energy.critical": ["Running on fumes. Critical.","System depleted. Recharge.","Drexler barely upright.","Energy: dangerous lows.","Rest now. Non-negotiable."],
+  "energy.low":      ["Coffee required. Urgently.","Flagging slightly. Or a lot.","Energy deficit detected.","Strategic nap advised.","Reserves low. Efficiency shaky."],
+  "energy.ok":       ["Operational. Barely.","Chugging along.","Energy acceptable. Recheck.","Functional. Not inspired.","Adequate. For now."],
   "energy.good":     ["Energized. Alert. Ready.","Ready to close deals.","Drexler is firing well.","Full capacity. Mostly.","Energy surplus confirmed."],
-  "energy.great":    ["Fully charged. Dangerously so.","Drexler is electrified.","Energy: maximum. Scope: unlimited.","Running at 110%. Sustainably.","Kinetic. Unstoppable. Caffeinated."],
+  "energy.great":    ["Fully charged. Dangerous.","Drexler is electrified.","Energy max. Scope unlimited.","Running at 110%. Somehow.","Kinetic. Caffeinated."],
 
-  "deals.critical": ["Pipeline: bone dry.","No deals. The board is watching.","Zero live mandates. Shameful.","Origination needed. Now.","Pipeline empty. Reputation: at risk."],
-  "deals.low":      ["Pipeline: thin. Worrying.","Deal flow: trickling.","Need to source. Aggressively.","Activity light. Drexler is restless.","Book: thin. Posture: defensive."],
-  "deals.ok":       ["Pipeline: moderate.","Deal flow: steady. Could be better.","Working the book.","Several irons in the fire.","Deal cadence: acceptable."],
-  "deals.good":     ["Pipeline: full. Drexler is pleased.","Multiple term sheets live.","Deal machine: operational.","The book is healthy.","Deal flow: strong. Board: nodding."],
-  "deals.great":    ["Crushing it, frankly.","Pipeline overflowing. Excellent problem.","Drexler is the deal machine.","Maximum origination achieved.","The board is in awe. Secretly."],
+  "deals.critical": ["Pipeline: bone dry.","No deals. Board is watching.","Zero live mandates. Shameful.","Origination needed. Now.","Empty pipe. Reputation at risk."],
+  "deals.low":      ["Pipeline thin. Worrying.","Deal flow: trickling.","Source aggressively.","Activity light. Drexler restless.","Book thin. Posture defensive."],
+  "deals.ok":       ["Pipeline: moderate.","Deal flow steady. Could improve.","Working the book.","Several irons in the fire.","Deal cadence acceptable."],
+  "deals.good":     ["Pipeline full. Drexler pleased.","Multiple term sheets live.","Deal machine: operational.","The book is healthy.","Deal flow strong. Board nods."],
+  "deals.great":    ["Crushing it, frankly.","Overflowing pipeline. Good problem.","Drexler is the deal machine.","Maximum origination achieved.","Board in awe. Secretly."],
 };
 
 function getStatusMsg(stats: PetStats, frame: number): string {
@@ -449,27 +454,40 @@ function PetPanelView({ stats, activity, env = "office", isPaused = false }: Pet
   const [frame, setFrame] = useState(0);
 
   useEffect(() => {
+    setFrame(0);
+  }, [activity, env]);
+
+  useEffect(() => {
+    if (isPaused) return;
     const id = setInterval(() => {
-      if (!isPaused) setFrame((f) => f + 1);
+      setFrame((f) => f + 1);
     }, 800);
     return () => clearInterval(id);
   }, [isPaused]);
 
   const scene  = buildScene(activity, frame, stats, env);
   const mood   = getPetMood(stats);
-  const status = getStatusMsg(stats, frame);
+  const status = pad(`memo ${getStatusMsg(stats, frame)}`, CONTENT);
+  const title = fitDisplayText(`DREXLER DEAL DESK [${env}]`, CONTENT);
+  const activityLabel = activity !== "idle" ? ` / ${activity}` : "";
+  const moodLabel = `mood ${mood}`;
+  const fittedMood = activityLabel
+    ? fitDisplayText(moodLabel, Math.max(1, CONTENT - displayWidth(activityLabel)))
+    : fitDisplayText(moodLabel, CONTENT);
+  const fittedActivity = activityLabel && displayWidth(fittedMood) < CONTENT
+    ? fitDisplayText(activityLabel, CONTENT - displayWidth(fittedMood))
+    : "";
 
   return (
     <Box
       flexDirection="column"
       width={PET_PANEL_WIDTH}
       flexShrink={0}
-      borderStyle="single"
+      borderStyle="round"
       borderColor={t.primaryDim}
     >
       <Box paddingX={1} justifyContent="center">
-        <Text color={t.primary} bold>DREXLER HQ</Text>
-        <Text color={t.dim}> [{env}]</Text>
+        <Text color={t.primary} bold>{title}</Text>
       </Box>
 
       <Box flexDirection="column" paddingX={1}>
@@ -486,7 +504,7 @@ function PetPanelView({ stats, activity, env = "office", isPaused = false }: Pet
         <StatBar label="happy" value={stats.happiness} barColor={t.primary}      labelColor={t.dim} warnColor={t.error} />
         <StatBar label="hungr" value={stats.hunger}    barColor={t.primaryLight} labelColor={t.dim} warnColor={t.warning} />
         <StatBar label="enrgy" value={stats.energy}    barColor={t.primaryLight} labelColor={t.dim} warnColor={t.warning} />
-        <StatBar label="deals" value={stats.deals}     barColor={t.primaryDim}   labelColor={t.dim} warnColor={t.dim} />
+        <StatBar label="deals" value={stats.deals}     barColor={t.primaryDim}   labelColor={t.dim} warnColor={t.warning} />
       </Box>
 
       <Box paddingX={1}>
@@ -494,14 +512,12 @@ function PetPanelView({ stats, activity, env = "office", isPaused = false }: Pet
       </Box>
 
       <Box paddingX={1}>
-        <Text color={t.dim}>{pad(status, CONTENT)}</Text>
+        <Text color={t.dim}>{status}</Text>
       </Box>
 
       <Box paddingX={1}>
-        <Text color={t.dim}>{mood}</Text>
-        {activity !== "idle" && (
-          <Text color={t.primaryDim}> [{activity}]</Text>
-        )}
+        <Text color={t.dim}>{fittedMood}</Text>
+        {fittedActivity && <Text color={t.primaryDim}>{fittedActivity}</Text>}
       </Box>
     </Box>
   );
