@@ -228,8 +228,12 @@ export function App({
   const mode = useMemo(() => pickLayout(cols), [cols]);
   const chromeWidth = useMemo(() => Math.max(1, cols), [cols]);
   const isCompact = mode === "very-narrow";
+  const [introDone, setIntroDone] = useState(false);
   const integratedIntro =
-    showIntroChrome && typeof greeting === "string" && rows >= 32;
+    showIntroChrome &&
+    typeof greeting === "string" &&
+    rows >= 32 &&
+    !introDone;
   const showPetSidePanel = cols >= PET_PANEL_MIN_COLUMNS && !integratedIntro;
   const showCompactPetPanel = !showPetSidePanel && !integratedIntro;
   const compactPetRowBudget = showCompactPetPanel
@@ -306,7 +310,14 @@ export function App({
   const [historyIdx, setHistoryIdx] = useState<number | null>(null);
   const [paletteIdx, setPaletteIdx] = useState(0);
   const [scrollOffset, setScrollOffset] = useState(0);
-  const intro = useIntroAnimation(chromeWidth, integratedIntro);
+  const handleIntroComplete = useCallback(() => {
+    setIntroDone(true);
+  }, []);
+  const intro = useIntroAnimation(
+    chromeWidth,
+    integratedIntro,
+    handleIntroComplete,
+  );
 
   const [petStats, setPetStats] = useState<PetStats>(() => loadPetState());
   const [petActivity, setPetActivity] = useState<PetActivity>("idle");
