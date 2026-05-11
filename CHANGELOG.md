@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.16
+
+- Added an interactive pet system: feed, play, work, praise, rest, vibe, name, and profile commands; persistent stats with offline decay; intern→analyst→associate→VP→MD rank ladder driven by lifetime deal accumulation; 90-second cooldowns per action with in-character rejection copy.
+- Adaptive pet UI: full animated panel on wide terminals (cols ≥ 112), bordered compact panel on medium terminals (≥ 48), one-line ticker surfacing the worst stat on tiny terminals.
+- Compact panel routes stats through the existing satirical level ladder (peak/good/ok/low/critical) instead of bare percentages so it matches the Deal Desk surface.
+- Pet save is now atomic (temp file + rename); dead-pet command guard prevents stat mutation during the death exit timer; frame interval pauses when the pet has died.
+- Hardened launch flow: validate CLI flags and config before the first-run API key prompt with reason-specific errors. Fatal handlers moved off the interactive path so Ink's signal-exit can restore the terminal cleanly.
+- Markdown link parser now balances parentheses, so URLs like `https://en.wikipedia.org/wiki/Foo_(bar)` parse correctly.
+- New informational commands: `/setup` prints config + API key source without leaking the key; `/update` prints upgrade instructions and refuses to run installs.
+- Transcript viewport enforces a hard row budget — oversized cards clip with an explicit `... N lines truncated — PageUp scrollback to read` hint; indicators report row counts in addition to item counts; scrollback keys work while a response is streaming.
+- Command palette Enter on bare argument-parent commands (`/theme`, `/model`, `/startup`, `/retry`, `/export`) now reopens the chooser instead of executing the base form; history navigation preserves the unsent draft.
+- Performance: collapsed duplicate width memos, hoisted divider/carpet constants, memoized StatBar, tightened the pet panel frame loop.
+
 ## 0.2.14
 
 - Added a startup Mood panel with a stable boot gauge, percentage-only loading row, and rotating mood-specific posture/detail copy.
