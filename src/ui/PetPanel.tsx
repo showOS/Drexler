@@ -1,7 +1,13 @@
 import { Box, Text } from "ink";
 import { memo, useEffect, useMemo, useState } from "react";
 import { getPetMood, type PetActivity, type PetStats } from "../pet/petState.ts";
-import { fitDisplayText } from "./graphemes.ts";
+import {
+  BRIEFCASE_FINAL,
+  MASCOT_WIDTH,
+  renderMascotLines,
+  type MascotState,
+} from "./MascotFrame.tsx";
+import { displayWidth, fitDisplayText } from "./graphemes.ts";
 import { useTheme } from "./ThemeContext.tsx";
 import { type Theme } from "./themes.ts";
 
@@ -12,28 +18,17 @@ export type Environment = "office" | "home" | "outdoors";
 
 const PANEL_BORDER_COLUMNS = 2;
 const PANEL_PADDING_COLUMNS = 2;
-const CONTENT = 32;
-const SPRITE_W = 8;
+const SCENE_ROWS = 14;
+const R_WALL = 0;
+const R_WINDOW_TOP = 1;
+const R_WINDOW_BOTTOM = 3;
+const R_ACTIVITY = 4;
+const R_MASCOT_START = 5;
+const R_DESK_SURFACE = R_MASCOT_START + BRIEFCASE_FINAL.length;
+const R_DESK_FRONT = R_DESK_SURFACE + 1;
 
-const R_SKY   = 0;
-const R_BGA   = 1;
-const R_BGB   = 2;
-const R_DECO  = 3;
-const R_SP0   = 4;  // sprite occupies rows 4–9
-const R_FLOOR = 10;
-const SCENE_ROWS = 11;
-export const PET_SCENE_WIDTH = CONTENT;
+export const PET_SCENE_WIDTH = 52;
 
-// Fixed sprite X — no left/right walking
-const SPRITE_X: Record<PetActivity, number> = {
-  idle: 12, eating: 3, playing: 12, working: 18,
-  sleeping: 12, praised: 12, vibing: 12,
-};
-
-// ─── helpers ─────────────────────────────────────────────────────────────────
-// All scene glyphs (box-drawing + ASCII) are BMP single-units, so string
-// splicing is safe and avoids the per-call char-array allocation `[...base]`
-// would do on the hot frame loop.
 function place(base: string, text: string, x: number): string {
   if (x < 0 || x >= base.length) return base;
   const end = Math.min(base.length, x + text.length);
@@ -41,321 +36,284 @@ function place(base: string, text: string, x: number): string {
   return base.slice(0, x) + fit + base.slice(end);
 }
 
-// Hoisted constant: floor pattern for home doesn't depend on frame.
-const HOME_CARPET = Array.from({ length: CONTENT }, (_, i) =>
-  i % 4 === 0 ? "░" : i % 4 === 2 ? "▒" : "─",
-).join("");
+function blankRow(width: number): string {
+  return " ".repeat(width);
+}
 
-// ─── sprite (8 wide × 6 tall) ────────────────────────────────────────────────
-function buildSprite(activity: PetActivity, frame: number): string[] {
-  const smash = activity === "working" && frame % 32 >= 26;
+function padDisplayText(input: string, width: number): string {
+  const safeWidth = Math.max(1, width);
+  const fitted = fitDisplayText(input, safeWidth);
+  return `${fitted}${" ".repeat(Math.max(0, safeWidth - displayWidth(fitted)))}`;
+}
 
-  let eyes: string;
-  if (smash) eyes = "║ X  X ║";
-  else switch (activity) {
-    case "sleeping": eyes = "║ -  - ║"; break;
-    case "working":  eyes = "║ /  \\ ║"; break;
-    case "playing":  eyes = frame % 6 < 3 ? "║ *  * ║" : "║ ◆  ◆ ║"; break;
-    case "vibing":   eyes = frame % 4 < 2 ? "║ ~  ~ ║" : "║ ◆  ◆ ║"; break;
-    case "eating":   eyes = frame % 4 < 2 ? "║ o  o ║" : "║ ◆  ◆ ║"; break;
-    case "praised":  eyes = "║ ◆  ◆ ║"; break;
-    default:         eyes = frame % 22 === 0 ? "║ -  - ║" : "║ ◆  ◆ ║"; break;
+function overlayFitted(row: string, text: string, x: number, width: number): string {
+  return place(row, padDisplayText(text, width), x);
+}
+
+function centerText(row: string, text: string): string {
+  const safeText = fitDisplayText(text, row.length);
+  const x = Math.max(0, Math.floor((row.length - displayWidth(safeText)) / 2));
+  return place(row, safeText, x);
+}
+
+function sceneBoxTop(title: string, width: number): string {
+  const safeWidth = Math.max(4, width);
+  const label = ` ${fitDisplayText(title, Math.max(1, safeWidth - 4))} `;
+  const ruleWidth = Math.max(0, safeWidth - 2 - displayWidth(label));
+  return `╭${label}${"─".repeat(ruleWidth)}╮`;
+}
+
+function sceneBoxBody(text: string, width: number): string {
+  const safeWidth = Math.max(4, width);
+  return `│${padDisplayText(text, safeWidth - 2)}│`;
+}
+
+function sceneBoxBottom(width: number): string {
+  const safeWidth = Math.max(4, width);
+  return `╰${"─".repeat(safeWidth - 2)}╯`;
+}
+
+function placeSceneBox(
+  rows: string[],
+  row: number,
+  x: number,
+  width: number,
+  title: string,
+  body: string,
+): void {
+  rows[row] = place(rows[row] ?? "", sceneBoxTop(title, width), x);
+  rows[row + 1] = place(rows[row + 1] ?? "", sceneBoxBody(body, width), x);
+  rows[row + 2] = place(rows[row + 2] ?? "", sceneBoxBottom(width), x);
+}
+
+function cupForEnergy(energy: number): string {
+  if (energy > 60) return "coffee [c~]";
+  if (energy > 30) return "coffee [c-]";
+  return "coffee [c_]";
+}
+
+function progressTicker(frame: number): string {
+  const dots = ".............";
+  const idx = frame % dots.length;
+  return `[${dots.slice(0, idx)}o${dots.slice(idx + 1)}]`;
+}
+
+function buildActivityLine(activity: PetActivity, frame: number): string {
+  switch (activity) {
+    case "eating":
+      return frame % 4 < 2
+        ? "deal snack memo routed"
+        : "lunch marked to market";
+    case "playing":
+      return frame % 6 < 3
+        ? "boardroom putting drill"
+        : "team morale accretive";
+    case "working":
+      return `term sheet live ${progressTicker(frame)}`;
+    case "sleeping":
+      return frame % 4 < 2
+        ? "lights dim · conference-line nap"
+        : "zzz · calendar defended";
+    case "praised":
+      return frame % 2 === 0
+        ? "bonus memo approved * * *"
+        : "* * * board applause logged";
+    case "vibing":
+      return ["lo-fi deal room ~ ~ ~", "~ ~ valuation waves ~ ~"][frame % 2]!;
+    default:
+      return "calendar clear · office quiet";
   }
+}
 
-  // Flex top during playing peak
-  const top = (activity === "playing" && frame % 6 >= 3) ? "╠═╩══╩═╣" : "╔═╩══╩═╗";
-
-  let lock: string;
-  if (smash) lock = "║ ║**║ ║";
-  else switch (activity) {
-    case "eating":   lock = frame % 2 === 0 ? "║ ║>>║ ║" : "║ ║<<║ ║"; break;
-    case "sleeping": lock = "║      ║"; break;
-    case "praised":  lock = frame % 3 === 0 ? "║ ║**║ ║" : "║ ║$$║ ║"; break;
-    case "vibing":   lock = frame % 4 < 2   ? "║ ║~~║ ║" : "║ ║$$║ ║"; break;
-    case "playing":  lock = frame % 4 < 2   ? "║ ║!!║ ║" : "║ ║$$║ ║"; break;
-    default:         lock = "║ ║$$║ ║"; break;
+function mascotStateForActivity(activity: PetActivity, frame: number): MascotState {
+  switch (activity) {
+    case "eating":
+      return {
+        walls: "on",
+        brows: "raised",
+        eyes: "open",
+        showLock: true,
+        dollars: frame % 4 < 2 ? "dim" : "on",
+      };
+    case "playing":
+      return {
+        walls: "on",
+        brows: frame % 6 < 3 ? "raised" : "normal",
+        eyes: "open",
+        showLock: true,
+        dollars: "on",
+      };
+    case "working":
+      return {
+        walls: "on",
+        brows: "focused",
+        eyes: "open",
+        showLock: true,
+        dollars: frame % 8 < 4 ? "on" : "dim",
+      };
+    case "sleeping":
+      return {
+        walls: "dim",
+        brows: "hidden",
+        eyes: "closed",
+        showLock: true,
+        dollars: "dim",
+      };
+    case "praised":
+      return {
+        walls: "on",
+        brows: "raised",
+        eyes: "open",
+        showLock: true,
+        dollars: "on",
+      };
+    case "vibing":
+      return {
+        walls: "on",
+        brows: "flat",
+        eyes: "open",
+        showLock: true,
+        dollars: frame % 4 < 2 ? "dim" : "on",
+      };
+    default:
+      return {
+        walls: "on",
+        brows: "normal",
+        eyes: frame > 0 && frame % 22 === 0 ? "closed" : "open",
+        showLock: true,
+        dollars: "on",
+      };
   }
-
-  return [
-    "  ╔══╗  ",
-    top,
-    eyes,
-    activity === "sleeping" ? "║      ║" : "║ ╔══╗ ║",
-    lock,
-    "╚══════╝",
-  ];
 }
 
-// ─── environments (simplified) ───────────────────────────────────────────────
+function drawOfficeBackground(rows: string[], width: number, frame: number, stats: PetStats): void {
+  const wallLabel = "DREXLER OFFICE";
+  const dealPct = `${Math.round(stats.deals).toString().padStart(3)}%`;
+  rows[R_WALL] = centerText("─".repeat(width), wallLabel);
+  rows[R_WALL] = place(
+    rows[R_WALL],
+    fitDisplayText(`pipe ${dealPct}`, Math.max(1, width - 2)),
+    Math.max(0, width - displayWidth(`pipe ${dealPct}`) - 1),
+  );
 
-function drawOffice(rows: string[], frame: number, stats: PetStats): void {
-  const hour = new Date().getHours();
-  const isDay = hour >= 6 && hour < 20;
+  const windowWidth = Math.min(22, Math.max(16, Math.floor(width * 0.36)));
+  const boardWidth = Math.min(28, Math.max(20, width - windowWidth - 6));
+  const boardX = Math.max(windowWidth + 4, width - boardWidth - 2);
+  const marketPulse = frame % 10 < 5 ? "market tape  + + +" : "market tape  +  +";
 
-  rows[R_SKY] = "─".repeat(CONTENT);
+  placeSceneBox(rows, R_WINDOW_TOP, 1, windowWidth, "Market Window", marketPulse);
+  placeSceneBox(
+    rows,
+    R_WINDOW_TOP,
+    boardX,
+    Math.min(boardWidth, width - boardX),
+    "Deal Board",
+    `DL:${dealPct}  fees:${Math.round(stats.happiness)}%`,
+  );
 
-  // Window left (6 wide) + deals board right (12 wide at x=20)
-  const sky = isDay
-    ? (frame % 10 < 5 ? "─^──" : "──^─")
-    : (frame % 10 < 5 ? "─*──" : "──*─");
-  rows[R_BGA] = place(rows[R_BGA], `╭${sky}╮`, 0);
-  rows[R_BGB] = place(rows[R_BGB], "╰────╯", 0);
-
-  const dl = String(Math.round(stats.deals)).padStart(3);
-  rows[R_BGA] = place(rows[R_BGA], "╔═DEALS════╗", 20);
-  rows[R_BGB] = place(rows[R_BGB], `║ DL:${dl}%  ║`, 20);
-
-  // Desk (rows 7–9, right: 10 wide at x=22)
-  rows[R_SP0 + 3] = place(rows[R_SP0 + 3], "╔════════╗", 22);
-  rows[R_SP0 + 4] = place(rows[R_SP0 + 4], "║        ║", 22);
-  rows[R_SP0 + 5] = place(rows[R_SP0 + 5], "╚════════╝", 22);
-
-  // Floor with coffee
-  rows[R_FLOOR] = "─".repeat(CONTENT);
-  const cup = stats.energy > 60 ? "[c~]" : stats.energy > 30 ? "[c-]" : "[c_]";
-  rows[R_FLOOR] = place(rows[R_FLOOR], cup, CONTENT - 5);
+  rows[R_ACTIVITY] = centerText(
+    "─".repeat(width),
+    buildActivityLine("idle", frame),
+  );
 }
 
-function drawHome(rows: string[], frame: number, stats: PetStats): void {
-  const hour = new Date().getHours();
-  const isDay = hour >= 6 && hour < 20;
+function drawActivityAccents(
+  rows: string[],
+  width: number,
+  activity: PetActivity,
+  frame: number,
+  mascotX: number,
+): void {
+  rows[R_ACTIVITY] = centerText(
+    "─".repeat(width),
+    buildActivityLine(activity, frame),
+  );
 
-  rows[R_SKY] = "─".repeat(CONTENT);
-
-  // Window left (8 wide)
-  rows[R_BGA] = place(rows[R_BGA], "╭──────╮", 0);
-  const yard = isDay
-    ? (frame % 8 < 4 ? "│ ~~~~ │" : "│~~~~~ │")
-    : (frame % 8 < 4 ? "│  **  │" : "│ *  * │");
-  rows[R_BGB] = place(rows[R_BGB], yard, 0);
-
-  // TV right (10 wide at x=22)
-  const tvContent = ["[~~~]", "[~~ ]", "[ ~~]", "[~~~]"][frame % 4] ?? "[~~~]";
-  rows[R_BGA] = place(rows[R_BGA], "╔══TV════╗", 22);
-  rows[R_BGB] = place(rows[R_BGB], `║${tvContent}   ║`, 22);
-
-  // Couch (rows 6–8, right: 10 wide at x=22)
-  rows[R_SP0 + 2] = place(rows[R_SP0 + 2], "╭────────╮", 22);
-  rows[R_SP0 + 3] = place(rows[R_SP0 + 3], "│ ≈≈≈≈≈≈ │", 22);
-  rows[R_SP0 + 4] = place(rows[R_SP0 + 4], "╰════════╯", 22);
-
-  // Carpet floor (precomputed; placement only varies with stats)
-  rows[R_FLOOR] = HOME_CARPET;
-  const cup = stats.energy > 60 ? "[c~]" : stats.energy > 30 ? "[c-]" : "[c_]";
-  rows[R_FLOOR] = place(rows[R_FLOOR], cup, 9);
-}
-
-function drawOutdoors(rows: string[], frame: number, _stats: PetStats): void {
-  const hour = new Date().getHours();
-  const isDay = hour >= 6 && hour < 20;
-
-  // Sky: dot texture + sun/moon + drifting cloud
-  rows[R_SKY] = ". . . . . . . . . . . . . . . .".slice(0, CONTENT);
-  rows[R_SKY] = place(rows[R_SKY], isDay ? "[O]" : "[*]", 1);
-  const cloudX = 10 + Math.floor((Math.sin(frame * 0.08) * 0.5 + 0.5) * 10);
-  rows[R_SKY] = place(rows[R_SKY], frame % 8 < 4 ? "(~~)" : "( ~)", cloudX);
-
-  // Single tree (left, rows 1–2)
-  rows[R_BGA] = place(rows[R_BGA], " /|\\", 0);
-  rows[R_BGB] = place(rows[R_BGB], " |||", 0);
-
-  // Grass floor (subtle shimmer)
-  rows[R_FLOOR] = Array.from({ length: CONTENT }, (_, i) =>
-    (i + frame) % 9 === 0 ? "w" : "─"
-  ).join("");
-}
-
-function drawBackground(rows: string[], env: Environment, frame: number, stats: PetStats): void {
-  if (env === "office")    drawOffice(rows, frame, stats);
-  else if (env === "home") drawHome(rows, frame, stats);
-  else                     drawOutdoors(rows, frame, stats);
-}
-
-// ─── fluid activity particles ─────────────────────────────────────────────────
-function drawParticles(rows: string[], activity: PetActivity, frame: number): void {
-  const sx = SPRITE_X[activity];
+  const mascotRight = mascotX + MASCOT_WIDTH;
+  const leftAccentX = Math.max(1, mascotX - 10);
+  const rightAccentX = Math.min(width - 10, mascotRight + 2);
 
   switch (activity) {
-    case "sleeping": {
-      // z chain rising above sprite — each z climbs one row per 2 frames
-      const chars: ["z", "z", "Z"] = ["z", "z", "Z"];
-      for (let i = 0; i < 3; i++) {
-        const age = (frame + i * 4) % 14;
-        if (age < 10) {
-          const py = R_DECO - Math.floor(age / 3);
-          const px = sx + 3 + i;
-          if (py >= 0 && px < CONTENT) rows[py] = place(rows[py], chars[i] ?? "z", px);
-        }
-      }
+    case "eating":
+      rows[R_DESK_SURFACE] = place(rows[R_DESK_SURFACE], "[$ memo]", rightAccentX);
       break;
-    }
-
-    case "playing": {
-      // Arms progressively extend each phase
-      const phase = frame % 6;
-      if (phase >= 1) {
-        rows[R_SP0 + 1] = place(rows[R_SP0 + 1], "\\", Math.max(0, sx - 1));
-        rows[R_SP0 + 1] = place(rows[R_SP0 + 1], "/", sx + SPRITE_W);
-      }
-      if (phase >= 2) {
-        rows[R_SP0] = place(rows[R_SP0], "\\", Math.max(0, sx - 2));
-        rows[R_SP0] = place(rows[R_SP0], "/", Math.min(CONTENT - 1, sx + SPRITE_W + 1));
-      }
-      if (phase >= 3) {
-        rows[R_SP0] = place(rows[R_SP0], "\\", Math.max(0, sx - 3));
-        rows[R_SP0] = place(rows[R_SP0], "/", Math.min(CONTENT - 1, sx + SPRITE_W + 2));
-        // Stars burst at peak flex
-        rows[R_BGB] = place(rows[R_BGB], "*", Math.max(0, sx - 4));
-        rows[R_BGB] = place(rows[R_BGB], "*", Math.min(CONTENT - 1, sx + SPRITE_W + 3));
-        rows[R_BGA] = place(rows[R_BGA], "*", Math.max(0, sx - 2));
-        rows[R_BGA] = place(rows[R_BGA], "*", Math.min(CONTENT - 1, sx + SPRITE_W + 1));
-      }
+    case "playing":
+      rows[R_MASCOT_START + 2] = place(rows[R_MASCOT_START + 2], "*", leftAccentX);
+      rows[R_MASCOT_START + 2] = place(rows[R_MASCOT_START + 2], "*", rightAccentX + 6);
       break;
-    }
-
-    case "working": {
-      const smash = frame % 32 >= 26;
-      if (smash) {
-        const sf = frame % 32 - 26;
-        if (sf < 2)      rows[R_DECO] = place(rows[R_DECO], "  !!! SMASH !!!  ", 7);
-        else if (sf < 4) { rows[R_BGB] = place(rows[R_BGB], " * B O O M * ", 9); }
-        else             rows[R_BGA] = place(rows[R_BGA], " .  .  .  . ", 10);
-      } else {
-        // 3 staggered $ streams raining from sky through deco row
-        const cols = [7, 14, 25] as const;
-        for (let i = 0; i < 3; i++) {
-          const colX = cols[i] ?? 7;
-          for (const off of [0, 9] as const) {
-            const age = (frame + i * 6 + off) % 18;
-            const py = Math.floor(age / 2);
-            if (py <= R_DECO) rows[py] = place(rows[py], "$", colX);
-          }
-        }
-      }
+    case "working":
+      rows[R_MASCOT_START + 1] = place(rows[R_MASCOT_START + 1], "$", leftAccentX);
+      rows[R_MASCOT_START + 3] = place(rows[R_MASCOT_START + 3], "$", rightAccentX + 6);
       break;
-    }
-
-    case "eating": {
-      // Deal memo arcs smoothly from right toward sprite
-      const memos: [string, number][] = [["$", 0], ["%", 4]];
-      for (const [char, off] of memos) {
-        const p = (frame + off) % 8;
-        if (p < 6) {
-          const endX = sx + SPRITE_W + 1;
-          const startX = CONTENT - 3;
-          const px = Math.round(startX - (p / 5) * (startX - endX));
-          const row = R_SP0 + 2 + (off > 0 ? 1 : 0);
-          if (px >= endX && row < R_FLOOR) rows[row] = place(rows[row], char, px);
-        }
-      }
+    case "sleeping":
+      rows[R_MASCOT_START] = place(rows[R_MASCOT_START], "z z Z", rightAccentX);
       break;
-    }
-
-    case "praised": {
-      // Expanding star burst radiating outward over 5 frames
-      const cx = sx + Math.floor(SPRITE_W / 2);
-      const phase = frame % 5;
-      if (phase === 0) {
-        rows[R_DECO] = place(rows[R_DECO], "*", cx);
-      } else if (phase === 1) {
-        rows[R_DECO] = place(rows[R_DECO], "*", Math.max(0, cx - 2));
-        rows[R_DECO] = place(rows[R_DECO], "*", Math.min(CONTENT - 1, cx + 2));
-        rows[R_BGB]  = place(rows[R_BGB],  "*", cx);
-      } else if (phase === 2) {
-        rows[R_DECO] = place(rows[R_DECO], "*", Math.max(0, cx - 4));
-        rows[R_DECO] = place(rows[R_DECO], "*", Math.min(CONTENT - 1, cx + 4));
-        rows[R_BGB]  = place(rows[R_BGB],  "*", Math.max(0, cx - 2));
-        rows[R_BGB]  = place(rows[R_BGB],  "*", Math.min(CONTENT - 1, cx + 2));
-        rows[R_BGA]  = place(rows[R_BGA],  "*", cx);
-      } else if (phase === 3) {
-        rows[R_SKY] = place(rows[R_SKY], "*", Math.max(0, cx - 6));
-        rows[R_SKY] = place(rows[R_SKY], "*", cx);
-        rows[R_SKY] = place(rows[R_SKY], "*", Math.min(CONTENT - 1, cx + 6));
-      }
-      // phase 4 = clear
+    case "praised":
+      rows[R_MASCOT_START + 1] = place(rows[R_MASCOT_START + 1], "* *", leftAccentX);
+      rows[R_MASCOT_START + 1] = place(rows[R_MASCOT_START + 1], "* *", rightAccentX + 4);
       break;
-    }
-
-    case "vibing": {
-      // Concentric ~ rings expanding each frame, reset at 5
-      const wave = frame % 5;
-      if (wave >= 1) {
-        if (sx - 1 >= 0)           rows[R_SP0 + 2] = place(rows[R_SP0 + 2], "~", sx - 1);
-        rows[R_SP0 + 2] = place(rows[R_SP0 + 2], "~", sx + SPRITE_W);
-      }
-      if (wave >= 2) {
-        if (sx - 2 >= 0)           rows[R_SP0 + 1] = place(rows[R_SP0 + 1], "~", sx - 2);
-        rows[R_SP0 + 1] = place(rows[R_SP0 + 1], "~", Math.min(CONTENT - 1, sx + SPRITE_W + 1));
-        if (sx - 1 >= 0)           rows[R_DECO] = place(rows[R_DECO], "~", sx - 1);
-        rows[R_DECO] = place(rows[R_DECO], "~", Math.min(CONTENT - 1, sx + SPRITE_W));
-      }
-      if (wave >= 3) {
-        if (sx - 3 >= 0)           rows[R_BGB] = place(rows[R_BGB], "~", sx - 3);
-        rows[R_BGB] = place(rows[R_BGB], "~", Math.min(CONTENT - 1, sx + SPRITE_W + 2));
-      }
-      if (wave >= 4) {
-        if (sx - 4 >= 0)           rows[R_BGA] = place(rows[R_BGA], "~", sx - 4);
-        rows[R_BGA] = place(rows[R_BGA], "~", Math.min(CONTENT - 1, sx + SPRITE_W + 3));
-      }
+    case "vibing":
+      rows[R_MASCOT_START + 3] = place(rows[R_MASCOT_START + 3], "~ ~", leftAccentX);
+      rows[R_MASCOT_START + 3] = place(rows[R_MASCOT_START + 3], "~ ~", rightAccentX + 4);
       break;
-    }
+    default:
+      rows[R_MASCOT_START + 2] = place(rows[R_MASCOT_START + 2], "[IN]", 2);
+      rows[R_MASCOT_START + 2] = place(rows[R_MASCOT_START + 2], "[OUT]", Math.max(2, width - 8));
+      break;
   }
 }
 
-// ─── deco text above sprite ───────────────────────────────────────────────────
-function buildDeco(activity: PetActivity, frame: number): string {
-  switch (activity) {
-    case "sleeping": return ["z  .  .", ".  z  .", ".  .  z", "Z  Z  Z"][frame % 4] ?? "z";
-    case "eating":   return Math.floor(frame / 3) % 2 === 0 ? " nom  nom  nom " : " NOM  NOM  NOM ";
-    case "playing": {
-      const f = frame % 6;
-      return f < 2 ? "  G A I N S !  " : f < 4 ? " *FLEX MODE ON*" : " CORPORATE PUMP";
-    }
-    case "praised":  return frame % 2 === 0 ? "  * * * * * * *" : " * * * * * * * ";
-    case "working": {
-      if (frame % 32 >= 26) return ""; // smash handled by particles
-      const d = ["[............]","[o...........]","[.o..........]","[..o.........]",
-                 "[...o........]","[....o.......]","[.....o......]","[......o.....]",
-                 "[.......o....]","[........o...]","[.........o..]","[..........o.]",
-                 "[...........o]"];
-      return d[frame % d.length] ?? "[............]";
-    }
-    case "vibing":   return ["~ ~ ~ ~ ~ ~ ~"," ~ ~ ~ ~ ~ ~ ","  ~ ~ ~ ~ ~  "][frame % 3] ?? "~";
-    default:         return "";
+function drawMascot(rows: string[], width: number, activity: PetActivity, frame: number): number {
+  const mascot = renderMascotLines(mascotStateForActivity(activity, frame));
+  const mascotX = Math.max(0, Math.floor((width - MASCOT_WIDTH) / 2));
+  for (let i = 0; i < mascot.length; i++) {
+    rows[R_MASCOT_START + i] = place(
+      rows[R_MASCOT_START + i] ?? blankRow(width),
+      mascot[i] ?? "",
+      mascotX,
+    );
   }
+  return mascotX;
 }
 
-// ─── full scene builder ───────────────────────────────────────────────────────
+function drawDesk(rows: string[], width: number, stats: PetStats): void {
+  const deskX = width > PET_SCENE_WIDTH ? 2 : 1;
+  const deskWidth = Math.max(4, width - deskX * 2);
+  const deskInner = Math.max(1, deskWidth - 2);
+  const surface = `laptop [▣]  papers [///]  ${cupForEnergy(stats.energy)}`;
+  const front = `DESK  pipeline ${Math.round(stats.deals)}%  covenants OK`;
+
+  rows[R_DESK_SURFACE] = place(
+    rows[R_DESK_SURFACE],
+    `╭${padDisplayText(surface, deskInner)}╮`,
+    deskX,
+  );
+  rows[R_DESK_FRONT] = place(
+    rows[R_DESK_FRONT],
+    `╰${padDisplayText(front, deskInner)}╯`,
+    deskX,
+  );
+}
+
 function buildScene(
   activity: PetActivity,
   frame: number,
   stats: PetStats,
-  env: Environment,
+  width: number,
 ): string[] {
-  const rows: string[] = Array.from({ length: SCENE_ROWS }, () => " ".repeat(CONTENT));
+  const sceneWidth = Math.max(PET_SCENE_WIDTH, Math.floor(width));
+  const rows: string[] = Array.from({ length: SCENE_ROWS }, () => blankRow(sceneWidth));
 
-  drawBackground(rows, env, frame, stats);
-  drawParticles(rows, activity, frame);
-
-  const deco = buildDeco(activity, frame);
-  if (deco) {
-    const sx = SPRITE_X[activity];
-    const dx = Math.max(0, Math.min(CONTENT - deco.length, sx - Math.floor((deco.length - SPRITE_W) / 2)));
-    rows[R_DECO] = place(rows[R_DECO], deco, dx);
-  }
-
-  const sprite = buildSprite(activity, frame);
-  const sx = SPRITE_X[activity];
-  for (let i = 0; i < sprite.length; i++) {
-    rows[R_SP0 + i] = place(rows[R_SP0 + i], sprite[i] ?? "", sx);
-  }
-
-  return rows;
+  drawOfficeBackground(rows, sceneWidth, frame, stats);
+  drawDesk(rows, sceneWidth, stats);
+  const mascotX = drawMascot(rows, sceneWidth, activity, frame);
+  drawActivityAccents(rows, sceneWidth, activity, frame, mascotX);
+  return rows.map((row) => overlayFitted(blankRow(sceneWidth), row, 0, sceneWidth));
 }
 
 // ─── row colors ───────────────────────────────────────────────────────────────
 function rowColor(i: number, activity: PetActivity, frame: number, t: Theme): string {
-  if (i >= R_SP0 && i < R_SP0 + 6) {
+  if (i >= R_MASCOT_START && i < R_MASCOT_START + BRIEFCASE_FINAL.length) {
     if (activity === "sleeping") return t.dim;
     if (activity === "praised")  return t.primaryLight;
     if (activity === "eating")   return t.warning;
@@ -363,7 +321,7 @@ function rowColor(i: number, activity: PetActivity, frame: number, t: Theme): st
     if (activity === "working" && frame % 32 >= 26) return t.error;
     return t.primary;
   }
-  if (i === R_DECO) {
+  if (i === R_ACTIVITY) {
     if (activity === "working" && frame % 32 >= 26) return t.error;
     if (activity === "sleeping")  return t.dim;
     if (activity === "praised")   return t.warning;
@@ -371,8 +329,9 @@ function rowColor(i: number, activity: PetActivity, frame: number, t: Theme): st
     if (activity === "playing")   return t.primaryLight;
     return t.primaryLight;
   }
-  if (i === R_FLOOR) return t.primaryDim;
-  if (i === R_SKY)   return t.dim;
+  if (i === R_DESK_SURFACE || i === R_DESK_FRONT) return t.primaryDim;
+  if (i === R_WALL) return t.dim;
+  if (i >= R_WINDOW_TOP && i <= R_WINDOW_BOTTOM) return t.primaryDim;
   return t.primaryDim;
 }
 
@@ -434,6 +393,7 @@ interface PetSceneProps {
   activity: PetActivity;
   env?: Environment;
   isPaused?: boolean;
+  width?: number;
 }
 
 interface CompactPetPanelProps extends PetSceneProps {
@@ -442,12 +402,10 @@ interface CompactPetPanelProps extends PetSceneProps {
 
 function usePetFrame({
   activity,
-  env,
   isPaused,
   dead,
 }: {
   activity: PetActivity;
-  env: Environment;
   isPaused: boolean;
   dead: boolean;
 }) {
@@ -455,7 +413,7 @@ function usePetFrame({
 
   useEffect(() => {
     setFrame(0);
-  }, [activity, env]);
+  }, [activity]);
 
   useEffect(() => {
     // Skip frame ticks when paused or when the pet has died — DeathScreen
@@ -474,23 +432,23 @@ function usePetFrame({
 export function PetScene({
   stats,
   activity,
-  env = "office",
   isPaused = false,
+  width = PET_SCENE_WIDTH,
 }: PetSceneProps) {
   const t = useTheme();
+  const sceneWidth = Math.max(PET_SCENE_WIDTH, Math.floor(width));
   const frame = usePetFrame({
     activity,
-    env,
     isPaused,
     dead: stats.dead === true,
   });
   const scene = useMemo(
-    () => buildScene(activity, frame, stats, env),
-    [activity, frame, stats, env],
+    () => buildScene(activity, frame, stats, sceneWidth),
+    [activity, frame, sceneWidth, stats],
   );
 
   return (
-    <Box flexDirection="column" width={PET_SCENE_WIDTH}>
+    <Box flexDirection="column" width={sceneWidth} flexShrink={0}>
       {scene.map((row, i) => (
         <Text key={i} color={rowColor(i, activity, frame, t)}>{row}</Text>
       ))}
@@ -546,7 +504,6 @@ function pickWorstStat(stats: PetStats): WorstStat {
 function CompactPetPanelView({
   stats,
   activity,
-  env = "office",
   isPaused = false,
   width,
 }: CompactPetPanelProps) {
@@ -566,7 +523,7 @@ function CompactPetPanelView({
 
   const mood = getPetMood(stats);
   const profile = compactStatProfile(stats);
-  const activityCopy = activity === "idle" ? env : `${env} / ${activity}`;
+  const activityCopy = activity === "idle" ? "office" : `office / ${activity}`;
   const title = "Drexler Pet Desk";
   const statLine = [
     `happy ${STAT_LEVEL_LABEL[profile.happiness]}`,

@@ -326,12 +326,7 @@ export function App({
   const petActivityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const petDecayTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const petEnv = useMemo((): Environment => {
-    const h = new Date().getHours();
-    if (h >= 9 && h < 18) return "office";
-    if (h >= 6 && h < 23) return "home";
-    return "outdoors";
-  }, []);
+  const petEnv: Environment = "office";
 
   const PET_MESSAGES = useMemo(() => ({
     feed: [
@@ -1157,7 +1152,7 @@ export function App({
   const isBusy =
     requestInFlight || streaming !== null || thinking !== null || synergyEvent !== null;
   const headerStatus = isBusy ? "streaming" : deskStatus;
-  const renderDealDeskHeader = (width: number) => (
+  const renderDealDeskHeader = (width: number, marginBottom = 1) => (
     <DealDeskHeader
       mood={mood}
       messageCount={msgCount}
@@ -1165,7 +1160,7 @@ export function App({
       compact={isCompact}
       notice={!introActive ? deskNotice ?? undefined : undefined}
       maxWidth={Math.max(1, width)}
-      marginBottom={introActive ? 0 : 1}
+      marginBottom={marginBottom}
     />
   );
   const dealDeskHeader = renderDealDeskHeader(chromeWidth);
@@ -1198,7 +1193,7 @@ export function App({
               bar={introActive ? intro.bar : undefined}
               barColor={introActive ? introBarColor : undefined}
               mascotStatus={introActive ? intro.status : undefined}
-              dealDesk={renderDealDeskHeader}
+              dealDesk={(width) => renderDealDeskHeader(width, 0)}
             />
           </Box>
         ) : showFallbackPetPanel ? (
