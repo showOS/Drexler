@@ -7,12 +7,16 @@ import { type Theme } from "./themes.ts";
 
 export const PET_PANEL_WIDTH = 36;
 export const PET_PANEL_ROWS = 22;
+export const COMPACT_PET_PANEL_ROWS = 5;
+export const TINY_PET_PANEL_ROWS = 1;
+export const COMPACT_PET_PANEL_MIN_WIDTH = 48;
 export type Environment = "office" | "home" | "outdoors";
 
 const PANEL_BORDER_COLUMNS = 2;
 const PANEL_PADDING_COLUMNS = 2;
 const CONTENT = PET_PANEL_WIDTH - PANEL_BORDER_COLUMNS - PANEL_PADDING_COLUMNS;
 const SPRITE_W = 8;
+const DIVIDER_LINE = "─".repeat(CONTENT);
 
 const R_SKY   = 0;
 const R_BGA   = 1;
@@ -454,6 +458,10 @@ interface PetPanelProps {
   isPaused?: boolean;
 }
 
+interface CompactPetPanelProps extends PetPanelProps {
+  width: number;
+}
+
 function PetPanelView({ stats, activity, env = "office", isPaused = false }: PetPanelProps) {
   const t = useTheme();
   const [frame, setFrame] = useState(0);
@@ -463,12 +471,15 @@ function PetPanelView({ stats, activity, env = "office", isPaused = false }: Pet
   }, [activity, env]);
 
   useEffect(() => {
-    if (isPaused) return;
+    // Skip frame ticks when paused or when the pet has died — DeathScreen
+    // takes over the UI, no point burning a setInterval that mutates state
+    // nothing will read.
+    if (isPaused || stats.dead === true) return;
     const id = setInterval(() => {
       setFrame((f) => f + 1);
     }, 800);
     return () => clearInterval(id);
-  }, [isPaused]);
+  }, [isPaused, stats.dead]);
 
   const scene = useMemo(
     () => buildScene(activity, frame, stats, env),
@@ -479,7 +490,7 @@ function PetPanelView({ stats, activity, env = "office", isPaused = false }: Pet
     () => pad(`memo ${getStatusMsg(stats, frame)}`, CONTENT),
     [stats, frame],
   );
-  const title = fitDisplayText(`DREXLER DEAL DESK [${env}]`, CONTENT);
+  const title = fitDisplayText(`DREXLER PET DESK [${env}]`, CONTENT);
   const activityLabel = activity !== "idle" ? ` / ${activity}` : "";
   const moodLabel = `mood ${mood}`;
   const fittedMood = activityLabel
@@ -508,7 +519,7 @@ function PetPanelView({ stats, activity, env = "office", isPaused = false }: Pet
       </Box>
 
       <Box paddingX={1}>
-        <Text color={t.primaryDim}>{"─".repeat(CONTENT)}</Text>
+        <Text color={t.primaryDim}>{DIVIDER_LINE}</Text>
       </Box>
 
       <Box flexDirection="column" paddingX={1}>
@@ -519,7 +530,7 @@ function PetPanelView({ stats, activity, env = "office", isPaused = false }: Pet
       </Box>
 
       <Box paddingX={1}>
-        <Text color={t.primaryDim}>{"─".repeat(CONTENT)}</Text>
+        <Text color={t.primaryDim}>{DIVIDER_LINE}</Text>
       </Box>
 
       <Box paddingX={1}>
@@ -535,3 +546,128 @@ function PetPanelView({ stats, activity, env = "office", isPaused = false }: Pet
 }
 
 export const PetPanel = memo(PetPanelView);
+
+function pct(value: number): string {
+  return `${Math.round(value)}%`;
+}
+
+const STAT_LEVEL_LABEL: Record<MsgLevel, string> = {
+  critical: "critical",
+  low: "low",
+  ok: "ok",
+  good: "good",
+  great: "peak",
+};
+
+interface CompactStatProfile {
+  hunger: MsgLevel;
+  happiness: MsgLevel;
+  energy: MsgLevel;
+  deals: MsgLevel;
+}
+
+function compactStatProfile(stats: PetStats): CompactStatProfile {
+  return {
+    hunger: statLevel(stats.hunger),
+    happiness: statLevel(stats.happiness),
+    energy: statLevel(stats.energy),
+    deals: statLevel(stats.deals),
+  };
+}
+
+interface WorstStat {
+  key: "hunger" | "happiness" | "energy" | "deals";
+  value: number;
+}
+
+export function pickWorstStat(stats: PetStats): WorstStat {
+  const entries: WorstStat[] = [
+    { key: "hunger", value: stats.hunger },
+    { key: "happiness", value: stats.happiness },
+    { key: "energy", value: stats.energy },
+    { key: "deals", value: stats.deals },
+  ];
+  return entries.reduce((best, cur) =>
+    cur.value < best.value ? cur : best,
+  );
+}
+
+function CompactPetPanelView({
+  stats,
+  activity,
+  env = "office",
+  isPaused = false,
+  width,
+}: CompactPetPanelProps) {
+  const t = useTheme();
+  const safeWidth = Math.max(1, width);
+
+  // Rotate the memo every 10s so the compact panel doesn't feel static.
+  // Paused panels lock to a single message (no decay-tick to refresh anyway).
+  const [tick, setTick] = useState(() => Math.floor(Date.now() / 10_000));
+  useEffect(() => {
+    if (isPaused) return;
+    const id = setInterval(() => {
+      setTick(Math.floor(Date.now() / 10_000));
+    }, 10_000);
+    return () => clearInterval(id);
+  }, [isPaused]);
+
+  const mood = getPetMood(stats);
+  const profile = compactStatProfile(stats);
+  const activityCopy = activity === "idle" ? env : `${env} / ${activity}`;
+  const title = "Drexler Pet Desk";
+  const statLine = [
+    `happy ${STAT_LEVEL_LABEL[profile.happiness]}`,
+    `hungr ${STAT_LEVEL_LABEL[profile.hunger]}`,
+    `enrgy ${STAT_LEVEL_LABEL[profile.energy]}`,
+    `deals ${STAT_LEVEL_LABEL[profile.deals]}`,
+  ].join("  ·  ");
+  const statusLine = `memo ${getStatusMsg(stats, tick)}`;
+
+  if (safeWidth < COMPACT_PET_PANEL_MIN_WIDTH) {
+    // Worst stat drives the ticker so an idle eye still catches a failing
+    // metric instead of a fixed happy/energy readout.
+    const worst = pickWorstStat(stats);
+    const worstLevel = statLevel(worst.value);
+    const accent = worstLevel === "critical" || worstLevel === "low"
+      ? t.warning
+      : t.primary;
+    return (
+      <Box width={safeWidth} flexShrink={1}>
+        <Text color={accent}>
+          {fitDisplayText(
+            `pet ${mood} · ${worst.key} ${pct(worst.value)} (${worstLevel})`,
+            safeWidth,
+          )}
+        </Text>
+      </Box>
+    );
+  }
+
+  const innerWidth = Math.max(1, safeWidth - PANEL_BORDER_COLUMNS - PANEL_PADDING_COLUMNS);
+  const header = `${title} [${activityCopy}]`;
+
+  return (
+    <Box
+      flexDirection="column"
+      width={safeWidth}
+      flexShrink={1}
+      borderStyle="round"
+      borderColor={t.primaryDim}
+      paddingX={1}
+    >
+      <Box>
+        <Text color={t.primary} bold>{fitDisplayText(header, innerWidth)}</Text>
+      </Box>
+      <Box>
+        <Text color={t.text}>{fitDisplayText(statLine, innerWidth)}</Text>
+      </Box>
+      <Box>
+        <Text color={t.dim}>{fitDisplayText(`${mood} · ${statusLine}`, innerWidth)}</Text>
+      </Box>
+    </Box>
+  );
+}
+
+export const CompactPetPanel = memo(CompactPetPanelView);

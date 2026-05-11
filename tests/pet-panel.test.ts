@@ -3,9 +3,12 @@ import { renderToString } from "ink";
 import React from "react";
 import type { PetActivity, PetStats } from "../src/pet/petState.ts";
 import {
+  COMPACT_PET_PANEL_MIN_WIDTH,
+  CompactPetPanel,
   PET_PANEL_ROWS,
   PET_PANEL_WIDTH,
   PetPanel,
+  pickWorstStat,
   type Environment,
 } from "../src/ui/PetPanel.tsx";
 import { displayWidth } from "../src/ui/graphemes.ts";
@@ -68,6 +71,90 @@ describe("PetPanel", () => {
     expect(rendered).toContain("DL:100%");
     for (const row of rendered.split("\n")) {
       expect(displayWidth(row)).toBeLessThanOrEqual(PET_PANEL_WIDTH);
+    }
+  });
+});
+
+describe("pickWorstStat", () => {
+  test("returns the stat with the lowest value", () => {
+    expect(pickWorstStat({
+      hunger: 80,
+      happiness: 30,
+      energy: 50,
+      deals: 60,
+      lastSaved: 1,
+    })).toEqual({ key: "happiness", value: 30 });
+  });
+
+  test("ties resolve to the first stat encountered", () => {
+    const result = pickWorstStat({
+      hunger: 25,
+      happiness: 25,
+      energy: 25,
+      deals: 25,
+      lastSaved: 1,
+    });
+    expect(result.key).toBe("hunger");
+    expect(result.value).toBe(25);
+  });
+});
+
+function renderCompact(
+  width: number,
+  stats: PetStats,
+  activity: PetActivity = "idle",
+): string {
+  return renderToString(
+    React.createElement(CompactPetPanel, {
+      stats,
+      activity,
+      env: "office",
+      width,
+    }),
+    { columns: width },
+  ).replace(ANSI_RE, "");
+}
+
+describe("CompactPetPanel", () => {
+  test("tiny ticker surfaces the worst stat", () => {
+    const rendered = renderCompact(34, {
+      hunger: 80,
+      happiness: 30,
+      energy: 80,
+      deals: 80,
+      lastSaved: 1,
+    });
+    expect(rendered).toContain("happiness");
+    expect(rendered).toContain("pet ");
+    for (const row of rendered.split("\n")) {
+      expect(displayWidth(row)).toBeLessThanOrEqual(34);
+    }
+  });
+
+  test("bordered compact panel renders stat-level labels instead of bare percentages", () => {
+    const rendered = renderCompact(60, {
+      hunger: 90,
+      happiness: 90,
+      energy: 90,
+      deals: 90,
+      lastSaved: 1,
+    });
+    expect(rendered).toContain("happy peak");
+    expect(rendered).toContain("enrgy peak");
+    expect(rendered).not.toContain("happy 90%");
+  });
+
+  test("renders bordered panel at the COMPACT_PET_PANEL_MIN_WIDTH threshold", () => {
+    const rendered = renderCompact(COMPACT_PET_PANEL_MIN_WIDTH, {
+      hunger: 60,
+      happiness: 60,
+      energy: 60,
+      deals: 60,
+      lastSaved: 1,
+    });
+    expect(rendered).toContain("Drexler Pet Desk");
+    for (const row of rendered.split("\n")) {
+      expect(displayWidth(row)).toBeLessThanOrEqual(COMPACT_PET_PANEL_MIN_WIDTH);
     }
   });
 });

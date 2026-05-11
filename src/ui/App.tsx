@@ -28,9 +28,12 @@ import {
 } from "../pet/petState.ts";
 import { DeathScreen } from "./DeathScreen.tsx";
 import {
+  CompactPetPanel,
+  COMPACT_PET_PANEL_MIN_WIDTH,
+  COMPACT_PET_PANEL_ROWS,
   PetPanel,
-  PET_PANEL_ROWS,
   PET_PANEL_WIDTH,
+  TINY_PET_PANEL_ROWS,
   type Environment,
 } from "./PetPanel.tsx";
 import {
@@ -90,11 +93,10 @@ import {
 import { getActiveTheme } from "./themes.ts";
 
 const TRANSCRIPT_CHROME_ROWS = 12;
-const PET_PANEL_MIN_MAIN_COLUMNS = 91;
+const PET_PANEL_MIN_MAIN_COLUMNS = 75;
 const PET_PANEL_GAP_COLUMNS = 1;
 const PET_PANEL_MIN_COLUMNS =
   PET_PANEL_WIDTH + PET_PANEL_GAP_COLUMNS + PET_PANEL_MIN_MAIN_COLUMNS;
-const PET_PANEL_MIN_ROWS = TRANSCRIPT_CHROME_ROWS + PET_PANEL_ROWS;
 
 export function transcriptRowsForTerminalRows(rows: number): number {
   return Math.max(1, Math.min(24, rows - TRANSCRIPT_CHROME_ROWS));
@@ -228,12 +230,17 @@ export function App({
   const isCompact = mode === "very-narrow";
   const integratedIntro =
     showIntroChrome && typeof greeting === "string" && rows >= 32;
-  const showPetPanel =
-    cols >= PET_PANEL_MIN_COLUMNS && rows >= PET_PANEL_MIN_ROWS && !integratedIntro;
-  const petPanelReservedWidth = showPetPanel
+  const showPetSidePanel = cols >= PET_PANEL_MIN_COLUMNS && !integratedIntro;
+  const showCompactPetPanel = !showPetSidePanel && !integratedIntro;
+  const compactPetRowBudget = showCompactPetPanel
+    ? cols >= COMPACT_PET_PANEL_MIN_WIDTH
+      ? COMPACT_PET_PANEL_ROWS
+      : TINY_PET_PANEL_ROWS
+    : 0;
+  const petPanelReservedWidth = showPetSidePanel
     ? PET_PANEL_WIDTH + PET_PANEL_GAP_COLUMNS
     : 0;
-  const contentWidth = showPetPanel
+  const contentWidth = showPetSidePanel
     ? Math.max(1, cols - petPanelReservedWidth)
     : chromeWidth;
   const contentInputWidth = Math.max(1, contentWidth);
@@ -244,9 +251,9 @@ export function App({
     () =>
       Math.max(
         1,
-        transcriptRowsForTerminalRows(rows) - introRowBudget,
+        transcriptRowsForTerminalRows(rows) - introRowBudget - compactPetRowBudget,
       ),
-    [introRowBudget, rows],
+    [compactPetRowBudget, introRowBudget, rows],
   );
 
   const [items, setItems] = useState<ChatItem[]>([]);
@@ -405,11 +412,6 @@ export function App({
 
   // Real-time stat decay matches the offline per-hour decay rate.
   useEffect(() => {
-    if (!showPetPanel) {
-      return () => {
-        savePetState(petStatsRef.current);
-      };
-    }
     petDecayTimerRef.current = setInterval(() => {
       updatePetStats(applyMinuteDecay);
     }, 60_000);
@@ -424,11 +426,11 @@ export function App({
       }
       savePetState(petStatsRef.current);
     };
-  }, [showPetPanel, updatePetStats]);
+  }, [updatePetStats]);
 
   // Death detection
   useEffect(() => {
-    if (!showPetPanel || isDead || !isPetDead(petStats)) return;
+    if (isDead || !isPetDead(petStats)) return;
     const reason =
       petStats.hunger <= 0 ? "hunger" :
       petStats.happiness <= 0 ? "happiness" : "energy";
@@ -439,7 +441,7 @@ export function App({
     petStatsRef.current = deadStats;
     savePetState(deadStats);
     exitTimerRef.current = setTimeout(() => exit(), 5000);
-  }, [petStats, showPetPanel, isDead, exit]);
+  }, [petStats, isDead, exit]);
 
   const paletteItems = useMemo(() => filterPaletteByPrefix(input), [input]);
   const paletteOpen = paletteItems.length > 0;
@@ -1152,8 +1154,19 @@ export function App({
         ) : (
           dealDeskHeader
         )}
+        {showCompactPetPanel && (
+          <Box marginBottom={1}>
+            <CompactPetPanel
+              stats={petStats}
+              activity={petActivity}
+              env={petEnv}
+              isPaused={isBusy}
+              width={chromeWidth}
+            />
+          </Box>
+        )}
         <Box flexDirection="row" alignItems="flex-start">
-          {showPetPanel && (
+          {showPetSidePanel && (
             <Box marginRight={PET_PANEL_GAP_COLUMNS}>
               <PetPanel
                 stats={petStats}
