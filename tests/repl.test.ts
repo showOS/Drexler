@@ -173,6 +173,25 @@ describe("detectPersonaDrift", () => {
   test("flags fullwidth I", () => {
     expect(detectPersonaDrift("Ｉ am happy to help")).toBe(true);
   });
+
+  test("flags Greek capital and lowercase iota", () => {
+    expect(detectPersonaDrift("Ι will revisit")).toBe(true);
+    expect(detectPersonaDrift("ι think we should")).toBe(true);
+  });
+
+  test("ignores 'I' inside LaTeX inline math", () => {
+    expect(detectPersonaDrift("Recall $I = mc^2$ from physics.")).toBe(false);
+  });
+
+  test("ignores 'I' inside LaTeX display math", () => {
+    expect(detectPersonaDrift("$$\\int I \\,dx$$ and Drexler continues.")).toBe(
+      false,
+    );
+  });
+
+  test("still flags 'I' next to math fences", () => {
+    expect(detectPersonaDrift("Recall $E = mc^2$ but I disagree.")).toBe(true);
+  });
 });
 
 describe("pickFallback", () => {

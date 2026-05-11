@@ -69,13 +69,18 @@ export function buildMessagesWithReminder(conv: Conversation): Message[] {
 }
 
 // Confusable letters that look like Latin "I" — fold to ASCII before regex
-// so detection isn't bypassed by Cyrillic І, Turkish İ, fullwidth Ｉ, etc.
-const I_CONFUSABLES_RE = /[ІіİıＩℐⅠ]/g;
+// so detection isn't bypassed by Cyrillic І, Turkish İ, fullwidth Ｉ,
+// Greek Iota Ι/ι, script ℐ, Roman numeral Ⅰ.
+const I_CONFUSABLES_RE = /[ІіİıＩℐⅠΙι]/g;
 
 export function detectPersonaDrift(content: string): boolean {
   const noCode = content
     .replace(/```[\s\S]*?```/g, "")
-    .replace(/`[^`]*`/g, "");
+    .replace(/`[^`]*`/g, "")
+    // Strip LaTeX-style inline math $...$ and display math $$...$$ so
+    // `$I = mc^2$` doesn't trip drift detection.
+    .replace(/\$\$[\s\S]*?\$\$/g, "")
+    .replace(/\$[^\$\n]*\$/g, "");
   const folded = noCode.normalize("NFKC").replace(I_CONFUSABLES_RE, "I");
   return /\bI\b|\bI'm\b|\bI'll\b|\bI've\b|\bI'd\b/.test(folded);
 }
