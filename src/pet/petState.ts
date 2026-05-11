@@ -33,10 +33,16 @@ export interface PetStats {
 
 const MAX_NAME_LEN = 16;
 const NAME_SANITIZE_RE = /[^\p{L}\p{N} ._'-]/gu;
+// Strip ALL Unicode format/control marks (bidi overrides, ZWJ/ZWNJ,
+// BOM, word joiner, mathematical invisibles) before character-class
+// filtering — otherwise a name like "Max" can render as "xaM" via an
+// embedded U+202E RIGHT-TO-LEFT OVERRIDE that survives NFKC.
+const NAME_BIDI_STRIP_RE = /\p{Cf}/gu;
 
 export function sanitizePetName(input: string): string {
   const cleaned = input
     .normalize("NFKC")
+    .replace(NAME_BIDI_STRIP_RE, "")
     .replace(NAME_SANITIZE_RE, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -76,6 +82,10 @@ export function actionCooldown(
     return { ok: true, remainingMs: 0 };
   }
   const elapsed = now - last;
+  // Clock skew backwards (timestamp set in the future) shouldn't lock
+  // the user out for the cooldown window — treat as no cooldown and
+  // let the next stampAction overwrite the stale future value.
+  if (elapsed < 0) return { ok: true, remainingMs: 0 };
   if (elapsed >= PET_COOLDOWN_MS) return { ok: true, remainingMs: 0 };
   return { ok: false, remainingMs: PET_COOLDOWN_MS - elapsed };
 }

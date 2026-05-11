@@ -301,6 +301,18 @@ describe("pet state", () => {
     expect(sanitizePetName("  spaced   out  ")).toBe("spaced out");
   });
 
+  test("sanitizePetName strips bidi overrides and zero-width controls", () => {
+    // U+202E RIGHT-TO-LEFT OVERRIDE could rename "Max" to "xaM" visually.
+    expect(sanitizePetName("Max‮")).toBe("Max");
+    expect(sanitizePetName("‮Max")).toBe("Max");
+    // Zero-width joiner, BOM, word joiner — all Cf category.
+    expect(sanitizePetName("Drex​ler")).toBe("Drexler");
+    expect(sanitizePetName("﻿Drexler")).toBe("Drexler");
+    expect(sanitizePetName("Drex⁠ler")).toBe("Drexler");
+    // Pure-invisible input collapses to empty.
+    expect(sanitizePetName("​‌‍")).toBe("");
+  });
+
   test("applyName persists sanitized name on stats", () => {
     const base: PetStats = {
       hunger: 50,
@@ -398,6 +410,33 @@ describe("pet state", () => {
     const fed = stampAction(base, "feed", now);
     expect(actionCooldown(fed, "feed", now + 10_000).ok).toBe(false);
     expect(actionCooldown(fed, "play", now + 10_000).ok).toBe(true);
+  });
+
+  test("actionCooldown unlocks when stamp is in the future (clock skew)", () => {
+    const base: PetStats = {
+      hunger: 50,
+      happiness: 50,
+      energy: 50,
+      deals: 50,
+      lastSaved: 1_000,
+      lastActionAt: { feed: 5_000 },
+    };
+    // now=1000 < stamp=5000 → elapsed -4000. Should let the action through.
+    expect(actionCooldown(base, "feed", 1_000).ok).toBe(true);
+  });
+
+  test("actionCooldown unlocks when stamp is NaN or non-finite", () => {
+    const base: PetStats = {
+      hunger: 50,
+      happiness: 50,
+      energy: 50,
+      deals: 50,
+      lastSaved: 0,
+      lastActionAt: { feed: NaN, play: Infinity, work: -Infinity },
+    };
+    expect(actionCooldown(base, "feed", 1_000).ok).toBe(true);
+    expect(actionCooldown(base, "play", 1_000).ok).toBe(true);
+    expect(actionCooldown(base, "work", 1_000).ok).toBe(true);
   });
 
   test("formatCooldownRemaining renders seconds and minutes", () => {
