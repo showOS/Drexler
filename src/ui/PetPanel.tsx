@@ -1,5 +1,5 @@
 import { Box, Text } from "ink";
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { getPetMood, type PetActivity, type PetStats } from "../pet/petState.ts";
 import { displayWidth, fitDisplayText } from "./graphemes.ts";
 import { useTheme } from "./ThemeContext.tsx";
@@ -29,18 +29,24 @@ const SPRITE_X: Record<PetActivity, number> = {
 };
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
+// All scene glyphs (box-drawing + ASCII) are BMP single-units, so string
+// splicing is safe and avoids the per-call char-array allocation `[...base]`
+// would do on the hot frame loop.
 function place(base: string, text: string, x: number): string {
   if (x < 0 || x >= base.length) return base;
-  const chars = [...base];
-  for (let i = 0; i < text.length && x + i < chars.length; i++) {
-    chars[x + i] = text[i] ?? " ";
-  }
-  return chars.join("");
+  const end = Math.min(base.length, x + text.length);
+  const fit = text.slice(0, end - x);
+  return base.slice(0, x) + fit + base.slice(end);
 }
 function pad(s: string, n: number): string {
   const fitted = fitDisplayText(s, n);
   return fitted + " ".repeat(Math.max(0, n - displayWidth(fitted)));
 }
+
+// Hoisted constant: floor pattern for home doesn't depend on frame.
+const HOME_CARPET = Array.from({ length: CONTENT }, (_, i) =>
+  i % 4 === 0 ? "░" : i % 4 === 2 ? "▒" : "─",
+).join("");
 
 // ─── sprite (8 wide × 6 tall) ────────────────────────────────────────────────
 function buildSprite(activity: PetActivity, frame: number): string[] {
@@ -135,10 +141,8 @@ function drawHome(rows: string[], frame: number, stats: PetStats): void {
   rows[R_SP0 + 3] = place(rows[R_SP0 + 3], "│ ≈≈≈≈≈≈ │", 22);
   rows[R_SP0 + 4] = place(rows[R_SP0 + 4], "╰════════╯", 22);
 
-  // Carpet floor
-  rows[R_FLOOR] = Array.from({ length: CONTENT }, (_, i) =>
-    i % 4 === 0 ? "░" : i % 4 === 2 ? "▒" : "─"
-  ).join("");
+  // Carpet floor (precomputed; placement only varies with stats)
+  rows[R_FLOOR] = HOME_CARPET;
   const cup = stats.energy > 60 ? "[c~]" : stats.energy > 30 ? "[c-]" : "[c_]";
   rows[R_FLOOR] = place(rows[R_FLOOR], cup, 9);
 }
@@ -423,7 +427,7 @@ function getStatusMsg(stats: PetStats, frame: number): string {
 }
 
 // ─── stat bar ─────────────────────────────────────────────────────────────────
-function StatBar({
+function StatBarInner({
   label, value, barColor, labelColor, warnColor,
 }: {
   label: string; value: number; barColor: string; labelColor: string; warnColor: string;
@@ -440,6 +444,7 @@ function StatBar({
     </Text>
   );
 }
+const StatBar = memo(StatBarInner);
 
 // ─── component ────────────────────────────────────────────────────────────────
 interface PetPanelProps {
@@ -465,9 +470,15 @@ function PetPanelView({ stats, activity, env = "office", isPaused = false }: Pet
     return () => clearInterval(id);
   }, [isPaused]);
 
-  const scene  = buildScene(activity, frame, stats, env);
-  const mood   = getPetMood(stats);
-  const status = pad(`memo ${getStatusMsg(stats, frame)}`, CONTENT);
+  const scene = useMemo(
+    () => buildScene(activity, frame, stats, env),
+    [activity, frame, stats, env],
+  );
+  const mood = useMemo(() => getPetMood(stats), [stats]);
+  const status = useMemo(
+    () => pad(`memo ${getStatusMsg(stats, frame)}`, CONTENT),
+    [stats, frame],
+  );
   const title = fitDisplayText(`DREXLER DEAL DESK [${env}]`, CONTENT);
   const activityLabel = activity !== "idle" ? ` / ${activity}` : "";
   const moodLabel = `mood ${mood}`;
