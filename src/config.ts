@@ -151,28 +151,49 @@ async function validatePersonaFile(
   return resolved;
 }
 
-export async function loadConfigFile(): Promise<Partial<Config>> {
-  const cp = configPath();
-  const lp = legacyConfigPath();
-  const path = existsSync(cp) ? cp : existsSync(lp) ? lp : null;
-  if (!path) return {};
+async function readConfigPath(
+  path: string,
+): Promise<{ raw: string; missing: false } | { raw: null; missing: true } | { raw: null; missing: false; error: NodeJS.ErrnoException }> {
   try {
-    const raw = await readFile(path, "utf-8");
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return { raw: await readFile(path, "utf-8"), missing: false };
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return { raw: null, missing: true };
+    return { raw: null, missing: false, error: err as NodeJS.ErrnoException };
+  }
+}
+
+export async function loadConfigFile(): Promise<Partial<Config>> {
+  // Try canonical XDG path first, then legacy ~/.drexlerrc. Reading
+  // unconditionally (instead of gating on existsSync) means EACCES
+  // surfaces a warning rather than silently masquerading as "no file".
+  for (const path of [configPath(), legacyConfigPath()]) {
+    const result = await readConfigPath(path);
+    if (result.missing) continue;
+    if (result.raw === null) {
       console.warn(
-        `Drexler config at ${path} is not a JSON object; ignoring (defaults applied).`,
+        `Drexler config at ${path} could not be read (${result.error.code ?? result.error.message}); ignoring (defaults applied).`,
       );
       return {};
     }
-    return parsed as Partial<Config>;
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(
-      `Drexler config at ${path} could not be read (${msg}); ignoring (defaults applied).`,
-    );
-    return {};
+    try {
+      const parsed: unknown = JSON.parse(result.raw);
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        console.warn(
+          `Drexler config at ${path} is not a JSON object; ignoring (defaults applied).`,
+        );
+        return {};
+      }
+      return parsed as Partial<Config>;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `Drexler config at ${path} could not be parsed (${msg}); ignoring (defaults applied).`,
+      );
+      return {};
+    }
   }
+  return {};
 }
 
 export async function saveConfig(partial: Partial<Config>): Promise<void> {

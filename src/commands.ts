@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, writeFileSync } from "node:fs";
-import { resolve as pathResolve } from "node:path";
+import { isAbsolute, resolve as pathResolve, sep as pathSep } from "node:path";
 import {
   getConfigPath,
   getDrexlerVersion,
@@ -499,9 +499,24 @@ function resolveWriteTarget(
     ctx.print(error(`Invalid path: ${pathArg} (no '..' segments allowed).`));
     return null;
   }
+  const cwd = process.cwd();
   const target = pathArg
-    ? pathResolve(pathArg)
-    : pathResolve(`${defaultPrefix}-${Date.now()}${requiredExt}`);
+    ? pathResolve(cwd, pathArg)
+    : pathResolve(cwd, `${defaultPrefix}-${Date.now()}${requiredExt}`);
+  // Sandbox relative paths to cwd. Absolute paths are user-explicit
+  // (e.g. `/save /tmp/notes.md`) and trusted — drexler runs with the
+  // user's own permissions, so they can write anywhere they could write
+  // from the shell. Defense in depth catches relative paths that, after
+  // resolution, would land outside cwd via a sneaky construction.
+  if (pathArg && !isAbsolute(pathArg)) {
+    const cwdPrefix = cwd.endsWith(pathSep) ? cwd : cwd + pathSep;
+    if (target !== cwd && !target.startsWith(cwdPrefix)) {
+      ctx.print(
+        error(`Invalid path: ${pathArg} (resolves outside current directory).`),
+      );
+      return null;
+    }
+  }
   if (!target.toLowerCase().endsWith(requiredExt)) {
     ctx.print(error(`Target must end in ${requiredExt}: ${target}`));
     return null;
