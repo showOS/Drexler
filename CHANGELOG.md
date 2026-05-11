@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.23
+
+- Redesigned the office pet scene from the ground up against ANSI/TUI art best practices: focal hierarchy, rule-of-thirds composition, single border vocabulary, four-stop brightness ladder, density-gradient backgrounds.
+- One dominant boardroom window now frames an animated city skyline made from half-block silhouettes (`▆▇█`) with lit-window flicker (`█▒` / `█░`) on a per-tower rotating phase.
+- Sky band carries one sun/moon glyph and a slowly drifting cloud. Window top frame shows an in-fiction clock (advances one minute every 5 frames). Window bottom frame restates the activity line plus a single DL% readout — no chrome echo.
+- Mascot is centered with only two desk props: `▭ DREX` nameplate (cursor blinks while working, switches to `▭ zzz` while sleeping) and the steaming `╭c~╮` mug.
+- Single horizon rule replaces the bordered desk strip + floor dots. Steam wisp lives on the horizon row.
+- Activity accents (`z z Z`, `* *`, `$ $`, `~ ~`, `[$]`) live in the empty cells flanking the mascot.
+- Multiple subtle animation channels (skyline flicker, cloud drift, clock, brow/eye/lock, cursor blink, steam wisp, memo rotation) cap at ~3 fps so the scene reads alive without feeling jittery.
+
 ## 0.2.16
 
 - Added an interactive pet system: feed, play, work, praise, rest, vibe, name, and profile commands; persistent stats with offline decay; intern→analyst→associate→VP→MD rank ladder driven by lifetime deal accumulation; 90-second cooldowns per action with in-character rejection copy.
