@@ -53,6 +53,8 @@ const HELP_TEXT = `New memo to staff! Drexler permit following directives:
   /praise        - affirm Drexler's contributions
   /rest          - Drexler takes a strategic nap
   /vibe          - let Drexler choose his own adventure
+  /name [name]   - view or assign Drexler's pet name
+  /profile       - print Drexler's personnel file
   /model         - show or switch model (e.g. /model 26b)
   /theme         - show or switch theme (${THEME_NAMES.join(", ")})
   /startup       - persist startup mode (fast, no-intro, normal)
@@ -90,6 +92,8 @@ export const COMMAND_PALETTE: ReadonlyArray<SlashCommand> = [
   { name: "/praise", description: "Affirm Drexler", group: "directives" },
   { name: "/rest", description: "Drexler takes a strategic nap", group: "directives" },
   { name: "/vibe", description: "Drexler chooses his own adventure", group: "directives" },
+  { name: "/name", description: "Issue or view Drexler's pet name", group: "directives" },
+  { name: "/profile", description: "Print Drexler's personnel file", group: "directives" },
   { name: "/model", description: "Show or switch model", group: "models" },
   { name: "/theme", description: "Show or switch theme", group: "themes" },
   { name: "/startup", description: "Persist startup mode", group: "startup" },
@@ -371,6 +375,8 @@ export function dispatch(input: string, ctx: CommandContext): CommandAction {
     case "praise":
     case "rest":
     case "vibe":
+    case "name":
+    case "profile":
       ctx.print(
         "Drexler pet directives require the interactive deal desk. Launch Drexler in a TTY.",
       );
@@ -961,9 +967,10 @@ function handleUpdate(ctx: CommandContext): void {
   const lines = [
     `Drexler upgrade dossier (drexler v${getDrexlerVersion()}):`,
     "",
-    "  bun:  bun install -g drexler@latest",
-    "  npm:  npm install -g drexler@latest",
-    "  pnpm: pnpm add -g drexler@latest",
+    "  bun update:    bun update -g drexler --latest",
+    "  bun reinstall: bun install -g drexler@latest",
+    "  npm:           npm install -g drexler@latest",
+    "  pnpm:          pnpm add -g drexler@latest",
     "",
     "Drexler will not run installs. Type the command into your shell.",
   ];

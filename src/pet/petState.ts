@@ -1,4 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -18,6 +25,22 @@ export interface PetStats {
   deals: number;
   lastSaved: number;
   dead?: boolean;
+  name?: string;
+  createdAt?: number;
+  lastActionAt?: Partial<Record<PetActionKey, number>>;
+  lifetimeDeals?: number;
+}
+
+const MAX_NAME_LEN = 16;
+const NAME_SANITIZE_RE = /[^\p{L}\p{N} ._'-]/gu;
+
+export function sanitizePetName(input: string): string {
+  const cleaned = input
+    .normalize("NFKC")
+    .replace(NAME_SANITIZE_RE, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned.slice(0, MAX_NAME_LEN);
 }
 
 // Per-hour decay rates
@@ -28,12 +51,61 @@ const DECAY_PER_HOUR = {
   deals: 5,
 };
 
+export type PetActionKey =
+  | "feed"
+  | "play"
+  | "work"
+  | "praise"
+  | "rest"
+  | "vibe";
+
+export const PET_COOLDOWN_MS = 90_000;
+
+interface CooldownCheck {
+  ok: boolean;
+  remainingMs: number;
+}
+
+export function actionCooldown(
+  stats: PetStats,
+  action: PetActionKey,
+  now: number = Date.now(),
+): CooldownCheck {
+  const last = stats.lastActionAt?.[action];
+  if (typeof last !== "number" || !Number.isFinite(last)) {
+    return { ok: true, remainingMs: 0 };
+  }
+  const elapsed = now - last;
+  if (elapsed >= PET_COOLDOWN_MS) return { ok: true, remainingMs: 0 };
+  return { ok: false, remainingMs: PET_COOLDOWN_MS - elapsed };
+}
+
+export function stampAction(
+  stats: PetStats,
+  action: PetActionKey,
+  now: number = Date.now(),
+): PetStats {
+  return {
+    ...stats,
+    lastActionAt: { ...(stats.lastActionAt ?? {}), [action]: now },
+  };
+}
+
+export function formatCooldownRemaining(remainingMs: number): string {
+  const secs = Math.max(1, Math.ceil(remainingMs / 1000));
+  if (secs < 60) return `${secs}s`;
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return s === 0 ? `${m}m` : `${m}m ${s}s`;
+}
+
 const DEFAULT_STATS: PetStats = {
   hunger: 80,
   happiness: 75,
   energy: 85,
   deals: 30,
   lastSaved: Date.now(),
+  createdAt: Date.now(),
 };
 
 function getHome(): string {
@@ -49,7 +121,8 @@ function petFile(): string {
 }
 
 function defaultStats(): PetStats {
-  return { ...DEFAULT_STATS, lastSaved: Date.now() };
+  const now = Date.now();
+  return { ...DEFAULT_STATS, lastSaved: now, createdAt: now };
 }
 
 function clamp(v: unknown, fallback = 0): number {
@@ -66,6 +139,7 @@ function safeTimestamp(value: unknown): number {
 function applyDecay(stats: PetStats): PetStats {
   const elapsed = Math.max(0, (Date.now() - stats.lastSaved) / 3_600_000);
   return {
+    ...stats,
     hunger: clamp(stats.hunger - DECAY_PER_HOUR.hunger * elapsed),
     happiness: clamp(stats.happiness - DECAY_PER_HOUR.happiness * elapsed),
     energy: clamp(stats.energy - DECAY_PER_HOUR.energy * elapsed),
@@ -92,12 +166,38 @@ export function loadPetState(): PetStats {
         writeFileSync(target, JSON.stringify(revived, null, 2));
         return revived;
       }
+      const lastActionAt: Partial<Record<PetActionKey, number>> = {};
+      const rawActions = parsed.lastActionAt;
+      if (rawActions && typeof rawActions === "object") {
+        for (const key of ["feed", "play", "work", "praise", "rest", "vibe"] as const) {
+          const v = (rawActions as Record<string, unknown>)[key];
+          if (typeof v === "number" && Number.isFinite(v)) {
+            lastActionAt[key] = v;
+          }
+        }
+      }
       const stats: PetStats = {
         hunger: clamp(parsed.hunger, DEFAULT_STATS.hunger),
         happiness: clamp(parsed.happiness, DEFAULT_STATS.happiness),
         energy: clamp(parsed.energy, DEFAULT_STATS.energy),
         deals: clamp(parsed.deals, DEFAULT_STATS.deals),
         lastSaved: safeTimestamp(parsed.lastSaved),
+        createdAt:
+          typeof parsed.createdAt === "number" &&
+          Number.isFinite(parsed.createdAt)
+            ? parsed.createdAt
+            : Date.now(),
+        name:
+          typeof parsed.name === "string" && parsed.name.length > 0
+            ? sanitizePetName(parsed.name)
+            : undefined,
+        lastActionAt: Object.keys(lastActionAt).length > 0 ? lastActionAt : undefined,
+        lifetimeDeals:
+          typeof parsed.lifetimeDeals === "number" &&
+          Number.isFinite(parsed.lifetimeDeals) &&
+          parsed.lifetimeDeals >= 0
+            ? parsed.lifetimeDeals
+            : undefined,
       };
       return applyDecay(stats);
     }
@@ -111,10 +211,22 @@ export function savePetState(stats: PetStats): void {
   try {
     const dir = petDir();
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    writeFileSync(
-      petFile(),
-      JSON.stringify({ ...stats, lastSaved: Date.now() }, null, 2),
-    );
+    const target = petFile();
+    // Atomic write: temp + rename so a crash mid-write leaves the prior
+    // pet.json intact rather than a truncated zero-byte file.
+    const tmp = `${target}.tmp.${process.pid}.${Date.now()}`;
+    try {
+      writeFileSync(
+        tmp,
+        JSON.stringify({ ...stats, lastSaved: Date.now() }, null, 2),
+      );
+      renameSync(tmp, target);
+    } catch (err) {
+      try {
+        unlinkSync(tmp);
+      } catch {}
+      throw err;
+    }
   } catch {
     // best-effort
   }
@@ -210,6 +322,80 @@ export function applyMinuteDecay(stats: PetStats): PetStats {
 
 export function isPetDead(stats: PetStats): boolean {
   return stats.hunger <= 0 || stats.happiness <= 0 || stats.energy <= 0;
+}
+
+export type PetRank = "intern" | "analyst" | "associate" | "vp" | "md";
+
+const RANK_THRESHOLDS: ReadonlyArray<{ threshold: number; rank: PetRank }> = [
+  { threshold: 0, rank: "intern" },
+  { threshold: 200, rank: "analyst" },
+  { threshold: 400, rank: "associate" },
+  { threshold: 600, rank: "vp" },
+  { threshold: 800, rank: "md" },
+];
+
+// Lifetime deal count drives rank progression. We track it separately from
+// the volatile `deals` stat so decay/spam don't roll a pet back to intern.
+export function lifetimeDeals(stats: PetStats): number {
+  if (typeof stats.lifetimeDeals === "number" && Number.isFinite(stats.lifetimeDeals)) {
+    return Math.max(0, stats.lifetimeDeals);
+  }
+  return stats.deals;
+}
+
+export function getPetRank(stats: PetStats): PetRank {
+  const total = lifetimeDeals(stats);
+  let current: PetRank = "intern";
+  for (const tier of RANK_THRESHOLDS) {
+    if (total >= tier.threshold) current = tier.rank;
+  }
+  return current;
+}
+
+export function rankLabel(rank: PetRank): string {
+  switch (rank) {
+    case "intern":    return "Intern";
+    case "analyst":   return "Analyst";
+    case "associate": return "Associate";
+    case "vp":        return "Vice President";
+    case "md":        return "Managing Director";
+  }
+}
+
+const RANK_INCREMENTS: Record<Exclude<PetActionKey, "rest" | "praise">, number> = {
+  feed: 2,
+  play: 1,
+  work: 8,
+  vibe: 3,
+};
+
+export function accrueLifetimeDeals(stats: PetStats, action: PetActionKey): PetStats {
+  if (action === "rest" || action === "praise") return stats;
+  const inc = RANK_INCREMENTS[action];
+  const next = lifetimeDeals(stats) + inc;
+  return { ...stats, lifetimeDeals: next };
+}
+
+export function applyName(stats: PetStats, name: string): PetStats {
+  const cleaned = sanitizePetName(name);
+  return { ...stats, name: cleaned.length > 0 ? cleaned : undefined };
+}
+
+export function petTenureMs(stats: PetStats, now: number = Date.now()): number {
+  if (typeof stats.createdAt !== "number" || !Number.isFinite(stats.createdAt)) {
+    return 0;
+  }
+  return Math.max(0, now - stats.createdAt);
+}
+
+export function formatTenure(ms: number): string {
+  const seconds = Math.floor(ms / 1000);
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
 }
 
 export function getPetMood(stats: PetStats): string {

@@ -30,7 +30,7 @@ const COMMAND_HINTS: Record<string, string> = {
   "/save-last": "/save-last last-response.md",
   "/copy-last": "copy latest response",
   "/setup": "show config + key source",
-  "/update": "bun install -g drexler@latest",
+  "/update": "bun update -g drexler --latest",
 };
 
 const ARGUMENT_TITLES: Record<string, { title: string; hint: string }> = {

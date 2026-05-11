@@ -65,10 +65,16 @@ Paste the key, hit return. Drexler saves it to `~/.config/drexler/config.json` (
 ## Update
 
 ```bash
+bun update -g drexler --latest
+```
+
+If your Bun install does not have the package in its global lockfile, reinstall it instead:
+
+```bash
 bun install -g drexler@latest
 ```
 
-Global installs replace the existing `drexler` package in Bun's global install location; they do not keep stacking duplicate app copies.
+Global updates replace the existing `drexler` package in Bun's global install location; they do not keep stacking duplicate app copies.
 
 ## Uninstall
 
