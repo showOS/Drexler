@@ -171,7 +171,7 @@ const RIGHT_COLUMN_PAD_RIGHT = 1;
 const LEFT_PANEL_MIN_COPY = 24;
 const PET_STATS_MIN_WIDTH = 24;
 const PET_STATS_MAX_WIDTH = 58;
-const PET_SPLIT_DIVIDER_HEIGHT = 12;
+const PET_SPLIT_DIVIDER_HEIGHT = 15;
 const PET_SPLIT_DIVIDER_ROWS: number[] = Array.from(
   { length: PET_SPLIT_DIVIDER_HEIGHT },
   (_, i) => i,
@@ -846,13 +846,14 @@ function PetSceneReadout({
   return (
     <Box flexDirection="column" width={safeWidth} alignItems="center">
       <Text bold color={t.primaryLight}>
-        {fitDisplayText(`Drexler Pet Desk [${env}]`, safeWidth)}
+        {fitDisplayText("Drexler Pet Desk [office]", safeWidth)}
       </Text>
       <PetScene
         stats={stats}
         activity={activity}
         env={env}
         isPaused={isPaused}
+        width={safeWidth}
       />
     </Box>
   );
@@ -938,12 +939,10 @@ function PetDashboardStatBar({
 function PetStatsReadout({
   stats,
   activity,
-  env,
   width,
 }: {
   stats: PetStats;
   activity: PetActivity;
-  env: Environment;
   width: number;
 }) {
   const t = useTheme();
@@ -1007,7 +1006,7 @@ function PetStatsReadout({
         color={t.primaryLight}
       />
       <PetStatsBodyLine
-        text={`activity ${activityLabel} · env ${env}`}
+        text={`activity ${activityLabel} · office`}
         width={panelWidth}
         color={t.dim}
       />
@@ -1130,7 +1129,6 @@ function PetDashboard({
                 <PetStatsReadout
                   stats={stats}
                   activity={activity}
-                  env={env}
                   width={Math.min(PET_STATS_MAX_WIDTH, layout.dealDesk.width)}
                 />
               </Box>
@@ -1141,7 +1139,6 @@ function PetDashboard({
             <PetStatsReadout
               stats={stats}
               activity={activity}
-              env={env}
               width={Math.max(COMPACT_PET_PANEL_MIN_WIDTH, layout.tips.width)}
             />
           </Box>

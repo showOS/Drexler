@@ -278,7 +278,14 @@ describe("App state helpers", () => {
       expect(rendered).toContain("RUTHLESS");
       expect(rendered).not.toContain("Drexler Pet Desk");
       expect(rendered.split("\n").length).toBeLessThanOrEqual(40);
-      for (const row of rendered.split("\n")) {
+      const rows = rendered.split("\n");
+      const dashboardBottomIdx = rows.findIndex(
+        (row) => row.startsWith("╰") && displayWidth(row) === 128,
+      );
+      expect(dashboardBottomIdx).toBeGreaterThan(0);
+      expect(rows[dashboardBottomIdx - 1]).toContain("╰");
+      expect(rows[dashboardBottomIdx - 1]).not.toMatch(/^│\s*│$/);
+      for (const row of rows) {
         expect(displayWidth(row)).toBeLessThanOrEqual(128);
       }
     } finally {

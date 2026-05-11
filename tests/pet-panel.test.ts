@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { renderToString } from "ink";
 import React from "react";
 import type { PetActivity, PetStats } from "../src/pet/petState.ts";
+import { BRIEFCASE_FINAL } from "../src/ui/MascotFrame.tsx";
 import {
   COMPACT_PET_PANEL_MIN_WIDTH,
   CompactPetPanel,
@@ -12,17 +13,34 @@ import {
 import { displayWidth } from "../src/ui/graphemes.ts";
 
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
-const EXPECTED_SCENE_ROWS = 11;
+const EXPECTED_SCENE_ROWS = 14;
+const OLD_SCENE_ARTIFACTS = [
+  "╔══TV════╗",
+  "│ ~~~~ │",
+  "╰════════╯",
+  "[O]",
+  " /|\\",
+  " |||",
+  "[home]",
+  "[outdoors]",
+] as const;
 
 function renderScene(
   activity: PetActivity,
   env: Environment,
   stats: PetStats,
+  width = PET_SCENE_WIDTH,
 ): string {
   return renderToString(
-    React.createElement(PetScene, { stats, activity, env, isPaused: true }),
-    { columns: PET_SCENE_WIDTH },
+    React.createElement(PetScene, { stats, activity, env, isPaused: true, width }),
+    { columns: width },
   ).replace(ANSI_RE, "");
+}
+
+function expectNoLegacyArtifacts(rendered: string): void {
+  for (const artifact of OLD_SCENE_ARTIFACTS) {
+    expect(rendered).not.toContain(artifact);
+  }
 }
 
 describe("PetScene", () => {
@@ -42,7 +60,22 @@ describe("PetScene", () => {
     { hunger: 100, happiness: 100, energy: 100, deals: 100, lastSaved: 1 },
   ];
 
-  test("keeps every activity, environment, and stat state bounded", () => {
+  test("uses canonical mascot proportions inside an office desk scene", () => {
+    const rendered = renderScene("idle", "office", statsCases[0]!);
+
+    for (const line of BRIEFCASE_FINAL) {
+      expect(rendered).toContain(line.trimEnd());
+    }
+    expect(rendered).toContain("DREXLER OFFICE");
+    expect(rendered).toContain("Deal Board");
+    expect(rendered).toContain("laptop");
+    expect(rendered).toContain("papers");
+    expect(rendered).toContain("coffee");
+    expect(rendered).toContain("DESK");
+    expectNoLegacyArtifacts(rendered);
+  });
+
+  test("keeps every activity, legacy environment prop, and stat state bounded", () => {
     for (const activity of activities) {
       for (const env of envs) {
         for (const stats of statsCases) {
@@ -50,6 +83,9 @@ describe("PetScene", () => {
           const rows = rendered.split("\n");
 
           expect(rows.length).toBe(EXPECTED_SCENE_ROWS);
+          expect(rendered).toContain("DREXLER OFFICE");
+          expect(rendered).toContain("DESK");
+          expectNoLegacyArtifacts(rendered);
           for (const row of rows) {
             expect(displayWidth(row)).toBeLessThanOrEqual(PET_SCENE_WIDTH);
           }
@@ -68,10 +104,27 @@ describe("PetScene", () => {
     });
 
     expect(rendered).toContain("DL:100%");
+    expect(rendered).toContain("DREXLER OFFICE");
     for (const row of rendered.split("\n")) {
       expect(displayWidth(row)).toBeLessThanOrEqual(PET_SCENE_WIDTH);
     }
   });
+
+  test.each([PET_SCENE_WIDTH, 68, 76, 96])(
+    "fills and stays bounded at %d scene columns",
+    (width) => {
+      const rendered = renderScene("working", "outdoors", statsCases[0]!, width);
+      const rows = rendered.split("\n");
+
+      expect(rows.length).toBe(EXPECTED_SCENE_ROWS);
+      expect(rendered).toContain("DREXLER OFFICE");
+      expect(rendered).toContain("term sheet live");
+      expectNoLegacyArtifacts(rendered);
+      for (const row of rows) {
+        expect(displayWidth(row)).toBeLessThanOrEqual(width);
+      }
+    },
+  );
 });
 
 function renderCompact(
