@@ -47,6 +47,7 @@ const HELP_TEXT = `New memo to staff! Drexler permit following directives:
   /clear         - shred all documents (reset history)
   /exit          - meeting adjourned
   /synergy       - SYNERGY!
+  /pet [on|off]  - toggle pet dashboard mode
   /feed          - feed Drexler a deal memo
   /play          - corporate synergy game with Drexler
   /work          - Drexler grinds the deal pipeline
@@ -86,6 +87,7 @@ export const COMMAND_PALETTE: ReadonlyArray<SlashCommand> = [
   { name: "/clear", description: "Reset conversation", group: "directives" },
   { name: "/exit", description: "Adjourn meeting", group: "directives" },
   { name: "/synergy", description: "SYNERGY!", group: "directives" },
+  { name: "/pet", description: "Toggle pet dashboard mode", group: "directives" },
   { name: "/feed", description: "Feed Drexler a deal memo", group: "directives" },
   { name: "/play", description: "Play with Drexler", group: "directives" },
   { name: "/work", description: "Drexler grinds deals", group: "directives" },
@@ -369,6 +371,7 @@ export function dispatch(input: string, ctx: CommandContext): CommandAction {
       );
       return { type: "continue" };
 
+    case "pet":
     case "feed":
     case "play":
     case "work":

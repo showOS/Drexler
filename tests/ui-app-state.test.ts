@@ -194,7 +194,7 @@ describe("App state helpers", () => {
     [90, 30],
     [100, 30],
   ])(
-    "App renders a compact pet panel on %d-column terminals",
+    "App does not render automatic pet chrome on %d-column terminals",
     async (columns, rows) => {
       const origHome = process.env.HOME;
       const home = await mkdtemp(join(tmpdir(), "drexler-app-no-pet-"));
@@ -211,10 +211,9 @@ describe("App state helpers", () => {
           rows,
         );
 
-        expect(rendered).toContain("Drexler Pet Desk");
-        expect(rendered).toContain("happy");
-        expect(rendered).not.toContain("DREXLER PET DESK");
         expect(rendered).toContain("Drexler Deal Desk");
+        expect(rendered).not.toContain("Drexler Pet Desk");
+        expect(rendered).not.toContain("pet ");
         for (const row of rendered.split("\n")) {
           expect(displayWidth(row)).toBeLessThanOrEqual(columns);
         }
@@ -226,7 +225,7 @@ describe("App state helpers", () => {
     },
   );
 
-  test("App renders a one-line pet ticker on tiny terminals", async () => {
+  test("App does not render a one-line pet ticker on tiny terminals by default", async () => {
     const origHome = process.env.HOME;
     const home = await mkdtemp(join(tmpdir(), "drexler-app-tiny-pet-"));
     try {
@@ -242,7 +241,8 @@ describe("App state helpers", () => {
         24,
       );
 
-      expect(rendered).toContain("pet ");
+      expect(rendered).toContain("Drexler");
+      expect(rendered).not.toContain("pet ");
       for (const row of rendered.split("\n")) {
         expect(displayWidth(row)).toBeLessThanOrEqual(34);
       }
@@ -253,9 +253,9 @@ describe("App state helpers", () => {
     }
   });
 
-  test("App renders the pet side panel with bounded rows on wide terminals", async () => {
+  test("App keeps the settled mascot dashboard after intro completes", async () => {
     const origHome = process.env.HOME;
-    const home = await mkdtemp(join(tmpdir(), "drexler-app-pet-"));
+    const home = await mkdtemp(join(tmpdir(), "drexler-app-dashboard-"));
     try {
       process.env.HOME = home;
       const ctx = makeCtx();
@@ -264,14 +264,19 @@ describe("App state helpers", () => {
           conversation: ctx.conversation,
           config: ctx.config,
           mood: "ruthless",
+          greeting: "Hello",
+          showIntroChrome: true,
+          introInitiallyDone: true,
         },
         128,
         40,
       );
 
-      expect(rendered).toContain("DREXLER PET DESK");
-      expect(rendered).toContain("happy");
+      expect(rendered).toContain("╭─ Tips");
       expect(rendered).toContain("Drexler Deal Desk");
+      expect(rendered).toContain("Drexler International");
+      expect(rendered).toContain("RUTHLESS");
+      expect(rendered).not.toContain("Drexler Pet Desk");
       expect(rendered.split("\n").length).toBeLessThanOrEqual(40);
       for (const row of rendered.split("\n")) {
         expect(displayWidth(row)).toBeLessThanOrEqual(128);

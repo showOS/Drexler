@@ -59,6 +59,7 @@ describe("dispatch (V7, V8, V16, V17)", () => {
     expect(printed).toContain("/search <term>");
     expect(printed).toContain("/export <fmt> [path]");
     expect(printed).toContain("/startup");
+    expect(printed).toContain("/pet [on|off]");
     expect(printed).toContain("/redo");
     expect(printed).toContain("/retry [style]");
     expect(printed).toContain("/expand");
@@ -103,6 +104,7 @@ describe("dispatch (V7, V8, V16, V17)", () => {
   test("pet directives are recognized outside the interactive UI", () => {
     for (const command of [
       "/feed",
+      "/pet",
       "/play",
       "/work",
       "/praise",
@@ -799,6 +801,13 @@ describe("filterPaletteByPrefix", () => {
       "/regenerate",
       "/redo",
       "/retry",
+    ]);
+  });
+
+  test("pet command appears in palette", () => {
+    const out = filterPaletteByPrefix("/pe");
+    expect(out).toMatchObject([
+      { name: "/pet", description: "Toggle pet dashboard mode" },
     ]);
   });
 

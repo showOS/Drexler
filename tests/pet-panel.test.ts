@@ -5,28 +5,27 @@ import type { PetActivity, PetStats } from "../src/pet/petState.ts";
 import {
   COMPACT_PET_PANEL_MIN_WIDTH,
   CompactPetPanel,
-  PET_PANEL_ROWS,
-  PET_PANEL_WIDTH,
-  PetPanel,
-  pickWorstStat,
+  PET_SCENE_WIDTH,
+  PetScene,
   type Environment,
 } from "../src/ui/PetPanel.tsx";
 import { displayWidth } from "../src/ui/graphemes.ts";
 
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
+const EXPECTED_SCENE_ROWS = 11;
 
-function renderPanel(
+function renderScene(
   activity: PetActivity,
   env: Environment,
   stats: PetStats,
 ): string {
   return renderToString(
-    React.createElement(PetPanel, { stats, activity, env }),
-    { columns: PET_PANEL_WIDTH },
+    React.createElement(PetScene, { stats, activity, env, isPaused: true }),
+    { columns: PET_SCENE_WIDTH },
   ).replace(ANSI_RE, "");
 }
 
-describe("PetPanel", () => {
+describe("PetScene", () => {
   const activities: PetActivity[] = [
     "idle",
     "eating",
@@ -47,12 +46,12 @@ describe("PetPanel", () => {
     for (const activity of activities) {
       for (const env of envs) {
         for (const stats of statsCases) {
-          const rendered = renderPanel(activity, env, stats);
+          const rendered = renderScene(activity, env, stats);
           const rows = rendered.split("\n");
 
-          expect(rows.length).toBe(PET_PANEL_ROWS);
+          expect(rows.length).toBe(EXPECTED_SCENE_ROWS);
           for (const row of rows) {
-            expect(displayWidth(row)).toBeLessThanOrEqual(PET_PANEL_WIDTH);
+            expect(displayWidth(row)).toBeLessThanOrEqual(PET_SCENE_WIDTH);
           }
         }
       }
@@ -60,7 +59,7 @@ describe("PetPanel", () => {
   });
 
   test("renders 100 percent deals without breaking the office board", () => {
-    const rendered = renderPanel("idle", "office", {
+    const rendered = renderScene("idle", "office", {
       hunger: 100,
       happiness: 100,
       energy: 100,
@@ -70,32 +69,8 @@ describe("PetPanel", () => {
 
     expect(rendered).toContain("DL:100%");
     for (const row of rendered.split("\n")) {
-      expect(displayWidth(row)).toBeLessThanOrEqual(PET_PANEL_WIDTH);
+      expect(displayWidth(row)).toBeLessThanOrEqual(PET_SCENE_WIDTH);
     }
-  });
-});
-
-describe("pickWorstStat", () => {
-  test("returns the stat with the lowest value", () => {
-    expect(pickWorstStat({
-      hunger: 80,
-      happiness: 30,
-      energy: 50,
-      deals: 60,
-      lastSaved: 1,
-    })).toEqual({ key: "happiness", value: 30 });
-  });
-
-  test("ties resolve to the first stat encountered", () => {
-    const result = pickWorstStat({
-      hunger: 25,
-      happiness: 25,
-      energy: 25,
-      deals: 25,
-      lastSaved: 1,
-    });
-    expect(result.key).toBe("hunger");
-    expect(result.value).toBe(25);
   });
 });
 
@@ -126,6 +101,20 @@ describe("CompactPetPanel", () => {
     });
     expect(rendered).toContain("happiness");
     expect(rendered).toContain("pet ");
+    for (const row of rendered.split("\n")) {
+      expect(displayWidth(row)).toBeLessThanOrEqual(34);
+    }
+  });
+
+  test("tiny ticker resolves tied low stats to hunger first", () => {
+    const rendered = renderCompact(34, {
+      hunger: 25,
+      happiness: 25,
+      energy: 25,
+      deals: 25,
+      lastSaved: 1,
+    });
+    expect(rendered).toContain("hunger");
     for (const row of rendered.split("\n")) {
       expect(displayWidth(row)).toBeLessThanOrEqual(34);
     }

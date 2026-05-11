@@ -31,8 +31,6 @@ import {
   CompactPetPanel,
   COMPACT_PET_PANEL_MIN_WIDTH,
   COMPACT_PET_PANEL_ROWS,
-  PetPanel,
-  PET_PANEL_WIDTH,
   TINY_PET_PANEL_ROWS,
   type Environment,
 } from "./PetPanel.tsx";
@@ -93,10 +91,6 @@ import {
 import { getActiveTheme } from "./themes.ts";
 
 const TRANSCRIPT_CHROME_ROWS = 12;
-const PET_PANEL_MIN_MAIN_COLUMNS = 75;
-const PET_PANEL_GAP_COLUMNS = 1;
-const PET_PANEL_MIN_COLUMNS =
-  PET_PANEL_WIDTH + PET_PANEL_GAP_COLUMNS + PET_PANEL_MIN_MAIN_COLUMNS;
 
 export function transcriptRowsForTerminalRows(rows: number): number {
   return Math.max(1, Math.min(24, rows - TRANSCRIPT_CHROME_ROWS));
@@ -198,6 +192,7 @@ interface AppProps {
   fetchFn?: FetchFn;
   greeting?: string;
   showIntroChrome?: boolean;
+  introInitiallyDone?: boolean;
 }
 
 export function App({
@@ -207,6 +202,7 @@ export function App({
   fetchFn,
   greeting,
   showIntroChrome = false,
+  introInitiallyDone = false,
 }: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -228,36 +224,38 @@ export function App({
   const mode = useMemo(() => pickLayout(cols), [cols]);
   const chromeWidth = useMemo(() => Math.max(1, cols), [cols]);
   const isCompact = mode === "very-narrow";
-  const [introDone, setIntroDone] = useState(false);
-  const integratedIntro =
-    showIntroChrome &&
-    typeof greeting === "string" &&
-    rows >= 32 &&
-    !introDone;
-  const showPetSidePanel = cols >= PET_PANEL_MIN_COLUMNS && !integratedIntro;
-  const showCompactPetPanel = !showPetSidePanel && !integratedIntro;
-  const compactPetRowBudget = showCompactPetPanel
+  const [introDone, setIntroDone] = useState(introInitiallyDone);
+  const dashboardAllowed = showIntroChrome && typeof greeting === "string";
+  const showFullDashboard = dashboardAllowed && rows >= 32;
+  const introActive = showFullDashboard && !introDone;
+  const [petMode, setPetMode] = useState(false);
+  const petModeRef = useRef(false);
+  const showFallbackPetPanel = petMode && !showFullDashboard;
+  const fallbackPetRowBudget = showFallbackPetPanel
     ? cols >= COMPACT_PET_PANEL_MIN_WIDTH
       ? COMPACT_PET_PANEL_ROWS
       : TINY_PET_PANEL_ROWS
     : 0;
-  const petPanelReservedWidth = showPetSidePanel
-    ? PET_PANEL_WIDTH + PET_PANEL_GAP_COLUMNS
-    : 0;
-  const contentWidth = showPetSidePanel
-    ? Math.max(1, cols - petPanelReservedWidth)
-    : chromeWidth;
+  const contentWidth = chromeWidth;
   const contentInputWidth = Math.max(1, contentWidth);
   const contentStatusWidth = Math.max(1, contentInputWidth - 2);
-  const introRowBudget =
-    integratedIntro ? (chromeWidth >= 112 ? 14 : chromeWidth >= 72 ? 26 : 6) : 0;
+  const dashboardRowBudget =
+    showFullDashboard
+      ? chromeWidth >= 112
+        ? 14
+        : chromeWidth >= 72
+          ? 26
+          : 6
+      : 0;
   const maxTranscriptRows = useMemo(
     () =>
       Math.max(
         1,
-        transcriptRowsForTerminalRows(rows) - introRowBudget - compactPetRowBudget,
+        transcriptRowsForTerminalRows(rows) -
+          dashboardRowBudget -
+          fallbackPetRowBudget,
       ),
-    [compactPetRowBudget, introRowBudget, rows],
+    [dashboardRowBudget, fallbackPetRowBudget, rows],
   );
 
   const [items, setItems] = useState<ChatItem[]>([]);
@@ -315,7 +313,7 @@ export function App({
   }, []);
   const intro = useIntroAnimation(
     chromeWidth,
-    integratedIntro,
+    introActive,
     handleIntroComplete,
   );
 
@@ -391,6 +389,10 @@ export function App({
     },
     [],
   );
+  const setDashboardPetMode = useCallback((next: boolean) => {
+    petModeRef.current = next;
+    setPetMode(next);
+  }, []);
   const updatePetStats = useCallback((updater: (stats: PetStats) => PetStats) => {
     setPetStats((stats) => {
       const next = updater(stats);
@@ -687,6 +689,38 @@ export function App({
         runSynergyEvent();
         return;
       }
+      if (slashCommand === "/pet") {
+        const arg = lower.slice("/pet".length).trim();
+        if (arg === "") {
+          const next = !petModeRef.current;
+          setDashboardPetMode(next);
+          addItem(
+            "system",
+            next
+              ? "Pet dashboard enabled. Deal desk converted to habitat."
+              : "Pet dashboard disabled. Deal desk restored.",
+          );
+          return;
+        }
+        if (arg === "on" || arg === "off") {
+          const next = arg === "on";
+          const changed = petModeRef.current !== next;
+          setDashboardPetMode(next);
+          addItem(
+            "system",
+            changed
+              ? next
+                ? "Pet dashboard enabled. Deal desk converted to habitat."
+                : "Pet dashboard disabled. Deal desk restored."
+              : next
+                ? "Pet dashboard already enabled."
+                : "Pet dashboard already disabled.",
+          );
+          return;
+        }
+        addItem("system", "Usage: /pet, /pet on, or /pet off.");
+        return;
+      }
       const isPetCommand =
         slashCommand === "/feed" ||
         slashCommand === "/play" ||
@@ -861,11 +895,11 @@ export function App({
       config,
       activeTheme,
       model,
-      petStats,
       PET_MESSAGES,
       removeLastAssistantItem,
       runLLM,
       runSynergyEvent,
+      setDashboardPetMode,
       triggerExit,
       triggerPetActivity,
       updatePetStats,
@@ -1129,9 +1163,9 @@ export function App({
       messageCount={msgCount}
       status={headerStatus}
       compact={isCompact}
-      notice={!integratedIntro ? deskNotice ?? undefined : undefined}
+      notice={!introActive ? deskNotice ?? undefined : undefined}
       maxWidth={Math.max(1, width)}
-      marginBottom={integratedIntro ? 0 : 1}
+      marginBottom={introActive ? 0 : 1}
     />
   );
   const dealDeskHeader = renderDealDeskHeader(chromeWidth);
@@ -1148,24 +1182,26 @@ export function App({
   return (
     <ThemeProvider value={activeTheme}>
       <Box flexDirection="column">
-        {integratedIntro ? (
+        {showFullDashboard && typeof greeting === "string" ? (
           <Box marginBottom={1}>
             <MascotDashboard
               greeting={greeting}
               width={chromeWidth}
               mood={mood}
-              bootProgress={intro.progress}
-              state={intro.state}
-              bar={intro.bar}
-              barColor={introBarColor}
-              mascotStatus={intro.status}
+              mode={petMode && !introActive ? "pet" : "normal"}
+              petStats={petStats}
+              petActivity={petActivity}
+              petEnv={petEnv}
+              petPaused={isBusy}
+              bootProgress={introActive ? intro.progress : 1}
+              state={introActive ? intro.state : undefined}
+              bar={introActive ? intro.bar : undefined}
+              barColor={introActive ? introBarColor : undefined}
+              mascotStatus={introActive ? intro.status : undefined}
               dealDesk={renderDealDeskHeader}
             />
           </Box>
-        ) : (
-          dealDeskHeader
-        )}
-        {showCompactPetPanel && (
+        ) : showFallbackPetPanel ? (
           <Box marginBottom={1}>
             <CompactPetPanel
               stats={petStats}
@@ -1175,18 +1211,10 @@ export function App({
               width={chromeWidth}
             />
           </Box>
+        ) : (
+          dealDeskHeader
         )}
         <Box flexDirection="row" alignItems="flex-start">
-          {showPetSidePanel && (
-            <Box marginRight={PET_PANEL_GAP_COLUMNS}>
-              <PetPanel
-                stats={petStats}
-                activity={petActivity}
-                env={petEnv}
-                isPaused={isBusy}
-              />
-            </Box>
-          )}
           <Box flexDirection="column" flexGrow={1}>
             <TranscriptViewport
               items={items}

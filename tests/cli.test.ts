@@ -39,6 +39,7 @@ describe("drexler CLI fast paths", () => {
     expect(stdout).toContain("--fast");
     expect(stdout).toContain("/help");
     expect(stdout).toContain("/exit");
+    expect(stdout).toContain("/pet");
     expect(stdout).toContain("/theme");
     expect(stdout).toContain("/startup");
     expect(stdout).toContain("/regenerate");

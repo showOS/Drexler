@@ -245,6 +245,77 @@ describe("live chrome width handling", () => {
     }
   });
 
+  test("App toggles /pet dashboard locally without calling the LLM", async () => {
+    const { stdin, stdout, chunks } = makeInteractiveStreams();
+    stdout.columns = 128;
+    stdout.rows = 40;
+    let fetchCalls = 0;
+    const config: Config = {
+      apiKey: "k",
+      model: MODEL_PRIMARY,
+      maxHistory: 50,
+      personaPath: "/tmp/p.md",
+    };
+    const instance = render(
+      React.createElement(App, {
+        conversation: new Conversation("SYS", 50),
+        config,
+        mood: "ruthless",
+        greeting: "Hello",
+        showIntroChrome: true,
+        introInitiallyDone: true,
+        fetchFn: async () => {
+          fetchCalls += 1;
+          return new Response("data: [DONE]\n\n", {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          });
+        },
+      }),
+      {
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+        exitOnCtrlC: false,
+        interactive: true,
+        patchConsole: false,
+        maxFps: 60,
+      },
+    );
+
+    async function submit(command: string): Promise<string> {
+      stdin.write(command);
+      await delay(40);
+      await instance.waitUntilRenderFlush();
+      const mark = chunks.length;
+      stdin.write("\r");
+      await delay(120);
+      await instance.waitUntilRenderFlush();
+      return chunks.slice(mark).join("").replace(ANSI_RE, "");
+    }
+
+    try {
+      await delay(50);
+      await instance.waitUntilRenderFlush();
+
+      const petOn = await submit("/pet");
+      expect(petOn).toContain("Drexler Pet Desk");
+      expect(petOn).toContain("Pet Stats");
+      expect(petOn).not.toContain("╭─ Tips");
+
+      const petOnAgain = await submit("/pet on");
+      expect(petOnAgain).toContain("Drexler Pet Desk");
+      expect(petOnAgain).toContain("Pet Stats");
+
+      const petOff = await submit("/pet off");
+      expect(petOff).toContain("╭─ Tips");
+      expect(petOff).toContain("Drexler Deal Desk");
+      expect(petOff).not.toContain("Pet Stats");
+      expect(fetchCalls).toBe(0);
+    } finally {
+      instance.unmount();
+    }
+  });
+
   test("App advances the startup mascot boot animation in-place", async () => {
     const { stdin, stdout, chunks } = makeInteractiveStreams();
     stdout.columns = 120;
