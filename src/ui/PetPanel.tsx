@@ -18,14 +18,15 @@ export type Environment = "office" | "home" | "outdoors";
 
 const PANEL_BORDER_COLUMNS = 2;
 const PANEL_PADDING_COLUMNS = 2;
-const SCENE_ROWS = 14;
+const SCENE_ROWS = 16;
 const R_WALL = 0;
 const R_WINDOW_TOP = 1;
-const R_WINDOW_BOTTOM = 3;
-const R_ACTIVITY = 4;
-const R_MASCOT_START = 5;
+const R_WINDOW_BOTTOM = 4;
+const R_ACTIVITY = 5;
+const R_MASCOT_START = 6;
 const R_DESK_SURFACE = R_MASCOT_START + BRIEFCASE_FINAL.length;
 const R_DESK_FRONT = R_DESK_SURFACE + 1;
+const R_FLOOR = R_DESK_FRONT + 1;
 
 export const PET_SCENE_WIDTH = 52;
 
@@ -73,23 +74,33 @@ function sceneBoxBottom(width: number): string {
   return `╰${"─".repeat(safeWidth - 2)}╯`;
 }
 
-function placeSceneBox(
+function placeBoxLines(
   rows: string[],
   row: number,
   x: number,
   width: number,
   title: string,
-  body: string,
+  body: readonly string[],
 ): void {
   rows[row] = place(rows[row] ?? "", sceneBoxTop(title, width), x);
-  rows[row + 1] = place(rows[row + 1] ?? "", sceneBoxBody(body, width), x);
-  rows[row + 2] = place(rows[row + 2] ?? "", sceneBoxBottom(width), x);
+  for (let i = 0; i < body.length; i++) {
+    rows[row + i + 1] = place(
+      rows[row + i + 1] ?? "",
+      sceneBoxBody(body[i] ?? "", width),
+      x,
+    );
+  }
+  rows[row + body.length + 1] = place(
+    rows[row + body.length + 1] ?? "",
+    sceneBoxBottom(width),
+    x,
+  );
 }
 
 function cupForEnergy(energy: number): string {
-  if (energy > 60) return "coffee [c~]";
-  if (energy > 30) return "coffee [c-]";
-  return "coffee [c_]";
+  if (energy > 60) return "[c~]";
+  if (energy > 30) return "[c-]";
+  return "[c_]";
 }
 
 function progressTicker(frame: number): string {
@@ -199,22 +210,53 @@ function drawOfficeBackground(rows: string[], width: number, frame: number, stat
   const windowWidth = Math.min(22, Math.max(16, Math.floor(width * 0.36)));
   const boardWidth = Math.min(28, Math.max(20, width - windowWidth - 6));
   const boardX = Math.max(windowWidth + 4, width - boardWidth - 2);
-  const marketPulse = frame % 10 < 5 ? "market tape  + + +" : "market tape  +  +";
+  const cloud = frame % 6 < 3 ? "(~~)" : " (~~)";
+  const sun = frame % 12 < 6 ? "\\o/" : "-o-";
+  const tape = frame % 8 < 4 ? "▁▃▅▇" : "▂▄▆█";
+  const cursor = frame % 4 < 2 ? ">" : "*";
 
-  placeSceneBox(rows, R_WINDOW_TOP, 1, windowWidth, "Market Window", marketPulse);
-  placeSceneBox(
+  placeBoxLines(rows, R_WINDOW_TOP, 1, windowWidth, "Window", [
+    `${sun} ${cloud}`,
+    "║║  ║║  skyline",
+  ]);
+  placeBoxLines(
     rows,
     R_WINDOW_TOP,
     boardX,
     Math.min(boardWidth, width - boardX),
     "Deal Board",
-    `DL:${dealPct}  fees:${Math.round(stats.happiness)}%`,
+    [
+      `DL:${dealPct} fees:${Math.round(stats.happiness)}%`,
+      `PIPE ${tape} ${cursor}`,
+    ],
   );
 
   rows[R_ACTIVITY] = centerText(
     "─".repeat(width),
     buildActivityLine("idle", frame),
   );
+}
+
+function drawOfficeFurniture(rows: string[], width: number, frame: number): void {
+  const lampX = 2;
+  const fileX = Math.max(1, width - 10);
+  const lampLight = frame % 8 < 4 ? "\\|/" : " | ";
+  const plantLeaves = frame % 6 < 3 ? "\\|/" : "v|v";
+
+  rows[R_MASCOT_START] = place(rows[R_MASCOT_START], ` ${lampLight} `, lampX);
+  rows[R_MASCOT_START + 1] = place(rows[R_MASCOT_START + 1], " /_\\ ", lampX);
+  rows[R_MASCOT_START + 2] = place(rows[R_MASCOT_START + 2], " /___\\", lampX);
+  rows[R_MASCOT_START + 3] = place(rows[R_MASCOT_START + 3], "   │  ", lampX);
+  rows[R_MASCOT_START + 4] = place(rows[R_MASCOT_START + 4], " ╭IN╮ ", lampX);
+  rows[R_MASCOT_START + 5] = place(rows[R_MASCOT_START + 5], " ╰──╯ ", lampX);
+
+  rows[R_MASCOT_START] = place(rows[R_MASCOT_START], ` ${plantLeaves} `, fileX);
+  rows[R_MASCOT_START + 1] = place(rows[R_MASCOT_START + 1], " \\|/ ", fileX);
+  rows[R_MASCOT_START + 2] = place(rows[R_MASCOT_START + 2], " ╰┬╯ ", fileX);
+  rows[R_MASCOT_START + 3] = place(rows[R_MASCOT_START + 3], "╭FILE╮", fileX - 1);
+  rows[R_MASCOT_START + 4] = place(rows[R_MASCOT_START + 4], "│▤▤▤│", fileX - 1);
+  rows[R_MASCOT_START + 5] = place(rows[R_MASCOT_START + 5], "│▤▤▤│", fileX - 1);
+  rows[R_MASCOT_START + 6] = place(rows[R_MASCOT_START + 6], "╰────╯", fileX - 1);
 }
 
 function drawActivityAccents(
@@ -231,34 +273,37 @@ function drawActivityAccents(
 
   const mascotRight = mascotX + MASCOT_WIDTH;
   const leftAccentX = Math.max(1, mascotX - 10);
-  const rightAccentX = Math.min(width - 10, mascotRight + 2);
+  const fileX = Math.max(1, width - 10);
+  const rightAccentX = Math.min(fileX - 5, mascotRight + 2);
 
   switch (activity) {
     case "eating":
-      rows[R_DESK_SURFACE] = place(rows[R_DESK_SURFACE], "[$ memo]", rightAccentX);
+      rows[R_MASCOT_START + 5] = place(
+        rows[R_MASCOT_START + 5],
+        "[$] memo",
+        Math.max(1, Math.min(fileX - 8, rightAccentX)),
+      );
       break;
     case "playing":
       rows[R_MASCOT_START + 2] = place(rows[R_MASCOT_START + 2], "*", leftAccentX);
-      rows[R_MASCOT_START + 2] = place(rows[R_MASCOT_START + 2], "*", rightAccentX + 6);
+      rows[R_MASCOT_START + 2] = place(rows[R_MASCOT_START + 2], "*", Math.min(fileX - 2, rightAccentX + 6));
       break;
     case "working":
       rows[R_MASCOT_START + 1] = place(rows[R_MASCOT_START + 1], "$", leftAccentX);
-      rows[R_MASCOT_START + 3] = place(rows[R_MASCOT_START + 3], "$", rightAccentX + 6);
+      rows[R_MASCOT_START + 3] = place(rows[R_MASCOT_START + 3], "$", Math.min(fileX - 2, rightAccentX + 6));
       break;
     case "sleeping":
       rows[R_MASCOT_START] = place(rows[R_MASCOT_START], "z z Z", rightAccentX);
       break;
     case "praised":
       rows[R_MASCOT_START + 1] = place(rows[R_MASCOT_START + 1], "* *", leftAccentX);
-      rows[R_MASCOT_START + 1] = place(rows[R_MASCOT_START + 1], "* *", rightAccentX + 4);
+      rows[R_MASCOT_START + 1] = place(rows[R_MASCOT_START + 1], "* *", Math.min(fileX - 4, rightAccentX + 4));
       break;
     case "vibing":
       rows[R_MASCOT_START + 3] = place(rows[R_MASCOT_START + 3], "~ ~", leftAccentX);
-      rows[R_MASCOT_START + 3] = place(rows[R_MASCOT_START + 3], "~ ~", rightAccentX + 4);
+      rows[R_MASCOT_START + 3] = place(rows[R_MASCOT_START + 3], "~ ~", Math.min(fileX - 4, rightAccentX + 4));
       break;
     default:
-      rows[R_MASCOT_START + 2] = place(rows[R_MASCOT_START + 2], "[IN]", 2);
-      rows[R_MASCOT_START + 2] = place(rows[R_MASCOT_START + 2], "[OUT]", Math.max(2, width - 8));
       break;
   }
 }
@@ -276,12 +321,52 @@ function drawMascot(rows: string[], width: number, activity: PetActivity, frame:
   return mascotX;
 }
 
+function drawDesktopObjects(
+  rows: string[],
+  width: number,
+  activity: PetActivity,
+  frame: number,
+  stats: PetStats,
+): void {
+  const mascotX = Math.max(0, Math.floor((width - MASCOT_WIDTH) / 2));
+  const mascotRight = mascotX + MASCOT_WIDTH;
+  const fileX = Math.max(1, width - 10);
+  const laptopX = Math.max(8, mascotX - 10);
+  const papersX = Math.min(width - 5, mascotX + MASCOT_WIDTH + 1);
+  const coffeeX = fileX - 13;
+  const cursor = frame % 2 === 0 ? "_" : " ";
+  const screen =
+    activity === "working"
+      ? `$>${cursor} DL`
+      : activity === "sleeping"
+        ? "zzz..."
+        : "DREX";
+  const steam = stats.energy > 30
+    ? frame % 4 < 2 ? " ((" : "  ))"
+    : "    ";
+  const paperFace = frame % 6 < 3 ? "////" : "\\\\\\\\";
+
+  rows[R_MASCOT_START + 4] = place(rows[R_MASCOT_START + 4], "╭laptop─╮", laptopX);
+  rows[R_MASCOT_START + 5] = place(
+    rows[R_MASCOT_START + 5],
+    `│${padDisplayText(screen, 7)}│`,
+    laptopX,
+  );
+  rows[R_MASCOT_START + 6] = place(rows[R_MASCOT_START + 6], "╰─┬──┬─╯", laptopX);
+  rows[R_MASCOT_START + 6] = place(rows[R_MASCOT_START + 6], paperFace, papersX);
+  if (coffeeX > mascotRight + 1) {
+    rows[R_MASCOT_START + 4] = place(rows[R_MASCOT_START + 4], steam, coffeeX + 1);
+    rows[R_MASCOT_START + 5] = place(rows[R_MASCOT_START + 5], `coffee ${cupForEnergy(stats.energy)}`, coffeeX);
+  }
+}
+
 function drawDesk(rows: string[], width: number, stats: PetStats): void {
   const deskX = width > PET_SCENE_WIDTH ? 2 : 1;
   const deskWidth = Math.max(4, width - deskX * 2);
   const deskInner = Math.max(1, deskWidth - 2);
-  const surface = `laptop [▣]  papers [///]  ${cupForEnergy(stats.energy)}`;
-  const front = `DESK  pipeline ${Math.round(stats.deals)}%  covenants OK`;
+  const surface = `papers [///] coffee ${cupForEnergy(stats.energy)} covenants OK`;
+  const centerLabel = `DREXLER DEAL DESK  pipeline ${Math.round(stats.deals)}%`;
+  const front = `[IN] ${centerLabel} [OUT]`;
 
   rows[R_DESK_SURFACE] = place(
     rows[R_DESK_SURFACE],
@@ -290,7 +375,12 @@ function drawDesk(rows: string[], width: number, stats: PetStats): void {
   );
   rows[R_DESK_FRONT] = place(
     rows[R_DESK_FRONT],
-    `╰${padDisplayText(front, deskInner)}╯`,
+    `│${padDisplayText(front, deskInner)}│`,
+    deskX,
+  );
+  rows[R_FLOOR] = place(
+    rows[R_FLOOR],
+    `╰${"─".repeat(Math.max(0, deskInner))}╯`,
     deskX,
   );
 }
@@ -305,8 +395,10 @@ function buildScene(
   const rows: string[] = Array.from({ length: SCENE_ROWS }, () => blankRow(sceneWidth));
 
   drawOfficeBackground(rows, sceneWidth, frame, stats);
-  drawDesk(rows, sceneWidth, stats);
+  drawOfficeFurniture(rows, sceneWidth, frame);
   const mascotX = drawMascot(rows, sceneWidth, activity, frame);
+  drawDesktopObjects(rows, sceneWidth, activity, frame, stats);
+  drawDesk(rows, sceneWidth, stats);
   drawActivityAccents(rows, sceneWidth, activity, frame, mascotX);
   return rows.map((row) => overlayFitted(blankRow(sceneWidth), row, 0, sceneWidth));
 }

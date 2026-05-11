@@ -13,7 +13,7 @@ import {
 import { displayWidth } from "../src/ui/graphemes.ts";
 
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
-const EXPECTED_SCENE_ROWS = 14;
+const EXPECTED_SCENE_ROWS = 16;
 const OLD_SCENE_ARTIFACTS = [
   "╔══TV════╗",
   "│ ~~~~ │",
@@ -71,6 +71,9 @@ describe("PetScene", () => {
     expect(rendered).toContain("laptop");
     expect(rendered).toContain("papers");
     expect(rendered).toContain("coffee");
+    expect(rendered).toContain("FILE");
+    expect(rendered).toContain("skyline");
+    expect(rendered).toContain("PIPE");
     expect(rendered).toContain("DESK");
     expectNoLegacyArtifacts(rendered);
   });
