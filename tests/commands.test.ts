@@ -369,6 +369,7 @@ describe("dispatch (V7, V8, V16, V17)", () => {
     const action = dispatch("/update", ctx);
     expect(action.type).toBe("continue");
     const printed = out.join("\n");
+    expect(printed).toContain("bun update -g drexler --latest");
     expect(printed).toContain("bun install -g drexler@latest");
     expect(printed).toContain("npm install -g drexler@latest");
     expect(printed).toContain("pnpm add -g drexler@latest");
