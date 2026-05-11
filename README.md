@@ -91,6 +91,8 @@ rm -rf ~/.config/drexler   # optional: wipe stored key + settings
 
 Drexler runs as an Ink terminal UI when both stdin and stdout are TTYs. The normal launch shows one integrated startup panel with the mascot, tips, a **Mood** readout, and the **Drexler Deal Desk**. Short terminals automatically suppress oversized startup chrome so the chat stays usable.
 
+After startup, the pet UI adapts to the terminal instead of disappearing. Wide terminals show the animated **Drexler Pet Desk** as a right-side panel. Medium terminals show a compact pet panel below the Deal Desk. Tiny terminals show a one-line pet ticker so pet status remains visible without crushing the chat.
+
 The startup panel is designed to stay stable while it boots: the mascot loading bar and Mood gauge animate without changing width, greeting copy is held in a fixed slot, and the Mood and Deal Desk boxes stay aligned when the greeting wraps. After boot, Mood resolves into a rotating Drexler-flavored posture with a short satirical subtext line.
 
 The Deal Desk is intentionally not a frontier-model telemetry panel. It shows mood-shaped corporate nonsense like boardroom status, memo count, mandate, risk, fees, and counsel posture. Values rotate by mood and session so repeated moods still feel alive.
@@ -134,6 +136,14 @@ Keyboard notes:
 | `/clear`       | shred conversation history (system prompt pinned) |
 | `/exit`        | meeting adjourned                                |
 | `/synergy`     | run a rotating animated morale event             |
+| `/feed`        | feed Drexler a deal memo                         |
+| `/play`        | corporate synergy game with Drexler              |
+| `/work`        | Drexler grinds the deal pipeline                 |
+| `/praise`      | affirm Drexler's contributions                   |
+| `/rest`        | strategic nap                                    |
+| `/vibe`        | let Drexler choose his own adventure             |
+| `/name [name]` | view or assign Drexler's pet name                |
+| `/profile`     | print Drexler's personnel file                   |
 | `/model`       | show current model, or `/model 26b` to switch   |
 | `/theme`       | show/switch theme; append `save` to persist, e.g. `/theme midnight save` |
 | `/startup fast\|no-intro\|normal` | persist startup behavior for future launches |

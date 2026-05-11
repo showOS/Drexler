@@ -7,6 +7,8 @@ import { type Theme } from "./themes.ts";
 
 export const PET_PANEL_WIDTH = 36;
 export const PET_PANEL_ROWS = 22;
+export const COMPACT_PET_PANEL_ROWS = 5;
+export const TINY_PET_PANEL_ROWS = 1;
 export type Environment = "office" | "home" | "outdoors";
 
 const PANEL_BORDER_COLUMNS = 2;
@@ -454,6 +456,10 @@ interface PetPanelProps {
   isPaused?: boolean;
 }
 
+interface CompactPetPanelProps extends PetPanelProps {
+  width: number;
+}
+
 function PetPanelView({ stats, activity, env = "office", isPaused = false }: PetPanelProps) {
   const t = useTheme();
   const [frame, setFrame] = useState(0);
@@ -479,7 +485,7 @@ function PetPanelView({ stats, activity, env = "office", isPaused = false }: Pet
     () => pad(`memo ${getStatusMsg(stats, frame)}`, CONTENT),
     [stats, frame],
   );
-  const title = fitDisplayText(`DREXLER DEAL DESK [${env}]`, CONTENT);
+  const title = fitDisplayText(`DREXLER PET DESK [${env}]`, CONTENT);
   const activityLabel = activity !== "idle" ? ` / ${activity}` : "";
   const moodLabel = `mood ${mood}`;
   const fittedMood = activityLabel
@@ -535,3 +541,66 @@ function PetPanelView({ stats, activity, env = "office", isPaused = false }: Pet
 }
 
 export const PetPanel = memo(PetPanelView);
+
+function pct(value: number): string {
+  return `${Math.round(value)}%`;
+}
+
+function CompactPetPanelView({
+  stats,
+  activity,
+  env = "office",
+  width,
+}: CompactPetPanelProps) {
+  const t = useTheme();
+  const safeWidth = Math.max(1, width);
+  const mood = getPetMood(stats);
+  const activityCopy = activity === "idle" ? env : `${env} / ${activity}`;
+  const title = "Drexler Pet Desk";
+  const statLine = [
+    `happy ${pct(stats.happiness)}`,
+    `hungr ${pct(stats.hunger)}`,
+    `enrgy ${pct(stats.energy)}`,
+    `deals ${pct(stats.deals)}`,
+  ].join("  |  ");
+  const statusLine = `memo ${getStatusMsg(stats, 0)}`;
+
+  if (safeWidth < 48) {
+    return (
+      <Box width={safeWidth} flexShrink={1}>
+        <Text color={t.primary}>
+          {fitDisplayText(
+            `pet ${mood} | ${pct(stats.happiness)} happy | ${pct(stats.energy)} energy`,
+            safeWidth,
+          )}
+        </Text>
+      </Box>
+    );
+  }
+
+  const innerWidth = Math.max(1, safeWidth - PANEL_BORDER_COLUMNS - PANEL_PADDING_COLUMNS);
+  const header = `${title} [${activityCopy}]`;
+
+  return (
+    <Box
+      flexDirection="column"
+      width={safeWidth}
+      flexShrink={1}
+      borderStyle="round"
+      borderColor={t.primaryDim}
+      paddingX={1}
+    >
+      <Box>
+        <Text color={t.primary} bold>{fitDisplayText(header, innerWidth)}</Text>
+      </Box>
+      <Box>
+        <Text color={t.text}>{fitDisplayText(statLine, innerWidth)}</Text>
+      </Box>
+      <Box>
+        <Text color={t.dim}>{fitDisplayText(`${mood} | ${statusLine}`, innerWidth)}</Text>
+      </Box>
+    </Box>
+  );
+}
+
+export const CompactPetPanel = memo(CompactPetPanelView);
