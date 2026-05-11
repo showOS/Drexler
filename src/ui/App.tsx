@@ -910,6 +910,21 @@ export function App({
         return;
       }
       if (isSlash(line)) {
+        // Bare /theme, /model, /startup, /retry, /export — repopulate the
+        // input with "<cmd> " so the palette catches the argument chooser
+        // and the user picks via ↑↓ + Enter. Avoids the "print current
+        // value and dead-end" feeling of dispatching the base command.
+        const lower = line.toLowerCase();
+        if (isArgumentParentCommand(lower)) {
+          const filled = `${lower} `;
+          updateDraft({ value: filled, cursor: graphemeLength(filled) });
+          setPaletteIdx(0);
+          addItem(
+            "system",
+            `Pick a ${lower.slice(1)} option below — ↑↓ to choose, Enter to apply, Esc to cancel.`,
+          );
+          return;
+        }
         await handleSlashWithMutation(line);
         return;
       }
@@ -918,7 +933,14 @@ export function App({
       setMsgCount(conversation.length);
       await runLLM();
     },
-    [addItem, conversation, handleSlashWithMutation, runLLM],
+    [
+      addItem,
+      conversation,
+      handleSlashWithMutation,
+      runLLM,
+      setPaletteIdx,
+      updateDraft,
+    ],
   );
 
   const reportSubmitError = useCallback(
