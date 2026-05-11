@@ -304,6 +304,9 @@ describe("MascotFrame", () => {
     expect(rendered).toContain("DREXLER OFFICE");
     expect(rendered).toContain("DESK");
     expect(rendered).toContain("laptop");
+    expect(rendered).toContain("coffee");
+    expect(rendered).toContain("FILE");
+    expect(rendered).toContain("skyline");
     expect(rendered).toContain("happy");
     expect(rendered).toContain("hunger");
     expect(rendered).toContain("energy");
@@ -382,6 +385,8 @@ describe("MascotFrame", () => {
       expect(rendered).toContain("Drexler Pet Desk [office]");
       expect(rendered).toContain("DREXLER OFFICE");
       expect(rendered).toContain("DESK");
+      expect(rendered).toContain("laptop");
+      expect(rendered).toContain("coffee");
       expect(rendered).not.toContain("[outdoors]");
       expect(rendered).not.toContain("env outdoors");
       for (const artifact of OLD_PET_SCENE_ARTIFACTS) {
