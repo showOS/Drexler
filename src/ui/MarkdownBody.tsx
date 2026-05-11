@@ -23,8 +23,19 @@ type Block =
 const BULLET_RE = /^(\s*)([*+\-]|\d+\.)\s+(.*)$/;
 const HEADING_RE = /^(#{1,6})\s+(.*)$/;
 const HR_RE = /^\s*([-*_])\1\1[-*_\s]*$/;
-const FENCE_RE = /^\s*```(.*)$/;
+const FENCE_RE = /^\s*(`{3,}|~{3,})(.*)$/;
 const QUOTE_RE = /^\s*>\s?(.*)$/;
+
+function isFenceClose(line: string, marker: string): boolean {
+  const fenceChar = marker[0];
+  if (!fenceChar) return false;
+  const trimmed = line.trim();
+  if (trimmed.length < marker.length) return false;
+  for (const char of trimmed) {
+    if (char !== fenceChar) return false;
+  }
+  return true;
+}
 
 export function tokenizeInline(input: string): InlineToken[] {
   const tokens: InlineToken[] = [];
@@ -127,14 +138,15 @@ export function parseBlocks(input: string): Block[] {
     const line = lines[i]!;
     const fence = FENCE_RE.exec(line);
     if (fence) {
-      const lang = fence[1]?.trim() || undefined;
+      const marker = fence[1]!;
+      const lang = fence[2]?.trim() || undefined;
       const codeLines: string[] = [];
       i += 1;
-      while (i < lines.length && !FENCE_RE.test(lines[i]!)) {
+      while (i < lines.length && !isFenceClose(lines[i]!, marker)) {
         codeLines.push(lines[i]!);
         i += 1;
       }
-      i += 1;
+      if (i < lines.length) i += 1;
       blocks.push({ kind: "code", lang, lines: codeLines });
       continue;
     }

@@ -20,9 +20,6 @@ export interface PetStats {
   dead?: boolean;
 }
 
-const PET_DIR = join(homedir(), ".drexler");
-const PET_FILE = join(PET_DIR, "pet.json");
-
 // Per-hour decay rates
 const DECAY_PER_HOUR = {
   hunger: 15,
@@ -39,12 +36,35 @@ const DEFAULT_STATS: PetStats = {
   lastSaved: Date.now(),
 };
 
-function clamp(v: number): number {
-  return Math.max(0, Math.min(100, v));
+function getHome(): string {
+  return process.env.HOME ?? process.env.USERPROFILE ?? homedir();
+}
+
+function petDir(): string {
+  return join(getHome(), ".drexler");
+}
+
+function petFile(): string {
+  return join(petDir(), "pet.json");
+}
+
+function defaultStats(): PetStats {
+  return { ...DEFAULT_STATS, lastSaved: Date.now() };
+}
+
+function clamp(v: unknown, fallback = 0): number {
+  const n = typeof v === "number" && Number.isFinite(v) ? v : fallback;
+  return Math.max(0, Math.min(100, n));
+}
+
+function safeTimestamp(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : Date.now();
 }
 
 function applyDecay(stats: PetStats): PetStats {
-  const elapsed = (Date.now() - stats.lastSaved) / 3_600_000;
+  const elapsed = Math.max(0, (Date.now() - stats.lastSaved) / 3_600_000);
   return {
     hunger: clamp(stats.hunger - DECAY_PER_HOUR.hunger * elapsed),
     happiness: clamp(stats.happiness - DECAY_PER_HOUR.happiness * elapsed),
@@ -56,33 +76,45 @@ function applyDecay(stats: PetStats): PetStats {
 
 export function loadPetState(): PetStats {
   try {
-    if (existsSync(PET_FILE)) {
-      const raw = readFileSync(PET_FILE, "utf8");
+    const target = petFile();
+    if (existsSync(target)) {
+      const raw = readFileSync(target, "utf8");
       const parsed = JSON.parse(raw) as Partial<PetStats>;
       if (parsed.dead === true) {
         // Drexler died — reset to halfway on next startup
-        writeFileSync(PET_FILE, JSON.stringify({ ...DEFAULT_STATS, hunger: 50, happiness: 50, energy: 50, deals: 25, lastSaved: Date.now() }, null, 2));
-        return { hunger: 50, happiness: 50, energy: 50, deals: 25, lastSaved: Date.now() };
+        const revived = {
+          ...defaultStats(),
+          hunger: 50,
+          happiness: 50,
+          energy: 50,
+          deals: 25,
+        };
+        writeFileSync(target, JSON.stringify(revived, null, 2));
+        return revived;
       }
       const stats: PetStats = {
-        hunger: clamp(parsed.hunger ?? DEFAULT_STATS.hunger),
-        happiness: clamp(parsed.happiness ?? DEFAULT_STATS.happiness),
-        energy: clamp(parsed.energy ?? DEFAULT_STATS.energy),
-        deals: clamp(parsed.deals ?? DEFAULT_STATS.deals),
-        lastSaved: parsed.lastSaved ?? Date.now(),
+        hunger: clamp(parsed.hunger, DEFAULT_STATS.hunger),
+        happiness: clamp(parsed.happiness, DEFAULT_STATS.happiness),
+        energy: clamp(parsed.energy, DEFAULT_STATS.energy),
+        deals: clamp(parsed.deals, DEFAULT_STATS.deals),
+        lastSaved: safeTimestamp(parsed.lastSaved),
       };
       return applyDecay(stats);
     }
   } catch {
     // fall through to defaults
   }
-  return { ...DEFAULT_STATS };
+  return defaultStats();
 }
 
 export function savePetState(stats: PetStats): void {
   try {
-    if (!existsSync(PET_DIR)) mkdirSync(PET_DIR, { recursive: true });
-    writeFileSync(PET_FILE, JSON.stringify({ ...stats, lastSaved: Date.now() }, null, 2));
+    const dir = petDir();
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      petFile(),
+      JSON.stringify({ ...stats, lastSaved: Date.now() }, null, 2),
+    );
   } catch {
     // best-effort
   }

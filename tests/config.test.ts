@@ -478,6 +478,32 @@ describe("ensureApiKey + resolveConfig (no-prompt paths)", () => {
     ).rejects.toThrow(/Invalid --persona/);
   });
 
+  test("resolveConfig config personaPath accepts a regular markdown file", async () => {
+    const personaFile = join(dir, "file-persona.md");
+    await writeFile(personaFile, "# persona\nbody");
+    await saveConfig({
+      apiKey: "sk-or-key-padding1234567890ab",
+      personaPath: personaFile,
+    });
+    const cfg = await resolveConfig([]);
+    expect(cfg.personaPath).toBe(personaFile);
+  });
+
+  test("validateLaunchConfig rejects invalid config personaPath before API key", async () => {
+    await saveConfig({
+      personaPath: join(dir, "missing-from-config.md"),
+    });
+    let caught: unknown;
+    try {
+      await validateLaunchConfig([]);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(LaunchConfigError);
+    expect((caught as LaunchConfigError).reason).toBe("persona-path");
+    expect((caught as Error).message).toMatch(/config personaPath/);
+  });
+
   test("resolveConfig file maxHistory respected if positive number", async () => {
     process.env.OPENROUTER_API_KEY = "sk-or-key-padding1234567890ab";
     await saveConfig({ apiKey: "sk-or-key-padding1234567890ab", maxHistory: 25 });
