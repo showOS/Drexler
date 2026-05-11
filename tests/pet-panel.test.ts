@@ -68,14 +68,18 @@ describe("PetScene", () => {
     }
     expect(rendered).toContain("DREXLER OFFICE");
     expect(rendered).toContain("Deal Board");
+    expect(rendered).toContain("╭───╮");
+    expect(rendered).toContain("│╲│ │");
     expect(rendered).toContain("╭──────╮");
     expect(rendered).toContain("▱▱▱");
-    expect(rendered).toContain("╰c~╯");
+    expect(rendered).toContain("╭c~╮");
     expect(rendered).toContain("FILE");
+    expect(rendered).toContain("╰────╯");
     expect(rendered).toContain("city");
     expect(rendered).toContain("PIPE");
     expect(rendered).toContain("DREXLER DEAL DESK");
-    expect(rendered).toContain("deal-room carpet shadow");
+    expect(rendered).toContain("│▤▤│");
+    expect(rendered).not.toContain("deal-room carpet shadow");
     expect(rendered).not.toContain("laptop");
     expect(rendered).not.toContain("coffee");
     expectNoLegacyArtifacts(rendered);

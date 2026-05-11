@@ -11,6 +11,32 @@ const STOP_SEQUENCES = [
 ];
 const RETRY_DELAY_MS = 250;
 
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error("aborted before retry"));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new Error("aborted before retry"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function debugWarn(label: string, detail: string): void {
+  if (process.env.DREXLER_DEBUG && process.env.DREXLER_DEBUG !== "0") {
+    try {
+      process.stderr.write(`[drexler ${label}] ${detail}\n`);
+    } catch {}
+  }
+}
+
 export type FetchFn = (
   url: string | URL | Request,
   init?: RequestInit,
@@ -112,7 +138,18 @@ async function attempt(
     try {
       await res.text();
     } catch {}
-    await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+    // Retry delay must be abortable — if the user hits Esc during the
+    // wait, we should bail immediately instead of firing the second
+    // request only to cancel it once issued.
+    try {
+      await abortableDelay(RETRY_DELAY_MS, opts.signal);
+    } catch (err) {
+      return {
+        status: "http_error",
+        content: "",
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
     return attempt(model, opts, fetchFn, true);
   }
 
@@ -189,8 +226,12 @@ export async function parseSSEStream(
         acc += tok;
         onToken(tok);
       }
-    } catch {
-      // tolerate malformed chunk
+    } catch (err) {
+      // Tolerate malformed chunks — OpenRouter occasionally emits
+      // partial JSON during slow connections. Visible only when
+      // DREXLER_DEBUG is set so production stays quiet.
+      const msg = err instanceof Error ? err.message : String(err);
+      debugWarn("sse parse", `${msg}: ${data.slice(0, 80)}`);
     }
   };
 

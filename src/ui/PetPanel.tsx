@@ -120,6 +120,17 @@ function cupForEnergy(energy: number): string {
   return "c_";
 }
 
+function analogClockSprite(frame: number): readonly string[] {
+  const hands = [
+    ["│╲│ │", "│ └─│"],
+    ["│ │╱│", "│─┘ │"],
+    ["│ │ │", "│─┼─│"],
+    ["│╲│ │", "│─┘ │"],
+  ] as const;
+  const [upper, lower] = hands[Math.floor(frame / 2) % hands.length] ?? hands[0]!;
+  return ["╭───╮", upper, lower, "╰───╯"];
+}
+
 function progressTicker(frame: number): string {
   const dots = ".............";
   const idx = frame % dots.length;
@@ -226,10 +237,10 @@ function drawOfficeBackground(rows: string[], width: number, frame: number, stat
 
   const compact = width < 62;
   const windowWidth = compact
-    ? 18
+    ? 17
     : Math.min(30, Math.max(20, Math.floor(width * 0.32)));
   const boardWidth = compact
-    ? Math.min(26, Math.max(20, width - windowWidth - 5))
+    ? Math.min(25, Math.max(20, width - windowWidth - 5))
     : Math.min(36, Math.max(26, Math.floor(width * 0.36)));
   const boardX = Math.max(windowWidth + 3, width - boardWidth - 2);
   const windowRight = 1 + windowWidth;
@@ -256,14 +267,9 @@ function drawOfficeBackground(rows: string[], width: number, frame: number, stat
     ],
   );
 
-  if (gapWidth >= 7) {
+  if (gapWidth >= 5) {
     const clockX = windowRight + Math.floor((gapWidth - 5) / 2);
-    const hour = frame % 8 < 4 ? "09" : "10";
-    placeSprite(rows, R_WINDOW_TOP, clockX, [
-      "╭──╮",
-      `│${hour}│`,
-      "╰──╯",
-    ]);
+    placeSprite(rows, R_WINDOW_TOP, clockX, analogClockSprite(frame));
   }
 
   rows[R_ACTIVITY] = centerText(
@@ -275,12 +281,12 @@ function drawOfficeBackground(rows: string[], width: number, frame: number, stat
 function drawOfficeFurniture(rows: string[], width: number, frame: number): void {
   const lampX = 1;
   const cabinetX = Math.max(1, width - 8);
-  const shade = frame % 8 < 4 ? "╭░░░░╮" : "╭▒▒▒▒╮";
+  const shade = frame % 8 < 4 ? "╱____╲" : "╱    ╲";
   const plantTop = frame % 6 < 3 ? " ╲│╱ " : " ╱│╲ ";
 
   placeSprite(rows, R_MASCOT_START, lampX, [
-    `  ${shade} `,
-    " ╱▒▒▒▒╲",
+    "  ╭──╮ ",
+    ` ${shade}`,
     " ╰─┬──╯",
     "   │   ",
     " ╭─┴─╮ ",
@@ -290,12 +296,12 @@ function drawOfficeFurniture(rows: string[], width: number, frame: number): void
 
   placeSprite(rows, R_MASCOT_START, cabinetX, [
     plantTop,
-    " ╲│╱ ",
-    " ╰┬╯ ",
+    "  │  ",
+    " ╭┴╮ ",
     "╭FILE╮",
     "│▤▤▤│",
     "├────┤",
-    "│▤▤▤│",
+    "╰────╯",
   ]);
 }
 
@@ -318,9 +324,9 @@ function drawActivityAccents(
 
   switch (activity) {
     case "eating":
-      rows[R_MASCOT_START + 5] = place(
-        rows[R_MASCOT_START + 5],
-        "╭$╮",
+      rows[R_MASCOT_START + 3] = place(
+        rows[R_MASCOT_START + 3],
+        "[$]",
         Math.max(1, Math.min(fileX - 5, rightAccentX + 1)),
       );
       break;
@@ -398,8 +404,8 @@ function drawDesktopObjects(
 
   if (mugX > mascotRight + 1) {
     rows[R_MASCOT_START + 4] = place(rows[R_MASCOT_START + 4], steam, mugX + 1);
-    rows[R_MASCOT_START + 5] = place(rows[R_MASCOT_START + 5], "╭─╮", mugX);
-    rows[R_MASCOT_START + 6] = place(rows[R_MASCOT_START + 6], `╰${cupForEnergy(stats.energy)}╯`, mugX);
+    rows[R_MASCOT_START + 5] = place(rows[R_MASCOT_START + 5], `╭${cupForEnergy(stats.energy)}╮`, mugX);
+    rows[R_MASCOT_START + 6] = place(rows[R_MASCOT_START + 6], "╰──╯", mugX);
   }
 }
 
@@ -407,11 +413,11 @@ function drawDesk(rows: string[], width: number, stats: PetStats): void {
   const deskX = width > PET_SCENE_WIDTH ? 2 : 1;
   const deskWidth = Math.max(4, width - deskX * 2);
   const deskInner = Math.max(1, deskWidth - 2);
-  const surface = `▱▱▱    [${cupForEnergy(stats.energy)}]    ▬▬▬▬▬    COV OK`;
+  const surface = "▱▱▱        ▬▬▬▬▬    COV OK";
   const front = `[IN] ║ DREXLER DEAL DESK ║ PIPE ${Math.round(stats.deals)}% ║ [OUT]`;
   const drawers = width < 68
-    ? "╭────╮   ╭────╮   ╭────╮"
-    : "╭────╮   ╭────╮        ╭────╮   ╭────╮";
+    ? "│▤▤│   │▤▤│   │▤▤│"
+    : "│▤▤│   │▤▤│        │▤▤│   │▤▤│";
 
   rows[R_DESK_SURFACE] = place(
     rows[R_DESK_SURFACE],
@@ -435,7 +441,7 @@ function drawDesk(rows: string[], width: number, stats: PetStats): void {
   );
   rows[R_FLOOR] = centerText(
     rows[R_FLOOR],
-    fitDisplayText("░░░░░░░ deal-room carpet shadow ░░░░░░░", width),
+    fitDisplayText("· · · · · · · · · · · · · · · · ·", width),
   );
 }
 
