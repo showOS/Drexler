@@ -57,6 +57,7 @@ Slash commands inside REPL:
   /clear         reset conversation
   /exit          exit
   /synergy       SYNERGY!
+  /pet [on|off]  toggle pet dashboard mode
   /feed          feed Drexler a deal memo
   /play          corporate synergy game (flexing included)
   /work          Drexler grinds the pipeline

@@ -1,12 +1,10 @@
 import { Box, Text } from "ink";
 import { memo, useEffect, useMemo, useState } from "react";
 import { getPetMood, type PetActivity, type PetStats } from "../pet/petState.ts";
-import { displayWidth, fitDisplayText } from "./graphemes.ts";
+import { fitDisplayText } from "./graphemes.ts";
 import { useTheme } from "./ThemeContext.tsx";
 import { type Theme } from "./themes.ts";
 
-export const PET_PANEL_WIDTH = 36;
-export const PET_PANEL_ROWS = 22;
 export const COMPACT_PET_PANEL_ROWS = 5;
 export const TINY_PET_PANEL_ROWS = 1;
 export const COMPACT_PET_PANEL_MIN_WIDTH = 48;
@@ -14,9 +12,8 @@ export type Environment = "office" | "home" | "outdoors";
 
 const PANEL_BORDER_COLUMNS = 2;
 const PANEL_PADDING_COLUMNS = 2;
-const CONTENT = PET_PANEL_WIDTH - PANEL_BORDER_COLUMNS - PANEL_PADDING_COLUMNS;
+const CONTENT = 32;
 const SPRITE_W = 8;
-const DIVIDER_LINE = "─".repeat(CONTENT);
 
 const R_SKY   = 0;
 const R_BGA   = 1;
@@ -25,6 +22,7 @@ const R_DECO  = 3;
 const R_SP0   = 4;  // sprite occupies rows 4–9
 const R_FLOOR = 10;
 const SCENE_ROWS = 11;
+export const PET_SCENE_WIDTH = CONTENT;
 
 // Fixed sprite X — no left/right walking
 const SPRITE_X: Record<PetActivity, number> = {
@@ -41,10 +39,6 @@ function place(base: string, text: string, x: number): string {
   const end = Math.min(base.length, x + text.length);
   const fit = text.slice(0, end - x);
   return base.slice(0, x) + fit + base.slice(end);
-}
-function pad(s: string, n: number): string {
-  const fitted = fitDisplayText(s, n);
-  return fitted + " ".repeat(Math.max(0, n - displayWidth(fitted)));
 }
 
 // Hoisted constant: floor pattern for home doesn't depend on frame.
@@ -430,40 +424,33 @@ function getStatusMsg(stats: PetStats, frame: number): string {
   return msgs[Math.floor(frame / 10) % msgs.length] ?? "Operational.";
 }
 
-// ─── stat bar ─────────────────────────────────────────────────────────────────
-function StatBarInner({
-  label, value, barColor, labelColor, warnColor,
-}: {
-  label: string; value: number; barColor: string; labelColor: string; warnColor: string;
-}) {
-  const filled = Math.round((value / 100) * 14);
-  const bar = "█".repeat(filled) + "░".repeat(14 - filled);
-  const pct = String(Math.round(value)).padStart(3);
-  const isLow = value < 25;
-  return (
-    <Text>
-      <Text color={labelColor}>{pad(label, 6)}</Text>
-      <Text color={isLow ? warnColor : barColor}>{bar}</Text>
-      <Text color={isLow ? warnColor : labelColor}> {pct}%</Text>
-    </Text>
-  );
+export function getPetStatusMessage(stats: PetStats, frame = 0): string {
+  return getStatusMsg(stats, frame);
 }
-const StatBar = memo(StatBarInner);
 
 // ─── component ────────────────────────────────────────────────────────────────
-interface PetPanelProps {
+interface PetSceneProps {
   stats: PetStats;
   activity: PetActivity;
   env?: Environment;
   isPaused?: boolean;
 }
 
-interface CompactPetPanelProps extends PetPanelProps {
+interface CompactPetPanelProps extends PetSceneProps {
   width: number;
 }
 
-function PetPanelView({ stats, activity, env = "office", isPaused = false }: PetPanelProps) {
-  const t = useTheme();
+function usePetFrame({
+  activity,
+  env,
+  isPaused,
+  dead,
+}: {
+  activity: PetActivity;
+  env: Environment;
+  isPaused: boolean;
+  dead: boolean;
+}) {
   const [frame, setFrame] = useState(0);
 
   useEffect(() => {
@@ -474,78 +461,42 @@ function PetPanelView({ stats, activity, env = "office", isPaused = false }: Pet
     // Skip frame ticks when paused or when the pet has died — DeathScreen
     // takes over the UI, no point burning a setInterval that mutates state
     // nothing will read.
-    if (isPaused || stats.dead === true) return;
+    if (isPaused || dead) return;
     const id = setInterval(() => {
       setFrame((f) => f + 1);
     }, 800);
     return () => clearInterval(id);
-  }, [isPaused, stats.dead]);
+  }, [dead, isPaused]);
 
+  return frame;
+}
+
+export function PetScene({
+  stats,
+  activity,
+  env = "office",
+  isPaused = false,
+}: PetSceneProps) {
+  const t = useTheme();
+  const frame = usePetFrame({
+    activity,
+    env,
+    isPaused,
+    dead: stats.dead === true,
+  });
   const scene = useMemo(
     () => buildScene(activity, frame, stats, env),
     [activity, frame, stats, env],
   );
-  const mood = useMemo(() => getPetMood(stats), [stats]);
-  const status = useMemo(
-    () => pad(`memo ${getStatusMsg(stats, frame)}`, CONTENT),
-    [stats, frame],
-  );
-  const title = fitDisplayText(`DREXLER PET DESK [${env}]`, CONTENT);
-  const activityLabel = activity !== "idle" ? ` / ${activity}` : "";
-  const moodLabel = `mood ${mood}`;
-  const fittedMood = activityLabel
-    ? fitDisplayText(moodLabel, Math.max(1, CONTENT - displayWidth(activityLabel)))
-    : fitDisplayText(moodLabel, CONTENT);
-  const fittedActivity = activityLabel && displayWidth(fittedMood) < CONTENT
-    ? fitDisplayText(activityLabel, CONTENT - displayWidth(fittedMood))
-    : "";
 
   return (
-    <Box
-      flexDirection="column"
-      width={PET_PANEL_WIDTH}
-      flexShrink={0}
-      borderStyle="round"
-      borderColor={t.primaryDim}
-    >
-      <Box paddingX={1} justifyContent="center">
-        <Text color={t.primary} bold>{title}</Text>
-      </Box>
-
-      <Box flexDirection="column" paddingX={1}>
-        {scene.map((row, i) => (
-          <Text key={i} color={rowColor(i, activity, frame, t)}>{row}</Text>
-        ))}
-      </Box>
-
-      <Box paddingX={1}>
-        <Text color={t.primaryDim}>{DIVIDER_LINE}</Text>
-      </Box>
-
-      <Box flexDirection="column" paddingX={1}>
-        <StatBar label="happy" value={stats.happiness} barColor={t.primary}      labelColor={t.dim} warnColor={t.error} />
-        <StatBar label="hungr" value={stats.hunger}    barColor={t.primaryLight} labelColor={t.dim} warnColor={t.warning} />
-        <StatBar label="enrgy" value={stats.energy}    barColor={t.primaryLight} labelColor={t.dim} warnColor={t.warning} />
-        <StatBar label="deals" value={stats.deals}     barColor={t.primaryDim}   labelColor={t.dim} warnColor={t.warning} />
-      </Box>
-
-      <Box paddingX={1}>
-        <Text color={t.primaryDim}>{DIVIDER_LINE}</Text>
-      </Box>
-
-      <Box paddingX={1}>
-        <Text color={t.dim}>{status}</Text>
-      </Box>
-
-      <Box paddingX={1}>
-        <Text color={t.dim}>{fittedMood}</Text>
-        {fittedActivity && <Text color={t.primaryDim}>{fittedActivity}</Text>}
-      </Box>
+    <Box flexDirection="column" width={PET_SCENE_WIDTH}>
+      {scene.map((row, i) => (
+        <Text key={i} color={rowColor(i, activity, frame, t)}>{row}</Text>
+      ))}
     </Box>
   );
 }
-
-export const PetPanel = memo(PetPanelView);
 
 function pct(value: number): string {
   return `${Math.round(value)}%`;
@@ -580,7 +531,7 @@ interface WorstStat {
   value: number;
 }
 
-export function pickWorstStat(stats: PetStats): WorstStat {
+function pickWorstStat(stats: PetStats): WorstStat {
   const entries: WorstStat[] = [
     { key: "hunger", value: stats.hunger },
     { key: "happiness", value: stats.happiness },

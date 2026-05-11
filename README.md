@@ -89,9 +89,9 @@ rm -rf ~/.config/drexler   # optional: wipe stored key + settings
 
 ### Interactive UI
 
-Drexler runs as an Ink terminal UI when both stdin and stdout are TTYs. The normal launch shows one integrated startup panel with the mascot, tips, a **Mood** readout, and the **Drexler Deal Desk**. Short terminals automatically suppress oversized startup chrome so the chat stays usable.
+Drexler runs as an Ink terminal UI when both stdin and stdout are TTYs. The normal launch shows one integrated startup panel with the mascot, tips, a **Mood** readout, and the **Drexler Deal Desk**. After startup, that dashboard remains the primary top chrome. Short terminals automatically suppress oversized startup chrome so the chat stays usable.
 
-After startup, the pet UI adapts to the terminal instead of disappearing. Wide terminals show the animated **Drexler Pet Desk** as a right-side panel. Medium terminals show a compact pet panel below the Deal Desk. Tiny terminals show a one-line pet ticker so pet status remains visible without crushing the chat.
+Type `/pet` to toggle pet mode for the current session. Pet mode keeps the top dashboard frame and swaps the normal mascot/tips/deal desk layout for a Drexler scene plus pet stats. `/pet on` and `/pet off` set it explicitly. Pet stats still decay and pet commands still work when the pet dashboard is hidden.
 
 The startup panel is designed to stay stable while it boots: the mascot loading bar and Mood gauge animate without changing width, greeting copy is held in a fixed slot, and the Mood and Deal Desk boxes stay aligned when the greeting wraps. After boot, Mood resolves into a rotating Drexler-flavored posture with a short satirical subtext line.
 
@@ -136,6 +136,7 @@ Keyboard notes:
 | `/clear`       | shred conversation history (system prompt pinned) |
 | `/exit`        | meeting adjourned                                |
 | `/synergy`     | run a rotating animated morale event             |
+| `/pet [on\|off]` | toggle pet dashboard mode for this session     |
 | `/feed`        | feed Drexler a deal memo                         |
 | `/play`        | corporate synergy game with Drexler              |
 | `/work`        | Drexler grinds the deal pipeline                 |

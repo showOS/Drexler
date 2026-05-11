@@ -1,5 +1,14 @@
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  formatTenure,
+  getPetMood,
+  getPetRank,
+  petTenureMs,
+  rankLabel,
+  type PetActivity,
+  type PetStats,
+} from "../pet/petState.ts";
 import { STARTUP_TIPS } from "../startupTips.ts";
 import {
   MascotFrame,
@@ -7,6 +16,14 @@ import {
   type MascotState,
 } from "./MascotFrame.tsx";
 import { displayWidth, fitDisplayText } from "./graphemes.ts";
+import {
+  COMPACT_PET_PANEL_MIN_WIDTH,
+  CompactPetPanel,
+  getPetStatusMessage,
+  PetScene,
+  PET_SCENE_WIDTH,
+  type Environment,
+} from "./PetPanel.tsx";
 import { useTheme } from "./ThemeContext.tsx";
 
 interface IntroFrame extends MascotState {
@@ -152,6 +169,13 @@ const MAX_MOOD_PANEL_WIDTH = 44;
 const RIGHT_COLUMN_INSET = 1;
 const RIGHT_COLUMN_PAD_RIGHT = 1;
 const LEFT_PANEL_MIN_COPY = 24;
+const PET_STATS_MIN_WIDTH = 24;
+const PET_STATS_MAX_WIDTH = 58;
+const PET_SPLIT_DIVIDER_HEIGHT = 12;
+const PET_SPLIT_DIVIDER_ROWS: number[] = Array.from(
+  { length: PET_SPLIT_DIVIDER_HEIGHT },
+  (_, i) => i,
+);
 
 export type MascotLayoutMode = "tiny" | "compact" | "stacked" | "split";
 
@@ -257,6 +281,11 @@ interface MascotDashboardProps {
   greeting: string;
   width: number;
   mood?: string;
+  mode?: "normal" | "pet";
+  petStats?: PetStats;
+  petActivity?: PetActivity;
+  petEnv?: Environment;
+  petPaused?: boolean;
   bootProgress?: number;
   state?: MascotState;
   bar?: string;
@@ -780,10 +809,357 @@ function MoodReadout({
   );
 }
 
+function padDisplayText(input: string, width: number): string {
+  const safeWidth = Math.max(1, width);
+  const fitted = fitDisplayText(input, safeWidth);
+  return `${fitted}${" ".repeat(Math.max(0, safeWidth - displayWidth(fitted)))}`;
+}
+
+function PetSceneReadout({
+  stats,
+  activity,
+  env,
+  isPaused,
+  width,
+}: {
+  stats: PetStats;
+  activity: PetActivity;
+  env: Environment;
+  isPaused: boolean;
+  width: number;
+}) {
+  const t = useTheme();
+  const safeWidth = Math.max(1, Math.floor(width));
+
+  if (safeWidth < PET_SCENE_WIDTH) {
+    return (
+      <CompactPetPanel
+        stats={stats}
+        activity={activity}
+        env={env}
+        isPaused={isPaused}
+        width={safeWidth}
+      />
+    );
+  }
+
+  return (
+    <Box flexDirection="column" width={safeWidth} alignItems="center">
+      <Text bold color={t.primaryLight}>
+        {fitDisplayText(`Drexler Pet Desk [${env}]`, safeWidth)}
+      </Text>
+      <PetScene
+        stats={stats}
+        activity={activity}
+        env={env}
+        isPaused={isPaused}
+      />
+    </Box>
+  );
+}
+
+function PetStatsBodyLine({
+  text,
+  width,
+  color,
+}: {
+  text: string;
+  width: number;
+  color: string;
+}) {
+  const t = useTheme();
+  const innerWidth = Math.max(1, width - 4);
+  const content = padDisplayText(text, innerWidth);
+  return (
+    <Text>
+      <Text color={t.primary}>│ </Text>
+      <Text color={color}>{content}</Text>
+      <Text color={t.primary}> │</Text>
+    </Text>
+  );
+}
+
+function PetDashboardStatBar({
+  label,
+  value,
+  width,
+}: {
+  label: string;
+  value: number;
+  width: number;
+}) {
+  const t = useTheme();
+  const innerWidth = Math.max(1, width - 4);
+  const pct = `${Math.round(value).toString().padStart(3)}%`;
+  const labelText = padDisplayText(label, Math.min(7, innerWidth));
+  const prefixWidth = displayWidth(labelText);
+  const barWidth = Math.max(
+    1,
+    innerWidth - prefixWidth - displayWidth(pct) - 2,
+  );
+  const bounded = Math.max(0, Math.min(100, value));
+  const filled = Math.max(
+    0,
+    Math.min(barWidth, Math.round((bounded / 100) * barWidth)),
+  );
+  const empty = Math.max(0, barWidth - filled);
+  const bar = `${"█".repeat(filled)}${"░".repeat(empty)}`;
+  const used = prefixWidth + 1 + displayWidth(bar) + 1 + displayWidth(pct);
+  const isLow = value < 25;
+  const barColor = isLow
+    ? t.warning
+    : label === "deals"
+      ? t.primaryDim
+      : t.primaryLight;
+
+  if (innerWidth < 14) {
+    return (
+      <PetStatsBodyLine
+        text={`${label} ${pct}`}
+        width={width}
+        color={isLow ? t.warning : t.text}
+      />
+    );
+  }
+
+  return (
+    <Text>
+      <Text color={t.primary}>│ </Text>
+      <Text color={t.dim}>{labelText} </Text>
+      <Text color={barColor}>{bar}</Text>
+      <Text color={isLow ? t.warning : t.dim}> {pct}</Text>
+      <Text color={t.primary}>
+        {" ".repeat(Math.max(0, innerWidth - used))} │
+      </Text>
+    </Text>
+  );
+}
+
+function PetStatsReadout({
+  stats,
+  activity,
+  env,
+  width,
+}: {
+  stats: PetStats;
+  activity: PetActivity;
+  env: Environment;
+  width: number;
+}) {
+  const t = useTheme();
+  const panelWidth = Math.max(
+    1,
+    Math.min(PET_STATS_MAX_WIDTH, Math.floor(width)),
+  );
+  const innerWidth = Math.max(1, panelWidth - 4);
+  const mood = getPetMood(stats);
+  const rank = rankLabel(getPetRank(stats));
+  const name = stats.name ?? "Drexler";
+  const activityLabel = activity === "idle" ? "idle" : activity;
+  const title = "Pet Stats";
+  const topPrefix = "╭─ ";
+  const topSuffix = " ";
+  const topRule = "─".repeat(
+    Math.max(
+      0,
+      panelWidth -
+        displayWidth(topPrefix) -
+        displayWidth(title) -
+        displayWidth(topSuffix) -
+        displayWidth("╮"),
+    ),
+  );
+  const memo = `memo ${getPetStatusMessage(stats, 0)}`;
+
+  if (panelWidth < PET_STATS_MIN_WIDTH) {
+    return (
+      <Box flexDirection="column" width={panelWidth}>
+        <Text bold color={t.primaryLight}>
+          {fitDisplayText("Pet Stats", panelWidth)}
+        </Text>
+        <Text color={t.text}>
+          {fitDisplayText(`${name} / ${rank}`, panelWidth)}
+        </Text>
+        <Text color={t.dim}>
+          {fitDisplayText(`${mood} / ${activityLabel}`, panelWidth)}
+        </Text>
+      </Box>
+    );
+  }
+
+  return (
+    <Box flexDirection="column" width={panelWidth}>
+      <Text color={t.primary}>
+        {topPrefix}
+        <Text bold color={t.primaryLight}>{title}</Text>
+        {topSuffix}
+        {topRule}
+        ╮
+      </Text>
+      <PetStatsBodyLine
+        text={`name ${name}`}
+        width={panelWidth}
+        color={t.text}
+      />
+      <PetStatsBodyLine
+        text={`rank ${rank} · mood ${mood}`}
+        width={panelWidth}
+        color={t.primaryLight}
+      />
+      <PetStatsBodyLine
+        text={`activity ${activityLabel} · env ${env}`}
+        width={panelWidth}
+        color={t.dim}
+      />
+      <PetStatsBodyLine
+        text={`tenure ${formatTenure(petTenureMs(stats))}`}
+        width={panelWidth}
+        color={t.dim}
+      />
+      <PetStatsBodyLine
+        text={"─".repeat(innerWidth)}
+        width={panelWidth}
+        color={t.primaryDim}
+      />
+      <PetDashboardStatBar
+        label="happy"
+        value={stats.happiness}
+        width={panelWidth}
+      />
+      <PetDashboardStatBar
+        label="hunger"
+        value={stats.hunger}
+        width={panelWidth}
+      />
+      <PetDashboardStatBar
+        label="energy"
+        value={stats.energy}
+        width={panelWidth}
+      />
+      <PetDashboardStatBar
+        label="deals"
+        value={stats.deals}
+        width={panelWidth}
+      />
+      <PetStatsBodyLine
+        text={memo}
+        width={panelWidth}
+        color={t.dim}
+      />
+      <Text color={t.primary}>{titledPanelBottom(panelWidth)}</Text>
+    </Box>
+  );
+}
+
+function PetDashboard({
+  layout,
+  stats,
+  activity,
+  env,
+  isPaused,
+}: {
+  layout: MascotLayout;
+  stats: PetStats;
+  activity: PetActivity;
+  env: Environment;
+  isPaused: boolean;
+}) {
+  const t = useTheme();
+  const sideBySide = layout.mode === "split";
+
+  if (layout.mode === "tiny" || layout.mode === "compact") {
+    return (
+      <Box
+        marginLeft={layout.leftPanel.inset}
+        width={layout.available}
+        flexDirection="column"
+      >
+        <CompactPetPanel
+          stats={stats}
+          activity={activity}
+          env={env}
+          isPaused={isPaused}
+          width={Math.max(1, layout.available)}
+        />
+      </Box>
+    );
+  }
+
+  return (
+    <Box width={layout.available}>
+      <Box
+        width={layout.available}
+        borderStyle="round"
+        borderColor={t.primary}
+        paddingX={1}
+        flexDirection={sideBySide ? "row" : "column"}
+        alignItems={sideBySide ? "flex-start" : "center"}
+      >
+        <Box
+          flexDirection="column"
+          width={layout.leftPanel.width}
+          alignItems="center"
+        >
+          <PetSceneReadout
+            stats={stats}
+            activity={activity}
+            env={env}
+            isPaused={isPaused}
+            width={layout.leftPanel.width}
+          />
+        </Box>
+        {sideBySide ? (
+          <>
+            <Box
+              flexDirection="column"
+              width={SPLIT_DIVIDER_WIDTH}
+              flexShrink={0}
+            >
+              {PET_SPLIT_DIVIDER_ROWS.map((idx) => (
+                <Text key={idx} color={t.primaryDim}>
+                  {" │ "}
+                </Text>
+              ))}
+            </Box>
+            <Box
+              flexDirection="column"
+              width={layout.rightColumn.width}
+              paddingRight={RIGHT_COLUMN_PAD_RIGHT}
+            >
+              <Box marginLeft={layout.dealDesk.inset}>
+                <PetStatsReadout
+                  stats={stats}
+                  activity={activity}
+                  env={env}
+                  width={Math.min(PET_STATS_MAX_WIDTH, layout.dealDesk.width)}
+                />
+              </Box>
+            </Box>
+          </>
+        ) : (
+          <Box marginTop={1} width={layout.tips.width} alignItems="center">
+            <PetStatsReadout
+              stats={stats}
+              activity={activity}
+              env={env}
+              width={Math.max(COMPACT_PET_PANEL_MIN_WIDTH, layout.tips.width)}
+            />
+          </Box>
+        )}
+      </Box>
+    </Box>
+  );
+}
+
 export function MascotDashboard({
   greeting,
   width,
   mood,
+  mode = "normal",
+  petStats,
+  petActivity = "idle",
+  petEnv = "office",
+  petPaused = false,
   bootProgress = 1,
   state = INTRO_FRAMES[INTRO_FRAMES.length - 1]!,
   bar = introBootBar(INTRO_FRAMES.length - 1, INTRO_FRAMES.length),
@@ -798,6 +1174,18 @@ export function MascotDashboard({
   const wideGreetingRows = sideBySide
     ? fixedDisplayRows(greeting, layout.copy.width, 2)
     : [];
+
+  if (mode === "pet" && petStats) {
+    return (
+      <PetDashboard
+        layout={layout}
+        stats={petStats}
+        activity={petActivity}
+        env={petEnv}
+        isPaused={petPaused}
+      />
+    );
+  }
 
   if (layout.mode === "tiny") {
     return (

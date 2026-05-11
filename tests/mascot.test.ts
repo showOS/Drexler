@@ -259,6 +259,80 @@ describe("MascotFrame", () => {
     }
   });
 
+  test("pet dashboard swaps tips and brand copy for scene and stats", () => {
+    const rendered = renderToString(
+      React.createElement(ThemeProvider, {
+        value: THEMES.apollo,
+        children: React.createElement(MascotDashboard, {
+          greeting: "Hello",
+          width: 160,
+          mode: "pet",
+          petActivity: "playing",
+          petEnv: "home",
+          petStats: {
+            name: "Drex",
+            hunger: 82,
+            happiness: 76,
+            energy: 68,
+            deals: 41,
+            lastSaved: 1,
+            lifetimeDeals: 240,
+            createdAt: Date.now() - 3600_000,
+          },
+        }),
+      }),
+      { columns: 160 },
+    ).replace(ANSI_RE, "");
+
+    expect(rendered).toContain("Drexler Pet Desk");
+    expect(rendered).toContain("Pet Stats");
+    expect(rendered).toContain("name Drex");
+    expect(rendered).toContain("rank Analyst");
+    expect(rendered).toContain("mood");
+    expect(rendered).toContain("activity playing");
+    expect(rendered).toContain("happy");
+    expect(rendered).toContain("hunger");
+    expect(rendered).toContain("energy");
+    expect(rendered).toContain("deals");
+    expect(rendered).not.toContain("╭─ Tips");
+    expect(rendered).not.toContain("Drexler Deal Desk");
+    expect(rendered).not.toContain("Drexler International");
+    for (const row of rendered.split("\n")) {
+      expect(displayWidth(row)).toBeLessThanOrEqual(160);
+    }
+  });
+
+  test.each([18, 34, 48, 72, 80, 112, 160])(
+    "pet dashboard stays bounded at %d columns",
+    (width) => {
+      const rendered = renderToString(
+        React.createElement(ThemeProvider, {
+          value: THEMES.apollo,
+          children: React.createElement(MascotDashboard, {
+            greeting: "Hello",
+            width,
+            mode: "pet",
+            petActivity: "idle",
+            petEnv: "office",
+            petStats: {
+              hunger: 60,
+              happiness: 60,
+              energy: 60,
+              deals: 60,
+              lastSaved: 1,
+            },
+          }),
+        }),
+        { columns: width },
+      ).replace(ANSI_RE, "");
+
+      expect(rendered).not.toContain("╭─ Tips");
+      for (const row of rendered.split("\n")) {
+        expect(displayWidth(row)).toBeLessThanOrEqual(width);
+      }
+    },
+  );
+
   test.each([72, 80, 96, 112, 120, 160, 200])(
     "dashboard with embedded deal desk stays within %d columns",
     (width) => {
