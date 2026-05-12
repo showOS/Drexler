@@ -3,6 +3,7 @@ import { Text, renderToString } from "ink";
 import React from "react";
 import {
   TranscriptViewport,
+  wrappedTranscriptLines,
   type TranscriptViewportItem,
 } from "../src/ui/TranscriptViewport.tsx";
 import { displayWidth } from "../src/ui/graphemes.ts";
@@ -461,5 +462,85 @@ describe("TranscriptViewport", () => {
     });
     expect(rendered).toMatch(/\d+ lines? earlier/);
     expect(rendered).toContain("PageUp scrollback");
+  });
+});
+
+describe("wrappedTranscriptLines cache (P10)", () => {
+  test("returns same array identity for identical (item, width) calls", () => {
+    const item: TranscriptViewportItem = {
+      id: "cache-test",
+      role: "assistant",
+      content: "alpha beta gamma delta epsilon zeta eta theta",
+    };
+    const first = wrappedTranscriptLines(item, 20);
+    const second = wrappedTranscriptLines(item, 20);
+    expect(second).toBe(first);
+  });
+
+  test("returns distinct arrays for different widths", () => {
+    const item: TranscriptViewportItem = {
+      id: "width-test",
+      role: "assistant",
+      content: "alpha beta gamma delta epsilon zeta eta theta",
+    };
+    const narrow = wrappedTranscriptLines(item, 10);
+    const wide = wrappedTranscriptLines(item, 40);
+    expect(wide).not.toBe(narrow);
+  });
+
+  test("returns distinct entries for different items even with identical content", () => {
+    const a: TranscriptViewportItem = {
+      id: "a",
+      role: "assistant",
+      content: "same content",
+    };
+    const b: TranscriptViewportItem = {
+      id: "b",
+      role: "assistant",
+      content: "same content",
+    };
+    const fromA = wrappedTranscriptLines(a, 20);
+    const fromB = wrappedTranscriptLines(b, 20);
+    expect(fromA).not.toBe(fromB);
+    expect(fromA.map((l) => l.text)).toEqual(fromB.map((l) => l.text));
+  });
+
+  test("LRU-evicts oldest entry once per-item cache exceeds bound", () => {
+    const item: TranscriptViewportItem = {
+      id: "lru-test",
+      role: "assistant",
+      content: "alpha beta gamma delta epsilon zeta eta theta",
+    };
+    // MAX_WIDTHS_PER_ITEM = 4. Fill with widths 10..13.
+    const first = wrappedTranscriptLines(item, 10);
+    wrappedTranscriptLines(item, 11);
+    wrappedTranscriptLines(item, 12);
+    wrappedTranscriptLines(item, 13);
+    // Inserting a fifth (width 14) must evict the oldest (width 10).
+    wrappedTranscriptLines(item, 14);
+    // Width 10 should now be recomputed → fresh array identity.
+    const refetched = wrappedTranscriptLines(item, 10);
+    expect(refetched).not.toBe(first);
+    // Width 14 should still be cached (most recent).
+    const w14a = wrappedTranscriptLines(item, 14);
+    const w14b = wrappedTranscriptLines(item, 14);
+    expect(w14b).toBe(w14a);
+  });
+
+  test("LRU-get bumps recency: re-fetching protects against eviction", () => {
+    const item: TranscriptViewportItem = {
+      id: "lru-bump-test",
+      role: "assistant",
+      content: "alpha beta gamma delta",
+    };
+    const w10 = wrappedTranscriptLines(item, 10);
+    wrappedTranscriptLines(item, 11);
+    wrappedTranscriptLines(item, 12);
+    wrappedTranscriptLines(item, 13);
+    // Bump width 10 to most-recent by re-fetching.
+    expect(wrappedTranscriptLines(item, 10)).toBe(w10);
+    // Adding a fifth distinct width must now evict width 11 (next oldest), NOT 10.
+    wrappedTranscriptLines(item, 14);
+    expect(wrappedTranscriptLines(item, 10)).toBe(w10);
   });
 });

@@ -26,6 +26,10 @@ export function splitGraphemes(input: string): string[] {
 }
 
 export function graphemeLength(input: string): number {
+  // ASCII (\x20-\x7e + TAB/LF/CR) is BMP single-code-unit, no combining
+  // marks → JS string length equals grapheme count. Skip the Array.from
+  // allocation in splitGraphemes for the hot path.
+  if (isAsciiOnly(input)) return input.length;
   return splitGraphemes(input).length;
 }
 
@@ -45,7 +49,7 @@ function isWideCodePoint(codePoint: number): boolean {
   );
 }
 
-function graphemeWidth(input: string): number {
+export function graphemeWidth(input: string): number {
   if (input.length === 0) return 0;
   if (/^\p{Mark}+$/u.test(input)) return 0;
   if (/^[©®™]$/u.test(input)) return 1;

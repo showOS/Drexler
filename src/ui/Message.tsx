@@ -1,10 +1,6 @@
 import { Box, Text } from "ink";
 import { memo, useMemo } from "react";
-import {
-  firstDisplayLine,
-  normalizeAssistantDisplayContent,
-  normalizeAssistantMarkdownRenderContent,
-} from "./displayContent.ts";
+import { firstDisplayLine, normalizeAssistantBoth } from "./displayContent.ts";
 import { fitDisplayText } from "./graphemes.ts";
 import { MarkdownBody } from "./MarkdownBody.tsx";
 import { useTheme } from "./ThemeContext.tsx";
@@ -20,17 +16,11 @@ function StreamingMessageInner({ content, width = 80 }: StreamingProps) {
   const t = useTheme();
   const safeWidth = Math.max(1, Math.floor(width));
   const innerWidth = Math.max(1, safeWidth - 2);
-  // Both normalizers walk the content string and strip fence markers.
-  // Memo so a re-render that doesn't touch `content` (e.g. theme flip,
-  // parent re-layout) doesn't redo the fence parse.
-  const compactDisplayContent = useMemo(
-    () => normalizeAssistantDisplayContent(content),
-    [content],
-  );
-  const markdownDisplayContent = useMemo(
-    () => normalizeAssistantMarkdownRenderContent(content),
-    [content],
-  );
+  // Single fence-scan produces both forms. Memo so a re-render that
+  // doesn't touch `content` (e.g. theme flip, parent re-layout) doesn't
+  // redo the parse.
+  const { compact: compactDisplayContent, markdownRender: markdownDisplayContent } =
+    useMemo(() => normalizeAssistantBoth(content), [content]);
 
   if (safeWidth < 18) {
     const compactLine = fitDisplayText(

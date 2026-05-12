@@ -154,12 +154,27 @@ function safeTimestamp(value: unknown): number {
 // window.
 export function applyDecay(stats: PetStats): PetStats {
   const elapsed = Math.max(0, (Date.now() - stats.lastSaved) / 3_600_000);
+  const nextHunger = clamp(stats.hunger - DECAY_PER_HOUR.hunger * elapsed);
+  const nextHappiness = clamp(stats.happiness - DECAY_PER_HOUR.happiness * elapsed);
+  const nextEnergy = clamp(stats.energy - DECAY_PER_HOUR.energy * elapsed);
+  const nextDeals = clamp(stats.deals - DECAY_PER_HOUR.deals * elapsed);
+  if (
+    nextHunger === stats.hunger &&
+    nextHappiness === stats.happiness &&
+    nextEnergy === stats.energy &&
+    nextDeals === stats.deals
+  ) {
+    // No movement: return same identity so caller can skip the disk write.
+    // lastSaved intentionally not bumped — next tick measures from the same
+    // anchor so accumulated elapsed eventually crosses the rate threshold.
+    return stats;
+  }
   return {
     ...stats,
-    hunger: clamp(stats.hunger - DECAY_PER_HOUR.hunger * elapsed),
-    happiness: clamp(stats.happiness - DECAY_PER_HOUR.happiness * elapsed),
-    energy: clamp(stats.energy - DECAY_PER_HOUR.energy * elapsed),
-    deals: clamp(stats.deals - DECAY_PER_HOUR.deals * elapsed),
+    hunger: nextHunger,
+    happiness: nextHappiness,
+    energy: nextEnergy,
+    deals: nextDeals,
     lastSaved: Date.now(),
   };
 }
@@ -279,7 +294,13 @@ export function applyPraise(stats: PetStats): PetStats {
   return { ...stats, happiness: clamp(stats.happiness + 15) };
 }
 
-export function applyVibe(stats: PetStats): { stats: PetStats; message: string } {
+// `roll` is the random branch selector for the non-precedence outcomes.
+// Callers can pre-roll once and pass the same value into the reducer so
+// the result is deterministic across React's StrictMode double-invoke.
+export function applyVibe(
+  stats: PetStats,
+  roll: number = Math.random(),
+): { stats: PetStats; message: string } {
   if (stats.energy < 30) {
     return {
       stats: { ...stats, energy: clamp(stats.energy + 20) },
@@ -292,7 +313,6 @@ export function applyVibe(stats: PetStats): { stats: PetStats; message: string }
       message: "Drexler finds a forgotten deal memo and eats it.",
     };
   }
-  const roll = Math.random();
   if (roll < 0.25) {
     return {
       stats: { ...stats, happiness: clamp(stats.happiness + 10), deals: clamp(stats.deals + 15) },

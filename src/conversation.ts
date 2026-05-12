@@ -26,7 +26,11 @@ export class Conversation {
 
   private trim(): void {
     while (this.messages.length > this.maxHistory) {
+      const evictedRole = this.messages[1]?.role;
       this.messages.splice(1, 1);
+      if (evictedRole === "user") {
+        this.userTurnCount = Math.max(0, this.userTurnCount - 1);
+      }
       if (this.messages[1]?.role === "assistant") {
         this.messages.splice(1, 1);
       }

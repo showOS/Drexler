@@ -144,4 +144,26 @@ describe("Conversation (V1, V2, V16)", () => {
     c.clear();
     expect(c.userTurns).toBe(0);
   });
+
+  test("trim decrements userTurns when oldest user is evicted (B4)", () => {
+    const c = new Conversation("SYS", 4); // system + 3 turns max
+    c.push("user", "u1");
+    c.push("assistant", "a1");
+    c.push("user", "u2");
+    expect(c.userTurns).toBe(2);
+    c.push("assistant", "a2"); // overflow → evict u1 + a1
+    expect(c.snapshot().map((m) => m.content)).toEqual(["SYS", "u2", "a2"]);
+    expect(c.userTurns).toBe(1);
+  });
+
+  test("trim keeps userTurns accurate across many evictions (B4)", () => {
+    const c = new Conversation("SYS", 5); // system + 4 turns max
+    for (let i = 0; i < 10; i++) {
+      c.push("user", `u${i}`);
+      c.push("assistant", `a${i}`);
+    }
+    const snap = c.snapshot();
+    const userCount = snap.filter((m) => m.role === "user").length;
+    expect(c.userTurns).toBe(userCount);
+  });
 });

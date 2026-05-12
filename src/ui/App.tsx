@@ -128,6 +128,52 @@ export function shouldRemoveVisibleAssistantForAction(
   return action.type === "regenerate" && action.removedAssistant;
 }
 
+// Replace a timer handle on a ref. Cancels any prior timer first so two
+// fire-paths (e.g. pet-death + Ctrl-C) cannot leave a dangling callback
+// after the latest assignment.
+export function replaceExitTimer(
+  ref: { current: ReturnType<typeof setTimeout> | null },
+  fn: () => void,
+  delayMs: number,
+): void {
+  if (ref.current !== null) clearTimeout(ref.current);
+  ref.current = setTimeout(() => {
+    ref.current = null;
+    fn();
+  }, delayMs);
+}
+
+export interface Debouncer {
+  schedule: (fn: () => void) => void;
+  cancel: () => void;
+  hasPending: () => boolean;
+}
+
+// Coalesce rapid calls into one delayed fire. Each schedule replaces the
+// pending callback; cancel suppresses any pending fire. Used to keep
+// session-persistence writes off the hot path during burst turns.
+export function makeDebouncer(delayMs: number): Debouncer {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  return {
+    schedule(fn) {
+      if (timer !== null) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        fn();
+      }, delayMs);
+    },
+    cancel() {
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    },
+    hasPending() {
+      return timer !== null;
+    },
+  };
+}
+
 export interface HistoryNavState {
   historyIdx: number | null;
   draft: { value: string; cursor: number };
@@ -282,13 +328,28 @@ export function App({
 
   // Persist the current conversation to disk so the next launch can
   // offer a resume. Best-effort: a failed save never blocks chat.
-  const persistSession = useCallback(() => {
-    saveSession(
+  // Debounced 800ms so a burst of turns (e.g. rapid /retry → /regenerate)
+  // collapses to one async write instead of N sync writes that would
+  // block the Ink event loop.
+  const persistDebouncer = useMemo(() => makeDebouncer(800), []);
+  const writePersistNow = useCallback(() => {
+    void saveSession(
       buildSavedSession(conversation, conversation.systemPrompt, config.model),
-    );
+    ).catch(() => {
+      // saveSession already swallows; defensive catch in case the
+      // promise rejects before the internal try/catch runs.
+    });
   }, [conversation, config.model]);
+  const flushPersistSession = useCallback(() => {
+    persistDebouncer.cancel();
+    writePersistNow();
+  }, [persistDebouncer, writePersistNow]);
+  const persistSession = useCallback(() => {
+    persistDebouncer.schedule(writePersistNow);
+  }, [persistDebouncer, writePersistNow]);
 
   const [draft, setDraft] = useState({ value: "", cursor: 0 });
+
   const draftRef = useRef(draft);
   const updateDraft = useCallback(
     (
@@ -405,16 +466,14 @@ export function App({
     petModeRef.current = next;
     setPetMode(next);
   }, []);
+  // Reducer must stay pure: no IO, no ref writes. Ref mirror lives in
+  // the effect below; persistence lives in its own save effect. React 19
+  // StrictMode runs reducers twice in dev — any side effect here would
+  // double-fire (e.g. duplicate disk writes).
   const updatePetStats = useCallback((updater: (stats: PetStats) => PetStats) => {
     setPetStats((stats) => {
-      // Stamp lastSaved on the in-memory copy too. savePetState writes
-      // Date.now() to disk; mirroring it here keeps the in-memory ref
-      // in sync so the next applyDecay tick measures elapsed time from
-      // the correct anchor — critical for resume after OS suspend.
-      const next = { ...updater(stats), lastSaved: Date.now() };
-      petStatsRef.current = next;
-      savePetState(next);
-      return next;
+      const next = updater(stats);
+      return next === stats ? stats : { ...next, lastSaved: Date.now() };
     });
   }, []);
   const applyPetAction = useCallback(
@@ -456,6 +515,19 @@ export function App({
     petStatsRef.current = petStats;
   }, [petStats]);
 
+  // Persist committed pet state. Skips the initial mount so we don't
+  // re-write the same bytes we just loaded. applyDecay returns same
+  // identity when no real decay occurred, so the decay setInterval
+  // does not re-trigger this effect on every tick.
+  const petSaveInitRef = useRef(false);
+  useEffect(() => {
+    if (!petSaveInitRef.current) {
+      petSaveInitRef.current = true;
+      return;
+    }
+    savePetState(petStats);
+  }, [petStats]);
+
   // Real-time stat decay matches the offline per-hour decay rate.
   useEffect(() => {
     petDecayTimerRef.current = setInterval(() => {
@@ -486,7 +558,7 @@ export function App({
     const deadStats = { ...petStats, dead: true };
     petStatsRef.current = deadStats;
     savePetState(deadStats);
-    exitTimerRef.current = setTimeout(() => exit(), 5000);
+    replaceExitTimer(exitTimerRef, () => exit(), 5000);
   }, [petStats, isDead, exit]);
 
   const paletteItems = useMemo(() => filterPaletteByPrefix(input), [input]);
@@ -523,12 +595,11 @@ export function App({
     [conversation, msgCount, draft.value.length, streaming],
   );
 
-  // throttle streaming updates so React doesn't re-render every token
-  // Token chunks accumulate as an array of strings; we join only when
-  // flushing to React. Avoids the V8-rope churn that string += creates
-  // for long responses (50–100 tokens/sec, several KB final size).
-  const streamChunksRef = useRef<string[]>([]);
-  const streamLengthRef = useRef(0);
+  // throttle streaming updates so React doesn't re-render every token.
+  // A single rolling string buffer; `+=` is O(1) amortized per token in
+  // V8 (rope concat), whereas array-push + join() rebuilds the full
+  // string on every flush (O(n²) over a streaming response).
+  const streamBufRef = useRef("");
   const streamTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const cancelledRef = useRef(false);
@@ -541,7 +612,7 @@ export function App({
   const historyDraftRef = useRef<{ value: string; cursor: number } | null>(null);
   const flushStream = useCallback(() => {
     if (!mountedRef.current) return;
-    setStreaming(streamChunksRef.current.join(""));
+    setStreaming(streamBufRef.current);
     streamTimerRef.current = null;
   }, []);
 
@@ -551,6 +622,9 @@ export function App({
       exitingRef.current = true;
       abortRef.current?.abort();
       savePetState(petStatsRef.current);
+      // Flush any debounced session write so resume captures the latest
+      // turn even if the user quits within the 800ms debounce window.
+      flushPersistSession();
       if (streamTimerRef.current !== null) {
         clearTimeout(streamTimerRef.current);
         streamTimerRef.current = null;
@@ -564,19 +638,22 @@ export function App({
       setRequestInFlight(false);
       setSynergyEvent(null);
       setExitMsg(msg);
-      exitTimerRef.current = setTimeout(() => exit(), 50);
+      replaceExitTimer(exitTimerRef, () => exit(), 50);
     },
-    [exit],
+    [exit, flushPersistSession],
   );
 
   const pushTokenToStream = useCallback(
-    (t: string) => {
-      streamChunksRef.current.push(t);
-      streamLengthRef.current += 1;
-      // First token bypasses the throttle so the user sees a character
-      // the instant it arrives; subsequent tokens batch on the 33ms
-      // cadence to keep React renders cheap.
-      if (streamLengthRef.current === 1) {
+    (t: string, immediate = false) => {
+      streamBufRef.current += t;
+      // Caller may force an immediate flush for the first token so the
+      // user sees a character the instant it arrives; subsequent tokens
+      // batch on the 33ms cadence to keep React renders cheap.
+      if (immediate) {
+        if (streamTimerRef.current !== null) {
+          clearTimeout(streamTimerRef.current);
+          streamTimerRef.current = null;
+        }
         flushStream();
         return;
       }
@@ -636,8 +713,7 @@ export function App({
       setThinking(pick(THINKING_LINES));
       setDeskStatus("idle");
       setDeskNotice(null);
-      streamChunksRef.current = [];
-      streamLengthRef.current = 0;
+      streamBufRef.current = "";
       setStreaming(null);
       let firstToken = true;
       abortRef.current = new AbortController();
@@ -656,11 +732,12 @@ export function App({
             : buildMessagesWithReminder(conversation),
           onToken: (t) => {
             if (!mountedRef.current || exitingRef.current) return;
+            const isFirst = firstToken;
             if (firstToken) {
               setThinking(null);
               firstToken = false;
             }
-            pushTokenToStream(t);
+            pushTokenToStream(t, isFirst);
           },
           signal: abortRef.current.signal,
           fetchFn,
@@ -865,10 +942,20 @@ export function App({
         return;
       }
       if (slashCommand === "/vibe") {
-        const result = applyVibe(petStatsRef.current);
-        applyPetAction("vibe", () => result.stats);
+        // Roll once outside the reducer so StrictMode's double-invoke
+        // takes the same branch both times. The reducer reads the latest
+        // committed stats so a racing decay tick can't be clobbered in
+        // the stats update. Message text is derived from the pre-action
+        // snapshot — in the rare race window where a decay tick lands
+        // between snapshot and dispatch, the message describes pre-decay
+        // stats while the committed stats reflect post-decay+vibe. Cost
+        // of a fully race-free message is a non-pure reducer, which is
+        // not worth it for a satirical chat affordance.
+        const roll = Math.random();
+        const { message: vibeMessage } = applyVibe(petStatsRef.current, roll);
+        applyPetAction("vibe", (stats) => applyVibe(stats, roll).stats);
         triggerPetActivity("vibing", 3500);
-        addItem("system", result.message);
+        addItem("system", vibeMessage);
         return;
       }
       if (slashCommand === "/name") {
@@ -1303,6 +1390,18 @@ export function App({
     return () => {
       mountedRef.current = false;
       abortRef.current?.abort();
+      if (persistDebouncer.hasPending()) {
+        // Flush any pending debounced write so the next launch sees
+        // the latest turn; best-effort, the promise is fire-and-forget.
+        persistDebouncer.cancel();
+        void saveSession(
+          buildSavedSession(
+            conversation,
+            conversation.systemPrompt,
+            config.model,
+          ),
+        ).catch(() => {});
+      }
       if (streamTimerRef.current !== null) {
         clearTimeout(streamTimerRef.current);
       }
@@ -1315,7 +1414,7 @@ export function App({
       requestInFlightRef.current = false;
       synergyActiveRef.current = false;
     };
-  }, []);
+  }, [conversation, config.model]);
 
   const isBusy =
     requestInFlight || streaming !== null || thinking !== null || synergyEvent !== null;

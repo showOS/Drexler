@@ -6,7 +6,12 @@ import {
   normalizeAssistantDisplayContent,
   type AssistantDisplayLine,
 } from "./displayContent.ts";
-import { displayWidth, fitDisplayText, splitGraphemes } from "./graphemes.ts";
+import {
+  displayWidth,
+  fitDisplayText,
+  graphemeWidth,
+  splitGraphemes,
+} from "./graphemes.ts";
 import { useTheme } from "./ThemeContext.tsx";
 
 export interface TranscriptViewportItem {
@@ -168,47 +173,68 @@ function wrapDisplayLine(input: string, maxWidth: number): string[] {
   if (displayWidth(input) <= width) return [input];
 
   const parts = splitGraphemes(input);
+  const widths = parts.map((part) => graphemeWidth(part));
+  const isSpace = parts.map((part) => /\s/u.test(part));
   const rows: string[] = [];
-  let current = "";
+
+  // [start, end) is the index range currently held in "current"; sumWidth caches its width.
+  let start = 0;
+  let end = 0;
+  let sumWidth = 0;
   let lastBreakAt = -1;
 
-  for (const part of parts) {
-    const next = `${current}${part}`;
-    if (displayWidth(next) <= width) {
-      current = next;
-      if (/\s/u.test(part)) lastBreakAt = current.length;
+  const sliceWidth = (from: number, to: number): number => {
+    let w = 0;
+    for (let j = from; j < to; j += 1) w += widths[j] ?? 0;
+    return w;
+  };
+
+  for (let i = 0; i < parts.length; i += 1) {
+    const w = widths[i] ?? 0;
+    if (sumWidth + w <= width) {
+      end = i + 1;
+      sumWidth += w;
+      if (isSpace[i]) lastBreakAt = end;
       continue;
     }
 
-    if (lastBreakAt > 0) {
-      const head = current.slice(0, lastBreakAt).trimEnd();
-      const tail = current.slice(lastBreakAt).trimStart();
-      rows.push(head);
-      current = `${tail}${part}`;
+    if (lastBreakAt > start) {
+      rows.push(parts.slice(start, lastBreakAt).join("").trimEnd());
+      let tailStart = lastBreakAt;
+      while (tailStart < end && isSpace[tailStart]) tailStart += 1;
+      start = tailStart;
+      end = i + 1;
+      sumWidth = sliceWidth(start, end);
     } else {
-      if (current.length > 0) rows.push(current);
-      current = part;
+      if (end > start) rows.push(parts.slice(start, end).join(""));
+      start = i;
+      end = i + 1;
+      sumWidth = w;
     }
-    lastBreakAt = /\s/u.test(part) ? current.length : -1;
+    lastBreakAt = isSpace[i] ? end : -1;
 
-    while (displayWidth(current) > width) {
-      let clipped = "";
-      for (const grapheme of splitGraphemes(current)) {
-        if (displayWidth(`${clipped}${grapheme}`) > width) break;
-        clipped += grapheme;
+    while (sumWidth > width) {
+      let clippedEnd = start;
+      let clippedWidth = 0;
+      for (let j = start; j < end; j += 1) {
+        const gw = widths[j] ?? 0;
+        if (clippedWidth + gw > width) break;
+        clippedWidth += gw;
+        clippedEnd = j + 1;
       }
-      if (clipped.length === 0) {
-        const [first = ""] = splitGraphemes(current);
-        rows.push(fitDisplayText(first, width));
-        current = current.slice(first.length);
+      if (clippedEnd === start) {
+        rows.push(fitDisplayText(parts[start] ?? "", width));
+        sumWidth -= widths[start] ?? 0;
+        start += 1;
         continue;
       }
-      rows.push(clipped);
-      current = current.slice(clipped.length);
+      rows.push(parts.slice(start, clippedEnd).join(""));
+      sumWidth -= clippedWidth;
+      start = clippedEnd;
     }
   }
 
-  rows.push(current.trimEnd());
+  rows.push(parts.slice(start, end).join("").trimEnd());
   return rows.filter((row, index) => row.length > 0 || index === 0);
 }
 
@@ -229,7 +255,38 @@ function displayLinesForItem(item: TranscriptViewportItem): AssistantDisplayLine
   return lines.slice(start, end);
 }
 
-function wrappedTranscriptLines(
+// Per-item wrap cache. Keyed on the ChatItem object reference (identity-stable
+// across renders — App.tsx only appends new ChatItem objects, never mutates
+// existing ones, so a settled item's wrap output is a pure function of
+// (role, contentWidth)). WeakMap auto-evicts when the item is dropped from
+// the transcript array and GC'd. Inner Map is LRU-bounded so a long
+// session of terminal resizes does not grow the per-item cache without
+// limit.
+const MAX_WIDTHS_PER_ITEM = 4;
+const wrapCache = new WeakMap<
+  TranscriptViewportItem,
+  Map<string, WrappedTranscriptLine[]>
+>();
+const itemRowsCache = new WeakMap<TranscriptViewportItem, Map<string, number>>();
+
+function lruGet<V>(map: Map<string, V>, key: string): V | undefined {
+  const value = map.get(key);
+  if (value === undefined) return undefined;
+  // Bump to most-recently-used: delete + re-insert moves to tail of insertion order.
+  map.delete(key);
+  map.set(key, value);
+  return value;
+}
+
+function lruSet<V>(map: Map<string, V>, key: string, value: V): void {
+  map.set(key, value);
+  if (map.size > MAX_WIDTHS_PER_ITEM) {
+    const oldest = map.keys().next().value;
+    if (oldest !== undefined) map.delete(oldest);
+  }
+}
+
+function computeWrappedTranscriptLines(
   item: TranscriptViewportItem,
   contentWidth: number,
 ): WrappedTranscriptLine[] {
@@ -244,6 +301,27 @@ function wrappedTranscriptLines(
       language: line.language,
     }));
   });
+}
+
+export function wrappedTranscriptLines(
+  item: TranscriptViewportItem,
+  contentWidth: number,
+): WrappedTranscriptLine[] {
+  // Key includes role for safety even though it is encoded in contentWidth
+  // (different roles have different body prefixes → different content widths).
+  // Including it explicitly avoids any chance of collision if two roles ever
+  // happen to produce the same contentWidth for a given cols.
+  const innerKey = `${item.role}|${contentWidth}`;
+  let perItem = wrapCache.get(item);
+  if (perItem === undefined) {
+    perItem = new Map();
+    wrapCache.set(item, perItem);
+  }
+  const cached = lruGet(perItem, innerKey);
+  if (cached !== undefined) return cached;
+  const computed = computeWrappedTranscriptLines(item, contentWidth);
+  lruSet(perItem, innerKey, computed);
+  return computed;
 }
 
 function tokenizeCodeLine(line: string): CodeToken[] {
@@ -319,7 +397,10 @@ export function estimateTranscriptRows(
   compact: boolean,
   cols: number,
 ): number {
-  return items.reduce((sum, item) => sum + itemRows(item, compact, cols), 0);
+  return items.reduce(
+    (sum, item) => sum + getCachedItemRows(item, compact, cols),
+    0,
+  );
 }
 
 function itemRows(
@@ -330,6 +411,26 @@ function itemRows(
   if (compact) return 1;
   const contentWidth = transcriptContentWidth(item.role, cols);
   return 2 + wrappedTranscriptLines(item, contentWidth).length;
+}
+
+function getCachedItemRows(
+  item: TranscriptViewportItem,
+  compact: boolean,
+  cols: number,
+): number {
+  let cache = itemRowsCache.get(item);
+  if (!cache) {
+    cache = new Map();
+    itemRowsCache.set(item, cache);
+  }
+
+  const key = `${compact ? "c" : "f"}-${cols}`;
+  const cached = lruGet(cache, key);
+  if (cached !== undefined) return cached;
+
+  const rows = itemRows(item, compact, cols);
+  lruSet(cache, key, rows);
+  return rows;
 }
 
 function roleAccentColor(
@@ -353,7 +454,7 @@ function rule(char: string, width: number): string {
   return char.repeat(Math.max(0, width));
 }
 
-function DefaultTranscriptItem({
+const DefaultTranscriptItem = memo(function DefaultTranscriptItem({
   item,
   compact,
   cols,
@@ -512,7 +613,7 @@ function DefaultTranscriptItem({
       </Text>
     </Box>
   );
-}
+});
 
 function childrenToEntries(children: ReactNode): TranscriptEntry[] {
   return Children.toArray(children).map((child, index) => ({
@@ -546,7 +647,7 @@ function itemsToEntries({
             maxRows={clipTo?.rows}
           />
         ),
-    estimatedRows: itemRows(item, compact, cols),
+    estimatedRows: getCachedItemRows(item, compact, cols),
   }));
 }
 

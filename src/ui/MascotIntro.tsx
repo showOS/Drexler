@@ -680,9 +680,9 @@ function MoodReadout({
   width: number;
 }) {
   const t = useTheme();
+  const postureSeed = useMemo(() => Math.floor(Math.random() * 1_000_000_000), []);
   if (!mood) return null;
 
-  const postureSeed = useMemo(() => Math.floor(Math.random() * 1_000_000_000), []);
   const boundedProgress = Math.max(0, Math.min(1, progress));
   const normalizedMood = mood.toUpperCase();
   const posture = moodPosture(mood, postureSeed);

@@ -65,15 +65,22 @@ export function assistantDisplayLines(content: string): AssistantDisplayLine[] {
   return output;
 }
 
-export function normalizeAssistantDisplayContent(content: string): string {
-  return assistantDisplayLines(content)
-    .map((line) => line.text)
-    .join("\n");
+export interface NormalizedAssistantContent {
+  compact: string;
+  markdownRender: string;
 }
 
-export function normalizeAssistantMarkdownRenderContent(content: string): string {
+/**
+ * Single-pass fence scan producing both the compact (fences-stripped)
+ * and markdown-render (code fences preserved, ``markdown`` fences stripped)
+ * forms of an assistant message. Hot path during LLM streaming, where
+ * the content grows ~33ms cadence; doing one pass instead of two halves
+ * the per-flush O(n) scan cost.
+ */
+export function normalizeAssistantBoth(content: string): NormalizedAssistantContent {
   const lines = content.replace(/\r\n?/gu, "\n").split("\n");
-  const output: string[] = [];
+  const compactOut: string[] = [];
+  const renderOut: string[] = [];
   let fenceChar = "";
   let fenceLength = 0;
   let fenceMarker = "";
@@ -83,13 +90,14 @@ export function normalizeAssistantMarkdownRenderContent(content: string): string
     const line = rawLine.replace(/\t/gu, TAB_DISPLAY);
     if (fenceChar.length > 0) {
       if (isFenceClose(line, fenceChar, fenceLength)) {
-        if (!markdownFence) output.push(fenceMarker);
+        if (!markdownFence) renderOut.push(fenceMarker);
         fenceChar = "";
         fenceLength = 0;
         fenceMarker = "";
         markdownFence = false;
       } else {
-        output.push(line);
+        compactOut.push(line);
+        renderOut.push(line);
       }
       continue;
     }
@@ -102,14 +110,26 @@ export function normalizeAssistantMarkdownRenderContent(content: string): string
       fenceLength = marker.length;
       fenceMarker = marker;
       markdownFence = isMarkdownFence(info);
-      if (!markdownFence) output.push(marker);
+      if (!markdownFence) renderOut.push(marker);
       continue;
     }
 
-    output.push(line);
+    compactOut.push(line);
+    renderOut.push(line);
   }
 
-  return output.join("\n");
+  return {
+    compact: compactOut.join("\n"),
+    markdownRender: renderOut.join("\n"),
+  };
+}
+
+export function normalizeAssistantDisplayContent(content: string): string {
+  return normalizeAssistantBoth(content).compact;
+}
+
+export function normalizeAssistantMarkdownRenderContent(content: string): string {
+  return normalizeAssistantBoth(content).markdownRender;
 }
 
 export function firstDisplayLine(content: string): string {
