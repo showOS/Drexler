@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.29
+
+- **Pet decay now suspend-aware**: closing the laptop no longer dodges hours of pet decay. The 60s tick switched from a fixed 1-minute subtraction to the existing elapsed-aware `applyDecay`, and `updatePetStats` stamps `lastSaved` on the in-memory copy so subsequent ticks measure from the right anchor.
+
 ## 0.2.28
 
 - **Conversation autosave + `--resume`**: every assistant turn writes the transcript to `~/.local/state/drexler/last-session.json` (atomic temp + rename, schema-versioned, 200-message ring). Launch with `--resume` to rehydrate the prior session into the freshly-built conversation.
