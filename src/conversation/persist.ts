@@ -10,6 +10,12 @@ const MAX_SAVED_MESSAGES = 200;
 const MIN_PREVIEW_LEN = 1;
 const MAX_PREVIEW_LEN = 200;
 
+// Serialize concurrent saves so the most recently scheduled call lands
+// last on disk. Without this, parallel rename() races mean a stale
+// payload from an earlier turn can clobber the latest turn at random.
+let saveQueue: Promise<void> = Promise.resolve();
+let tempCounter = 0;
+
 export interface SavedSession {
   version: number;
   savedAt: number;
@@ -79,12 +85,24 @@ export function loadSavedSession(): SavedSession | null {
 // Atomic write: temp + rename so a crash mid-save leaves the prior
 // session intact rather than truncated. Async so a ~25KB JSON write on
 // every turn doesn't block the Ink event loop — caller fires-and-forgets.
-export async function saveSession(session: SavedSession): Promise<void> {
+// All saves go through a FIFO queue so concurrent calls do not race on
+// rename(); the latest scheduled call always lands last on disk.
+export function saveSession(session: SavedSession): Promise<void> {
+  const next = saveQueue.then(() => writeSessionAtomic(session));
+  // Swallow rejections in the queue chain so one failure doesn't
+  // poison subsequent saves. Outer .catch keeps the public promise
+  // shape best-effort-style.
+  saveQueue = next.catch(() => undefined);
+  return next;
+}
+
+async function writeSessionAtomic(session: SavedSession): Promise<void> {
   try {
     const dir = stateDir();
     await mkdir(dir, { recursive: true, mode: 0o700 });
     const target = sessionFilePath();
-    const tmp = `${target}.tmp.${process.pid}.${Date.now()}`;
+    tempCounter = (tempCounter + 1) % Number.MAX_SAFE_INTEGER;
+    const tmp = `${target}.tmp.${process.pid}.${tempCounter}`;
     try {
       await writeFile(tmp, JSON.stringify(session, null, 0), {
         encoding: "utf-8",

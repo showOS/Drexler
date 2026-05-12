@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.32
+
+- **Persistence serialization**: `saveSession` calls now flow through a single FIFO queue. Concurrent saves used to race on `rename()` and a stale payload could clobber the latest turn; the queue guarantees the most recently scheduled save lands last on disk. New test asserts the contract under 20 parallel calls.
+- **App.tsx persist cleanup deps**: `writePersistNow` and the unmount cleanup effect read `conversation` and `model` through refs so their dep arrays stay `[]`. Avoids the cleanup firing on every model switch (`/model 26b`) and double-flushing the persist debouncer.
+- **`applyDecay` takes injectable `now`**: decay tick and any concurrent stamped action now share the same `Date.now()` anchor, so per-millisecond drift can't make them disagree on elapsed time. `updatePetStats` threads `now` through.
+- **Transcript cache consolidation**: wrap + row caches consolidated into a single `TranscriptItemCache` keyed on the `ChatItem` reference. Cache invalidates if a same-object mutation ever changes role/content (defensive — App.tsx still appends fresh items, never mutates). `TranscriptViewportItem` fields marked `readonly`.
+
 ## 0.2.31
 
 - **Reliability bundle (multi-pod patch set)**: 8 bugs + 8 perf fixes landed via the caveman queen/pods framework. Full audit + fix matrix in commit body.

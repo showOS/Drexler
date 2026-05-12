@@ -332,14 +332,24 @@ export function App({
   // collapses to one async write instead of N sync writes that would
   // block the Ink event loop.
   const persistDebouncer = useMemo(() => makeDebouncer(800), []);
+  const [model, setModel] = useState<string>(config.model);
+  const conversationRef = useRef(conversation);
+  const modelRef = useRef(model);
+  conversationRef.current = conversation;
+  modelRef.current = model;
   const writePersistNow = useCallback(() => {
+    const currentConversation = conversationRef.current;
     void saveSession(
-      buildSavedSession(conversation, conversation.systemPrompt, config.model),
+      buildSavedSession(
+        currentConversation,
+        currentConversation.systemPrompt,
+        modelRef.current,
+      ),
     ).catch(() => {
       // saveSession already swallows; defensive catch in case the
       // promise rejects before the internal try/catch runs.
     });
-  }, [conversation, config.model]);
+  }, []);
   const flushPersistSession = useCallback(() => {
     persistDebouncer.cancel();
     writePersistNow();
@@ -377,7 +387,6 @@ export function App({
   );
   const [exitMsg, setExitMsg] = useState<string | null>(null);
   const [witticism, setWitticism] = useState<string>(() => pick(WITTICISMS));
-  const [model, setModel] = useState<string>(config.model);
   const [apiKey, setApiKey] = useState<string>(config.apiKey);
   const [msgCount, setMsgCount] = useState<number>(0);
   const [deskStatus, setDeskStatus] = useState<"idle" | "error">("idle");
@@ -605,7 +614,7 @@ export function App({
   const cancelledRef = useRef(false);
   const requestInFlightRef = useRef(false);
   const synergyActiveRef = useRef(false);
-  const mountedRef = useRef(true);
+  const mountedRef = useRef(false);
   const exitingRef = useRef(false);
   const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const synergyTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -1387,18 +1396,20 @@ export function App({
   });
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       abortRef.current?.abort();
       if (persistDebouncer.hasPending()) {
         // Flush any pending debounced write so the next launch sees
         // the latest turn; best-effort, the promise is fire-and-forget.
+        const currentConversation = conversationRef.current;
         persistDebouncer.cancel();
         void saveSession(
           buildSavedSession(
-            conversation,
-            conversation.systemPrompt,
-            config.model,
+            currentConversation,
+            currentConversation.systemPrompt,
+            modelRef.current,
           ),
         ).catch(() => {});
       }
@@ -1414,7 +1425,7 @@ export function App({
       requestInFlightRef.current = false;
       synergyActiveRef.current = false;
     };
-  }, [conversation, config.model]);
+  }, []);
 
   const isBusy =
     requestInFlight || streaming !== null || thinking !== null || synergyEvent !== null;
