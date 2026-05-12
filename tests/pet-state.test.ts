@@ -5,8 +5,8 @@ import { join } from "node:path";
 import {
   accrueLifetimeDeals,
   actionCooldown,
+  applyDecay,
   applyFeed,
-  applyMinuteDecay,
   applyName,
   applyPlay,
   applyPraise,
@@ -138,7 +138,8 @@ describe("pet state", () => {
     expect(applyFeed(low).hunger).toBe(100);
     expect(applyRest(low).energy).toBe(100);
 
-    const decayed = applyMinuteDecay({
+    // applyDecay with lastSaved=now produces ~zero elapsed → bounds hold.
+    const decayed = applyDecay({
       hunger: 0.1,
       happiness: 0.1,
       energy: 0.1,
@@ -149,6 +150,25 @@ describe("pet state", () => {
     expect(decayed.happiness).toBeGreaterThanOrEqual(0);
     expect(decayed.energy).toBeGreaterThanOrEqual(0);
     expect(decayed.deals).toBeGreaterThanOrEqual(0);
+  });
+
+  test("applyDecay catches up the full elapsed window after a suspend", () => {
+    // Simulate an OS suspend: lastSaved set 5 hours in the past.
+    const fiveHoursAgo = Date.now() - 5 * 3_600_000;
+    const decayed = applyDecay({
+      hunger: 80,
+      happiness: 80,
+      energy: 80,
+      deals: 80,
+      lastSaved: fiveHoursAgo,
+    });
+    // DECAY_PER_HOUR.hunger = 15 → 75 over 5h → 80 - 75 = 5.
+    expect(decayed.hunger).toBeCloseTo(5, 0);
+    // DECAY_PER_HOUR.happiness = 8 → 40 → 80 - 40 = 40.
+    expect(decayed.happiness).toBeCloseTo(40, 0);
+    // lastSaved is re-stamped so the next tick measures from now.
+    expect(decayed.lastSaved).toBeGreaterThanOrEqual(fiveHoursAgo);
+    expect(Date.now() - decayed.lastSaved).toBeLessThan(1_000);
   });
 
   test("applyPlay boosts happiness, costs energy, nudges deals", () => {
