@@ -35,10 +35,17 @@ const BROKEN_OFFICE_SEAMS = [
   "pipel╭",
   "╭─eFILE",
   "═║ $$ ║═",
+  "CITY WINDOW",
+  "calendar clear",
+  "market wall",
   "deal-room carpet shadow",
   " glow",
   "glow ",
   "╰────────╯╮",
+  "DREXLER DEAL DESPIPE",
+  "┄┄┄┄┄┄┄┄┄┄┄┄",
+  "[IN]",
+  "[OUT]",
 ] as const;
 
 function renderScene(
@@ -97,7 +104,7 @@ describe("PetScene", () => {
     expect(rendered).toContain("│9  ─┼─ 3 │");
     expect(rendered).toContain("DREXLER MARKETS");
     expect(rendered).toContain("BTC 67842");
-    expect(rendered).toContain("CITY WINDOW");
+    expect(rendered).toContain("╭──╮");
     expect(rendered).toMatch(/\d{2}:\d{2}/);
     expect(rendered).toContain("▐█▌");
     expect(rendered).toContain("▐░▌");
@@ -105,7 +112,6 @@ describe("PetScene", () => {
     expect(rendered).toContain("memo");
     expect(rendered).toContain("▄ ▄ ▄");
     expect(rendered).toContain("DREXLER DEAL DESK");
-    expect(rendered).toContain("market wall");
     expect(rendered).toContain("╰────┬────╯");
     expect(rendered).toContain("░░░░░░");
     expect(rendered).toContain("╭──────╮");
@@ -191,10 +197,10 @@ describe("PetScene", () => {
     [118, true, true],
   ] as const)(
     "switches responsive office layout cleanly at %d columns",
-    (width, expectCity, expectStatus) => {
+    (width, expectWindow, expectStatus) => {
       const rendered = renderScene("working", "home", statsCases[0]!, width);
 
-      expect(rendered.includes("CITY WINDOW")).toBe(expectCity);
+      expect(rendered.includes("╭──╮")).toBe(expectWindow);
       expect(rendered.includes("STATUS")).toBe(expectStatus);
       expectNoLegacyArtifacts(rendered);
       expectNoBrokenOfficeSeams(rendered);
