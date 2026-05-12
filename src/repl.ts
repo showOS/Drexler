@@ -108,7 +108,7 @@ async function streamFromHistory(
         abort.abort();
       }
     };
-    process.stdin.on("keypress", escListener);
+    process.stdin.addListener("keypress", escListener);
   }
 
   const onToken = (t: string) => {
@@ -136,7 +136,9 @@ async function streamFromHistory(
       fetchFn: deps.fetchFn,
     });
   } finally {
-    if (escListener) process.stdin.off("keypress", escListener);
+    if (escListener && process.stdin.isTTY) {
+      process.stdin.removeListener("keypress", escListener);
+    }
   }
 
   if (firstToken) spinner.stop();

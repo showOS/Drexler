@@ -407,10 +407,6 @@ export function App({
   }, []);
   const updatePetStats = useCallback((updater: (stats: PetStats) => PetStats) => {
     setPetStats((stats) => {
-      // Stamp lastSaved on the in-memory copy too. savePetState already
-      // writes Date.now() to disk; mirroring it here keeps the in-memory
-      // ref in sync so the next applyDecay tick measures elapsed time
-      // from the correct anchor — critical for resume after OS suspend.
       const next = { ...updater(stats), lastSaved: Date.now() };
       petStatsRef.current = next;
       savePetState(next);
@@ -419,12 +415,13 @@ export function App({
   }, []);
   const applyPetAction = useCallback(
     (action: PetActionKey, mutator: (stats: PetStats) => PetStats) => {
-      const before = getPetRank(petStatsRef.current);
-      updatePetStats((s) => {
-        const next = stampAction(mutator(s), action);
-        return accrueLifetimeDeals(next, action);
-      });
-      const after = getPetRank(petStatsRef.current);
+      const currentStats = petStatsRef.current;
+      const before = getPetRank(currentStats);
+      const next = accrueLifetimeDeals(stampAction(mutator(currentStats), action), action);
+      const after = getPetRank(next);
+      
+      updatePetStats(() => next);
+      
       if (after !== before) {
         addItem(
           "system",
@@ -442,10 +439,6 @@ export function App({
   // Real-time stat decay matches the offline per-hour decay rate.
   useEffect(() => {
     petDecayTimerRef.current = setInterval(() => {
-      // applyDecay computes the exact delta since stats.lastSaved.
-      // During an active session it acts like a 1-minute tick; after
-      // an OS suspend the first wake-up tick catches up the full
-      // multi-hour gap instead of losing it.
       updatePetStats(applyDecay);
     }, 60_000);
     return () => {

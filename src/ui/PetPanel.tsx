@@ -22,17 +22,17 @@ export const PET_SCENE_ROWS = 32;
 const SCENE_ROWS = PET_SCENE_ROWS;
 // Row map for the animated trading-office scene.
 // 0      title bar  (DREXLER OFFICE · stat readout)
-// 1-5    analog wall clock
-// 6-12   city window and DREXLER MARKETS board
-// 14     wall rail / office status line
+// 1-6    wall-mounted analog clock
+// 7-13   city window and DREXLER MARKETS board
+// 15     wall rail / office status line
 // 16-22  Drexler mascot midground
 // 22-29  foreground desk and props. This intentionally overlaps the
 //        lower mascot rows so Drexler reads as seated behind the desk.
 const R_TITLE = 0;
 const R_CLOCK_TOP = 1;
-const R_BOARD_TOP = 6;
+const R_BOARD_TOP = 7;
 const R_WIN_TOP = R_BOARD_TOP;
-const R_WALL_RAIL = 14;
+const R_WALL_RAIL = 15;
 const R_MASCOT_START = 16;
 const R_DESK_LINE = R_MASCOT_START + BRIEFCASE_FINAL.length - 1;
 const R_DESK_PROPS = R_DESK_LINE + 1;
@@ -80,6 +80,7 @@ type SceneState =
 type StyleToken =
   | "background"
   | "primaryLine"
+  | "deskLine"
   | "secondaryLine"
   | "drexlerOutline"
   | "chartGrid"
@@ -310,6 +311,19 @@ function boxContent(width: number, text: string): string {
   return `│${padDisplayText(text, Math.max(1, width - 2))}│`;
 }
 
+function rightAlignedText(width: number, left: string, right: string, fill = " "): string {
+  const safeWidth = Math.max(1, width);
+  const safeRight = fitDisplayText(right, safeWidth);
+  const leftBudget = Math.max(0, safeWidth - displayWidth(safeRight));
+  const safeLeft = fitDisplayText(left, leftBudget);
+  const fillWidth = Math.max(0, safeWidth - displayWidth(safeLeft) - displayWidth(safeRight));
+  return `${safeLeft}${fill.repeat(fillWidth)}${safeRight}`;
+}
+
+function boxContentParts(width: number, left: string, right: string, fill = " "): string {
+  return `│${rightAlignedText(Math.max(1, width - 2), left, right, fill)}│`;
+}
+
 function mascotStateForActivity(activity: PetActivity, frame: number): MascotState {
   switch (activity) {
     case "eating":
@@ -392,7 +406,8 @@ function analogClockLines(frame: number): string[] {
     "│   12    │",
     `│${hand}│`,
     "│    6    │",
-    "╰─────────╯",
+    "╰────┬────╯",
+    "     │     ",
   ];
 }
 
@@ -436,17 +451,17 @@ function cityWindowLines(width: number, frame: number): string[] {
       boxTop(width, "CITY WINDOW"),
       boxContent(width, `╭──╮ ${sun}`),
       boxContent(width, `│╥╥│ ${skyline}`),
-      boxContent(width, "│▒▒│ lights"),
-      boxContent(width, "╰──╯ tape"),
+      boxContent(width, "│▒▒│ ┄┄"),
+      boxContent(width, "╰──╯ ▁▁"),
       boxBottom(width),
     ];
   }
   return [
     boxTop(width, "CITY WINDOW"),
     boxContent(width, `╭──╮ ╭──╮  ${sun} ${cloud}`),
-    boxContent(width, `│╥╥│ │╤╤│  ${skyline} city`),
-    boxContent(width, "│▒▒│ │░░│  lights"),
-    boxContent(width, "╰──╯ ╰──╯  tape"),
+    boxContent(width, `│╥╥│ │╤╤│    ${skyline}`),
+    boxContent(width, "│▒▒│ │░░│  ┄┄┄┄"),
+    boxContent(width, "╰──╯ ╰──╯  ▁▁▁▁"),
     boxBottom(width),
   ];
 }
@@ -459,30 +474,30 @@ function marketBoardLines(
 ): string[] {
   const status = activityStatusToken(activity, frame);
   const candleA = frame % 4 < 2 ? "▐█▌" : "▐░▌";
-  const candleB = activity === "praised" ? "▐█▌" : "▐░▌";
+  const candleB = activity === "praised" ? "▐█▌" : frame % 5 < 3 ? "▐░▌" : "▐█▌";
+  const candleC = activity === "working" ? "▐█▌" : "▐░▌";
   const finalCandle = activity === "praised" ? "▐█▌" : frame % 6 < 3 ? "▐█▌" : "▐░▌";
   const fee = Math.max(40, Math.min(99, Math.round((stats.happiness + stats.deals) / 2)));
-  const chartSuffix = `${candleA} ${candleB} ${finalCandle}`;
   const chartLabel = boardTapeLabel(activity, frame);
-  const footerBudget = Math.max(1, width - 2 - displayWidth(chartSuffix) - 12);
-  const footer = `09:00 ${fitDisplayText(chartLabel, footerBudget)} 14:00 ${chartSuffix}`;
-  const grid = "┄".repeat(Math.max(4, Math.min(14, width - 39)));
+  const chartA = `│ ${candleA} │ ${candleB} ${finalCandle}`;
+  const chartB = `${candleB} │ ${candleA} ${candleC} │`;
+  const chartC = `┄┄ ${candleC} ${candleB} ${finalCandle}`;
   const narrow = width < 52;
   return [
     boxTop(width, "DREXLER MARKETS"),
-    boxContent(width, narrow
-      ? `DREX ▲ 3.17%  ${clockFromFrame(frame)}  ${status}`
-      : `DREX 0.8421 ▲ 3.17%     DEMO ${clockFromFrame(frame)}  ${status}`),
-    boxContent(width, narrow
-      ? `BTC 67842  FEE ${fee}%  ${grid} 69000`
-      : `BTC 67842  ▲ 1.25%   FEE ${fee}% ${grid} 69000`),
-    boxContent(width, narrow
-      ? `ETH  3241     │   ${candleA} 68000`
-      : `ETH  3241  ▲ 0.82%       │      ${candleA} 68000`),
-    boxContent(width, narrow
-      ? `SOL   157  ${candleB} │ ${finalCandle} 67000`
-      : `SOL   157  ▲ 2.11%   ${candleB} │ ${finalCandle} ${candleA} 67000`),
-    boxContent(width, footer),
+    narrow
+      ? boxContent(width, `DREX ▲ 3.17%  ${clockFromFrame(frame)} ${status}`)
+      : boxContentParts(width, "DREX 0.8421 ▲ 3.17%", `DEMO ${clockFromFrame(frame)}  ${status}`),
+    narrow
+      ? boxContent(width, `BTC 67842 FEE ${fee}% ┄┄ 69000`)
+      : boxContentParts(width, `BTC 67842 ▲ 1.25%  FEE ${fee}%`, "┄┄┄┄┄┄┄┄┄ 69000", "┄"),
+    narrow
+      ? boxContent(width, `ETH 3241  │ ${candleA} 68000`)
+      : boxContentParts(width, "ETH  3241 ▲ 0.82%", `${chartA} 68000`, "┄"),
+    narrow
+      ? boxContent(width, `SOL  157 ${candleB}│${finalCandle} 67000`)
+      : boxContentParts(width, "SOL   157 ▲ 2.11%", `${chartB} 67000`, "┄"),
+    boxContentParts(width, `09:00  ${chartLabel}`, `13:00  ${chartC} 14:00`, "┄"),
     boxBottom(width),
   ];
 }
@@ -507,14 +522,14 @@ function boardTapeLabel(activity: PetActivity, frame: number): string {
 }
 
 function lampLines(activity: PetActivity, frame: number): string[] {
-  const glow = activity === "sleeping" ? " dim " : frame % 6 < 3 ? " glow" : "glow ";
+  const rays = activity === "sleeping" ? "    │    " : frame % 6 < 3 ? "   ╲│╱   " : "   ╱│╲   ";
   return [
-    "   ╲│╱   ",
+    rays,
     "  ╭───╮  ",
     " ╭╯   ╰╮ ",
     " ╰──┬──╯ ",
     "    │    ",
-    `  ${fitDisplayText(glow, 5)}  `,
+    "   ═╧═   ",
   ];
 }
 
@@ -539,7 +554,7 @@ function statusCardLines(width: number, activity: PetActivity, frame: number, st
 function fileCabinetLines(frame: number): string[] {
   const tab = frame % 4 < 2 ? "╞" : "├";
   return [
-    "╭─ FILE ─╮",
+    "╭────────╮",
     "│ ▤▤▤▤   │",
     `${tab}────────┤`,
     "│ ▤▤▤▤   │",
@@ -555,7 +570,7 @@ function wallRailLine(width: number, activity: PetActivity, frame: number): stri
     : activity === "praised"
     ? "memo cleared"
     : "calendar clear";
-  return centerText("─".repeat(width), ` ${status} · office quiet · covenant wall `);
+  return centerText("─".repeat(width), ` ${status} · office quiet · market wall `);
 }
 
 function deskJoinLine(width: number, leftCorner: string, midA: string, midB: string, rightCorner: string): string {
@@ -564,11 +579,37 @@ function deskJoinLine(width: number, leftCorner: string, midA: string, midB: str
   const left = Math.max(4, Math.floor(usable * 0.24));
   const mid = Math.max(8, Math.floor(usable * 0.42));
   const right = Math.max(1, usable - left - mid);
-  return `${leftCorner}${"═".repeat(left)}${midA}${"═".repeat(mid)}${midB}${"═".repeat(right)}${rightCorner}`;
+  return `${leftCorner}${"─".repeat(left)}${midA}${"─".repeat(mid)}${midB}${"─".repeat(right)}${rightCorner}`;
 }
 
 function deskContent(width: number, text = ""): string {
-  return `║${padDisplayText(text, Math.max(1, width - 2))}║`;
+  return `│${padDisplayText(text, Math.max(1, width - 2))}│`;
+}
+
+function deskDrawerLine(width: number): string {
+  const inner = Math.max(1, width - 2);
+  const row = blankRow(inner);
+  const drawer = "╭──────╮";
+  const a = Math.max(1, Math.floor(inner * 0.2) - Math.floor(drawer.length / 2));
+  const b = Math.max(1, Math.floor(inner * 0.8) - Math.floor(drawer.length / 2));
+  return `│${place(place(row, drawer, a), drawer, b)}│`;
+}
+
+function deskFasciaLine(width: number, center: string): string {
+  const inner = Math.max(1, width - 2);
+  let row = blankRow(inner);
+  const left = "[IN]";
+  const right = "[OUT]";
+  const sideBudget = displayWidth(left) + displayWidth(right) + 6;
+  const fittedCenter = fitDisplayText(center, Math.max(1, inner - sideBudget));
+  row = place(row, left, 1);
+  row = place(
+    row,
+    fittedCenter,
+    Math.max(1, Math.floor((inner - displayWidth(fittedCenter)) / 2)),
+  );
+  row = place(row, right, Math.max(0, inner - displayWidth(right) - 1));
+  return `│${row}│`;
 }
 
 function deskBaseLines(width: number, stats: PetStats, activity: PetActivity): string[] {
@@ -577,25 +618,24 @@ function deskBaseLines(width: number, stats: PetStats, activity: PetActivity): s
   const close = activity === "praised" ? "COMPOUND" : activity === "working" ? "EXEC" : "WATCH";
   const pipe = Math.round(stats.deals);
   const fascia = width < 64
-    ? ` [IN] │ DREXLER DESK │ PIPE ${pipe}% │ [OUT] `
+    ? `DREXLER DESK │ PIPE ${pipe}%`
     : width < 84
-    ? ` [IN] │ DREXLER DEAL DESK │ PIPE ${pipe}% │ COV ${covenants} │ [OUT] `
-    : ` [IN] │ DREXLER DEAL DESK │ PIPE ${pipe}% │ COV ${covenants} │ ${close} │ [OUT] `;
+    ? `DREXLER DEAL DESK │ PIPE ${pipe}% │ COV ${covenants}`
+    : `DREXLER DEAL DESK │ PIPE ${pipe}% │ COV ${covenants} │ ${close}`;
   return [
-    `╔${"═".repeat(inner)}╗`,
+    `╭${"─".repeat(inner)}╮`,
     deskContent(width),
     deskContent(width),
     deskContent(width),
-    deskContent(width),
-    deskJoinLine(width, "╠", "╦", "╦", "╣"),
-    deskContent(width, fascia),
-    deskJoinLine(width, "╚", "╩", "╩", "╝"),
+    deskDrawerLine(width),
+    deskJoinLine(width, "├", "┬", "┬", "┤"),
+    deskFasciaLine(width, fascia),
+    deskJoinLine(width, "╰", "┴", "┴", "╯"),
   ];
 }
 
 function floorShadowLines(width: number): string[] {
-  const label = "deal-room carpet shadow";
-  const shadow = `░░░░░░  ${label}  ░░░░░░`;
+  const shadow = "░░░░░░        ░░░░░░        ░░░░░░";
   return [
     centerText(blankRow(width), shadow),
     centerText(blankRow(width), "▁▁▁▁        ▁▁▁▁        ▁▁▁▁"),
@@ -770,7 +810,7 @@ function buildOfficeScene(
       "status:card",
       30,
       Math.max(1, width - 21),
-      R_MASCOT_START - 1,
+      R_MASCOT_START + 1,
       statusCardLines(20, activity, frame, stats),
       "statusAccent",
     ));
@@ -804,7 +844,7 @@ function buildOfficeScene(
     deskX,
     R_DESK_LINE,
     deskBaseLines(deskWidth, stats, activity),
-    "primaryLine",
+    "deskLine",
     false,
   ));
 
@@ -910,6 +950,8 @@ function colorForStyleToken(
       return t.primaryDim;
     case "primaryLine":
       return t.text;
+    case "deskLine":
+      return t.primaryDim;
     case "drexlerOutline":
       if (activity === "sleeping") return t.dim;
       if (activity === "praised") return t.primaryLight;
