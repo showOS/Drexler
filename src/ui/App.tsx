@@ -4,7 +4,7 @@ import {
   accrueLifetimeDeals,
   actionCooldown,
   applyFeed,
-  applyMinuteDecay,
+  applyDecay,
   applyName,
   applyPlay,
   applyPraise,
@@ -407,7 +407,11 @@ export function App({
   }, []);
   const updatePetStats = useCallback((updater: (stats: PetStats) => PetStats) => {
     setPetStats((stats) => {
-      const next = updater(stats);
+      // Stamp lastSaved on the in-memory copy too. savePetState already
+      // writes Date.now() to disk; mirroring it here keeps the in-memory
+      // ref in sync so the next applyDecay tick measures elapsed time
+      // from the correct anchor — critical for resume after OS suspend.
+      const next = { ...updater(stats), lastSaved: Date.now() };
       petStatsRef.current = next;
       savePetState(next);
       return next;
@@ -438,7 +442,11 @@ export function App({
   // Real-time stat decay matches the offline per-hour decay rate.
   useEffect(() => {
     petDecayTimerRef.current = setInterval(() => {
-      updatePetStats(applyMinuteDecay);
+      // applyDecay computes the exact delta since stats.lastSaved.
+      // During an active session it acts like a 1-minute tick; after
+      // an OS suspend the first wake-up tick catches up the full
+      // multi-hour gap instead of losing it.
+      updatePetStats(applyDecay);
     }, 60_000);
     return () => {
       if (petDecayTimerRef.current !== null) {

@@ -146,7 +146,13 @@ function safeTimestamp(value: unknown): number {
     : Date.now();
 }
 
-function applyDecay(stats: PetStats): PetStats {
+// Decay over (now - stats.lastSaved). Works the same on a 1-minute
+// tick during an active session and on resume after a multi-hour OS
+// suspend — both cases compute the exact delta since the timestamp
+// was last bumped. Callers must always re-stamp lastSaved when
+// committing the new stats so the next call sees the correct elapsed
+// window.
+export function applyDecay(stats: PetStats): PetStats {
   const elapsed = Math.max(0, (Date.now() - stats.lastSaved) / 3_600_000);
   return {
     ...stats,
@@ -319,16 +325,6 @@ export function applyRest(stats: PetStats): PetStats {
   };
 }
 
-export function applyMinuteDecay(stats: PetStats): PetStats {
-  const rate = 1 / 60;
-  return {
-    ...stats,
-    hunger: clamp(stats.hunger - DECAY_PER_HOUR.hunger * rate),
-    happiness: clamp(stats.happiness - DECAY_PER_HOUR.happiness * rate),
-    energy: clamp(stats.energy - DECAY_PER_HOUR.energy * rate),
-    deals: clamp(stats.deals - DECAY_PER_HOUR.deals * rate),
-  };
-}
 
 export function isPetDead(stats: PetStats): boolean {
   return stats.hunger <= 0 || stats.happiness <= 0 || stats.energy <= 0;
