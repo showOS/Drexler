@@ -64,11 +64,11 @@ describe("conversation persist", () => {
     expect(saved.messages[0]?.content).toBe("hello");
   });
 
-  test("saveSession + loadSavedSession round-trip", () => {
+  test("saveSession + loadSavedSession round-trip", async () => {
     const conv = new Conversation("SYS", 10);
     conv.push("user", "u1");
     conv.push("assistant", "a1");
-    saveSession(buildSavedSession(conv, "SYS"));
+    await saveSession(buildSavedSession(conv, "SYS"));
     expect(hasSavedSession()).toBe(true);
     const loaded = loadSavedSession();
     expect(loaded).not.toBeNull();
@@ -115,10 +115,10 @@ describe("conversation persist", () => {
     expect(loaded!.messages).toEqual([{ role: "user", content: "good" }]);
   });
 
-  test("clearSavedSession removes the file", () => {
+  test("clearSavedSession removes the file", async () => {
     const conv = new Conversation("SYS", 10);
     conv.push("user", "u");
-    saveSession(buildSavedSession(conv, "SYS"));
+    await saveSession(buildSavedSession(conv, "SYS"));
     expect(hasSavedSession()).toBe(true);
     clearSavedSession();
     expect(hasSavedSession()).toBe(false);

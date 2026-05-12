@@ -1,11 +1,5 @@
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { mkdir, rename, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Conversation } from "../conversation.ts";
@@ -83,22 +77,23 @@ export function loadSavedSession(): SavedSession | null {
 }
 
 // Atomic write: temp + rename so a crash mid-save leaves the prior
-// session intact rather than truncated.
-export function saveSession(session: SavedSession): void {
+// session intact rather than truncated. Async so a ~25KB JSON write on
+// every turn doesn't block the Ink event loop — caller fires-and-forgets.
+export async function saveSession(session: SavedSession): Promise<void> {
   try {
     const dir = stateDir();
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
+    await mkdir(dir, { recursive: true, mode: 0o700 });
     const target = sessionFilePath();
     const tmp = `${target}.tmp.${process.pid}.${Date.now()}`;
     try {
-      writeFileSync(tmp, JSON.stringify(session, null, 0), {
+      await writeFile(tmp, JSON.stringify(session, null, 0), {
         encoding: "utf-8",
         mode: 0o600,
       });
-      renameSync(tmp, target);
+      await rename(tmp, target);
     } catch (err) {
       try {
-        unlinkSync(tmp);
+        await unlink(tmp);
       } catch {}
       throw err;
     }

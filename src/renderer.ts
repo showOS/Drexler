@@ -14,9 +14,11 @@ export function getColors() {
 // fall back to dim raw text on the off-chance a code block renders pre-load.
 type HighlightFn = (code: string, opts: { language?: string; ignoreIllegals?: boolean }) => string;
 let highlightFn: HighlightFn | null = null;
-void import("cli-highlight").then((m) => {
-  highlightFn = m.highlight as HighlightFn;
-});
+void import("cli-highlight")
+  .then((m) => {
+    highlightFn = m.highlight as HighlightFn;
+  })
+  .catch(() => {});
 
 function highlightCodeBlock(code: string, lang: string | undefined): string {
   let body: string;
@@ -125,35 +127,55 @@ function gradientHexAt(t: number): string {
   return lerpHex(theme.primary, theme.primaryLight, (t - 0.5) * 2);
 }
 
-function colorBannerLine(line: string, rowIndex: number, totalRows: number): string {
+type BannerStyler = ((s: string) => string) | null;
+
+// Precompute the diagonal gradient as a 1-D array of chalk stylers indexed by
+// (row + col). Eliminates per-glyph gradientHexAt/lerp/regex on banner render.
+function buildBannerPalette(totalRows: number, maxCols: number): BannerStyler[] {
   const theme = getActiveTheme();
-  if (theme.ansi) {
+  if (theme.ansi) return [];
+  const len = totalRows + maxCols - 1;
+  const denom = Math.max(1, len - 1);
+  const palette: BannerStyler[] = new Array(len);
+  for (let k = 0; k < len; k++) {
+    palette[k] = chalk.hex(gradientHexAt(k / denom));
+  }
+  return palette;
+}
+
+function colorBannerLine(
+  line: string,
+  rowIndex: number,
+  palette: BannerStyler[],
+): string {
+  if (palette.length === 0) {
     // Mono / no-color theme — skip gradient; just print the line.
     return line;
   }
   const cols = line.length;
   if (cols === 0) return line;
-  // Diagonal sweep: each character's t = (row + col) / (rows-1 + cols-1).
-  // Interpolates RGB per-glyph for a smooth blended look across both axes.
-  const denom = Math.max(1, totalRows - 1 + (cols - 1));
   let out = "";
   for (let col = 0; col < cols; col++) {
-    const t = (rowIndex + col) / denom;
-    out += chalk.hex(gradientHexAt(t))(line[col] as string);
+    const style = palette[rowIndex + col];
+    out += style ? style(line[col] as string) : (line[col] as string);
   }
   return out;
 }
 
 export function banner(): string {
   const total = BANNER_LINES.length;
-  return BANNER_LINES.map((l, i) => colorBannerLine(l, i, total)).join("\n");
+  const maxCols = BANNER_LINES.reduce((m, l) => Math.max(m, l.length), 0);
+  const palette = buildBannerPalette(total, maxCols);
+  return BANNER_LINES.map((l, i) => colorBannerLine(l, i, palette)).join("\n");
 }
 
 export async function typewriterBanner(delayMs = 60): Promise<void> {
   const total = BANNER_LINES.length;
+  const maxCols = BANNER_LINES.reduce((m, l) => Math.max(m, l.length), 0);
+  const palette = buildBannerPalette(total, maxCols);
   for (let i = 0; i < total; i++) {
     const line = BANNER_LINES[i] ?? "";
-    process.stdout.write(colorBannerLine(line, i, total) + "\n");
+    process.stdout.write(colorBannerLine(line, i, palette) + "\n");
     await new Promise((r) => setTimeout(r, delayMs));
   }
 }
@@ -360,6 +382,20 @@ export function startSpinner(label?: string): Spinner {
     return { stop: () => {} };
   }
   process.stdout.write("\x1b[?25l");
+  // Ensure cursor is restored if the process is killed mid-stream. This is
+  // the readline/non-Ink spinner path — the Ink app uses its own spinner.
+  const restoreCursor = () => {
+    try {
+      process.stdout.write("\x1b[?25h");
+    } catch {}
+  };
+  const onSigint = () => {
+    restoreCursor();
+    process.removeListener("exit", restoreCursor);
+    if (process.listenerCount("SIGINT") === 0) process.exit(130);
+  };
+  process.once("SIGINT", onSigint);
+  process.once("exit", restoreCursor);
   const render = () => {
     const frame = SPINNER_FRAMES[i++ % SPINNER_FRAMES.length] ?? "·";
     const c = getColors();
@@ -371,6 +407,8 @@ export function startSpinner(label?: string): Spinner {
     stop: () => {
       clearInterval(timer);
       process.stdout.write("\r\x1b[2K\x1b[?25h");
+      process.removeListener("SIGINT", onSigint);
+      process.removeListener("exit", restoreCursor);
     },
   };
 }

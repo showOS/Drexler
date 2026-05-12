@@ -302,20 +302,27 @@ function overlayCellLine(
 }
 
 function composeSceneCells(scene: Scene, timeline: AnimationTimeline): StyledCell[][] {
-  const rows = Array.from({ length: scene.height }, () => blankCellRow(scene.width));
-  const sprites = [...scene.sprites].sort((a, b) => {
-    if (a.zIndex !== b.zIndex) return a.zIndex - b.zIndex;
-    return a.id.localeCompare(b.id);
-  });
+  const { width, height } = scene;
+  const rows: StyledCell[][] = new Array(height);
+  for (let r = 0; r < height; r++) {
+    const row: StyledCell[] = new Array(width);
+    for (let c = 0; c < width; c++) {
+      row[c] = { glyph: " ", styleToken: "background" };
+    }
+    rows[r] = row;
+  }
 
-  for (const sprite of sprites) {
+  // sprites are pre-sorted by buildOfficeScene (zIndex, then id); do not re-sort here.
+  const sprites = scene.sprites;
+  for (let s = 0; s < sprites.length; s++) {
+    const sprite = sprites[s]!;
     if (sprite.visibility && !sprite.visibility(timeline)) continue;
     const lines = frameForSprite(sprite, timeline);
     for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
       const rowIdx = sprite.y + lineIdx;
-      if (rowIdx < 0 || rowIdx >= rows.length) continue;
+      if (rowIdx < 0 || rowIdx >= height) continue;
       overlayCellLine(
-        rows[rowIdx] ?? blankCellRow(scene.width),
+        rows[rowIdx] ?? blankCellRow(width),
         lines[lineIdx] ?? "",
         sprite.x,
         sprite.styleToken,
@@ -995,6 +1002,11 @@ function buildOfficeScene(
     floorShadowLines(width),
     "background",
   ));
+
+  sprites.sort((a, b) => {
+    if (a.zIndex !== b.zIndex) return a.zIndex - b.zIndex;
+    return a.id.localeCompare(b.id);
+  });
 
   return { width, height: SCENE_ROWS, sprites };
 }
