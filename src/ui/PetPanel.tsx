@@ -7,7 +7,7 @@ import {
   renderMascotLines,
   type MascotState,
 } from "./MascotFrame.tsx";
-import { displayWidth, fitDisplayText } from "./graphemes.ts";
+import { displayWidth, fitDisplayText, splitGraphemes } from "./graphemes.ts";
 import { useTheme } from "./ThemeContext.tsx";
 import { type Theme } from "./themes.ts";
 
@@ -18,24 +18,25 @@ export type Environment = "office" | "home" | "outdoors";
 
 const PANEL_BORDER_COLUMNS = 2;
 const PANEL_PADDING_COLUMNS = 2;
-const SCENE_ROWS = 20;
+export const PET_SCENE_ROWS = 32;
+const SCENE_ROWS = PET_SCENE_ROWS;
 // Row map for the animated trading-office scene.
 // 0      title bar  (DREXLER OFFICE · stat readout)
-// 1-6    background wall, city window, and DREXLER MARKETS board
-// 8-14   Drexler mascot midground
-// 14-19  foreground desk and props. This intentionally overlaps the
+// 1-5    analog wall clock
+// 6-12   city window and DREXLER MARKETS board
+// 14     wall rail / office status line
+// 16-22  Drexler mascot midground
+// 22-29  foreground desk and props. This intentionally overlaps the
 //        lower mascot rows so Drexler reads as seated behind the desk.
 const R_TITLE = 0;
-const R_WIN_TOP = 1;
-const R_WIN_SKY = 2;
-const R_WIN_TOPS = 3;
-const R_WIN_MID = 4;
-const R_WIN_BASE = 5;
-const R_WIN_BOTTOM = 6;
-const R_MASCOT_START = 8;
+const R_CLOCK_TOP = 1;
+const R_BOARD_TOP = 6;
+const R_WIN_TOP = R_BOARD_TOP;
+const R_WALL_RAIL = 14;
+const R_MASCOT_START = 16;
 const R_DESK_LINE = R_MASCOT_START + BRIEFCASE_FINAL.length - 1;
 const R_DESK_PROPS = R_DESK_LINE + 1;
-const R_MEMO = R_DESK_LINE + 5;
+const R_FLOOR_SHADOW = SCENE_ROWS - 2;
 
 export const PET_SCENE_WIDTH = 52;
 
@@ -54,10 +55,6 @@ function padDisplayText(input: string, width: number): string {
   const safeWidth = Math.max(1, width);
   const fitted = fitDisplayText(input, safeWidth);
   return `${fitted}${" ".repeat(Math.max(0, safeWidth - displayWidth(fitted)))}`;
-}
-
-function overlayFitted(row: string, text: string, x: number, width: number): string {
-  return place(row, padDisplayText(text, width), x);
 }
 
 function centerText(row: string, text: string): string {
@@ -120,8 +117,18 @@ interface Scene {
   sprites: readonly Sprite[];
 }
 
+interface StyledCell {
+  glyph: string;
+  styleToken: StyleToken;
+}
+
+interface StyledSegment {
+  text: string;
+  styleToken: StyleToken;
+}
+
 function sceneLayout(width: number): SceneLayout {
-  if (width >= 96) return "wide";
+  if (width >= 104) return "wide";
   if (width >= 68) return "standard";
   return "compact";
 }
@@ -209,32 +216,38 @@ function frameForSprite(sprite: Sprite, timeline: AnimationTimeline): readonly s
   return sprite.frames[index]?.lines ?? [];
 }
 
+function blankCellRow(width: number, styleToken: StyleToken = "background"): StyledCell[] {
+  return Array.from({ length: width }, () => ({ glyph: " ", styleToken }));
+}
+
 function overlayCellLine(
-  row: string,
+  row: StyledCell[],
   text: string,
   x: number,
+  styleToken: StyleToken,
   transparentSpaces: boolean,
-): string {
-  if (x >= displayWidth(row)) return row;
-  const rowCells = Array.from(row);
-  const available = Math.max(0, rowCells.length - Math.max(0, x));
+): void {
+  if (x >= row.length) return;
+  const start = Math.max(0, x);
+  const available = Math.max(0, row.length - start);
   const fitted = fitDisplayText(text, available);
-  let cursor = Math.max(0, x);
+  let cursor = start;
 
-  for (const glyph of Array.from(fitted)) {
-    if (cursor >= rowCells.length) break;
+  for (const glyph of splitGraphemes(fitted)) {
+    if (cursor >= row.length) break;
     const glyphWidth = Math.max(1, displayWidth(glyph));
     if (glyph !== " " || !transparentSpaces) {
-      rowCells[cursor] = glyph;
+      row[cursor] = { glyph, styleToken };
+      for (let i = 1; i < glyphWidth && cursor + i < row.length; i++) {
+        row[cursor + i] = { glyph: "", styleToken };
+      }
     }
     cursor += glyphWidth;
   }
-
-  return rowCells.join("");
 }
 
-function composeScene(scene: Scene, timeline: AnimationTimeline): string[] {
-  const rows = Array.from({ length: scene.height }, () => blankRow(scene.width));
+function composeSceneCells(scene: Scene, timeline: AnimationTimeline): StyledCell[][] {
+  const rows = Array.from({ length: scene.height }, () => blankCellRow(scene.width));
   const sprites = [...scene.sprites].sort((a, b) => {
     if (a.zIndex !== b.zIndex) return a.zIndex - b.zIndex;
     return a.id.localeCompare(b.id);
@@ -246,16 +259,34 @@ function composeScene(scene: Scene, timeline: AnimationTimeline): string[] {
     for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
       const rowIdx = sprite.y + lineIdx;
       if (rowIdx < 0 || rowIdx >= rows.length) continue;
-      rows[rowIdx] = overlayCellLine(
-        rows[rowIdx] ?? blankRow(scene.width),
+      overlayCellLine(
+        rows[rowIdx] ?? blankCellRow(scene.width),
         lines[lineIdx] ?? "",
         sprite.x,
+        sprite.styleToken,
         sprite.transparentSpaces,
       );
     }
   }
 
-  return rows.map((row) => overlayFitted(blankRow(scene.width), row, 0, scene.width));
+  return rows;
+}
+
+function styledCellsToSegments(cells: readonly StyledCell[]): StyledSegment[] {
+  const segments: StyledSegment[] = [];
+  for (const cell of cells) {
+    const previous = segments[segments.length - 1];
+    if (previous && previous.styleToken === cell.styleToken) {
+      previous.text += cell.glyph;
+    } else {
+      segments.push({ text: cell.glyph, styleToken: cell.styleToken });
+    }
+  }
+  return segments;
+}
+
+function composeStyledScene(scene: Scene, timeline: AnimationTimeline): StyledSegment[][] {
+  return composeSceneCells(scene, timeline).map(styledCellsToSegments);
 }
 
 function labeledRule(width: number, label: string): string {
@@ -349,6 +380,22 @@ function clockFromFrame(frame: number): string {
   return `${hour.toString().padStart(2, "0")}:${minute.toString().padStart(2, "0")}`;
 }
 
+function analogClockLines(frame: number): string[] {
+  const hand = [
+    "9  ─┼─ 3 ",
+    "9   ╱  3 ",
+    "9  ╶┼─ 3 ",
+    "9   ╲  3 ",
+  ][Math.floor(frame / 2) % 4] ?? "9  ─┼─ 3 ";
+  return [
+    "╭─────────╮",
+    "│   12    │",
+    `│${hand}│`,
+    "│    6    │",
+    "╰─────────╯",
+  ];
+}
+
 function titleLine(width: number, stats: PetStats): string {
   const label = " DREXLER OFFICE ";
   const worst = pickWorstStat(stats);
@@ -384,12 +431,22 @@ function cityWindowLines(width: number, frame: number): string[] {
   const sun = frame % 24 < 12 ? "-o-" : "(~)";
   const skyline = frame % 4 < 2 ? "▁▃▅▇" : "▁▃▆█";
   const cloud = frame % 6 < 3 ? "(~~)" : " (~~)";
+  if (width < 20) {
+    return [
+      boxTop(width, "CITY WINDOW"),
+      boxContent(width, `╭──╮ ${sun}`),
+      boxContent(width, `│╥╥│ ${skyline}`),
+      boxContent(width, "│▒▒│ lights"),
+      boxContent(width, "╰──╯ tape"),
+      boxBottom(width),
+    ];
+  }
   return [
     boxTop(width, "CITY WINDOW"),
-    boxContent(width, `${sun}   ${cloud}`),
-    boxContent(width, `╞╤╡ ${skyline} city`),
-    boxContent(width, "│││ ░▒▓ offices"),
-    boxContent(width, "╰┴╯ night tape"),
+    boxContent(width, `╭──╮ ╭──╮  ${sun} ${cloud}`),
+    boxContent(width, `│╥╥│ │╤╤│  ${skyline} city`),
+    boxContent(width, "│▒▒│ │░░│  lights"),
+    boxContent(width, "╰──╯ ╰──╯  tape"),
     boxBottom(width),
   ];
 }
@@ -405,16 +462,26 @@ function marketBoardLines(
   const candleB = activity === "praised" ? "▐█▌" : "▐░▌";
   const finalCandle = activity === "praised" ? "▐█▌" : frame % 6 < 3 ? "▐█▌" : "▐░▌";
   const fee = Math.max(40, Math.min(99, Math.round((stats.happiness + stats.deals) / 2)));
-  const chartSuffix = `${candleA} ${candleB} ${finalCandle} 14:00`;
+  const chartSuffix = `${candleA} ${candleB} ${finalCandle}`;
   const chartLabel = boardTapeLabel(activity, frame);
-  const footerBudget = Math.max(1, width - 2 - displayWidth(chartSuffix) - 3);
-  const footer = `${fitDisplayText(chartLabel, footerBudget)}   ${chartSuffix}`;
+  const footerBudget = Math.max(1, width - 2 - displayWidth(chartSuffix) - 12);
+  const footer = `09:00 ${fitDisplayText(chartLabel, footerBudget)} 14:00 ${chartSuffix}`;
+  const grid = "┄".repeat(Math.max(4, Math.min(14, width - 39)));
+  const narrow = width < 52;
   return [
     boxTop(width, "DREXLER MARKETS"),
-    boxContent(width, `DREX 0.8421 ▲ 3.17%       ${clockFromFrame(frame)}  ${status}`),
-    boxContent(width, `BTC 67842  ▲ 1.25%   DL ${Math.round(stats.deals)}%  FEE ${fee}%`),
-    boxContent(width, `ETH  3241  ▲ 0.82%       │   ${candleA}  68000`),
-    boxContent(width, `SOL   157  ▲ 2.11%   ${candleB} │ ${finalCandle} ${candleA}  67000`),
+    boxContent(width, narrow
+      ? `DREX ▲ 3.17%  ${clockFromFrame(frame)}  ${status}`
+      : `DREX 0.8421 ▲ 3.17%     DEMO ${clockFromFrame(frame)}  ${status}`),
+    boxContent(width, narrow
+      ? `BTC 67842  FEE ${fee}%  ${grid} 69000`
+      : `BTC 67842  ▲ 1.25%   FEE ${fee}% ${grid} 69000`),
+    boxContent(width, narrow
+      ? `ETH  3241     │   ${candleA} 68000`
+      : `ETH  3241  ▲ 0.82%       │      ${candleA} 68000`),
+    boxContent(width, narrow
+      ? `SOL   157  ${candleB} │ ${finalCandle} 67000`
+      : `SOL   157  ▲ 2.11%   ${candleB} │ ${finalCandle} ${candleA} 67000`),
     boxContent(width, footer),
     boxBottom(width),
   ];
@@ -442,11 +509,12 @@ function boardTapeLabel(activity: PetActivity, frame: number): string {
 function lampLines(activity: PetActivity, frame: number): string[] {
   const glow = activity === "sleeping" ? " dim " : frame % 6 < 3 ? " glow" : "glow ";
   return [
-    "  ╲│╱  ",
-    " ╭───╮ ",
-    " ╰─┬─╯ ",
-    "   │   ",
-    ` ${fitDisplayText(glow, 5)} `,
+    "   ╲│╱   ",
+    "  ╭───╮  ",
+    " ╭╯   ╰╮ ",
+    " ╰──┬──╯ ",
+    "    │    ",
+    `  ${fitDisplayText(glow, 5)}  `,
   ];
 }
 
@@ -468,15 +536,69 @@ function statusCardLines(width: number, activity: PetActivity, frame: number, st
   ];
 }
 
-function deskBaseLines(width: number): string[] {
+function fileCabinetLines(frame: number): string[] {
+  const tab = frame % 4 < 2 ? "╞" : "├";
+  return [
+    "╭─ FILE ─╮",
+    "│ ▤▤▤▤   │",
+    `${tab}────────┤`,
+    "│ ▤▤▤▤   │",
+    "╰────────╯",
+  ];
+}
+
+function wallRailLine(width: number, activity: PetActivity, frame: number): string {
+  const status = activity === "working"
+    ? frame % 2 === 0 ? "keys live" : "term live"
+    : activity === "sleeping"
+    ? "night desk"
+    : activity === "praised"
+    ? "memo cleared"
+    : "calendar clear";
+  return centerText("─".repeat(width), ` ${status} · office quiet · covenant wall `);
+}
+
+function deskJoinLine(width: number, leftCorner: string, midA: string, midB: string, rightCorner: string): string {
   const inner = Math.max(1, width - 2);
+  const usable = Math.max(1, inner - 2);
+  const left = Math.max(4, Math.floor(usable * 0.24));
+  const mid = Math.max(8, Math.floor(usable * 0.42));
+  const right = Math.max(1, usable - left - mid);
+  return `${leftCorner}${"═".repeat(left)}${midA}${"═".repeat(mid)}${midB}${"═".repeat(right)}${rightCorner}`;
+}
+
+function deskContent(width: number, text = ""): string {
+  return `║${padDisplayText(text, Math.max(1, width - 2))}║`;
+}
+
+function deskBaseLines(width: number, stats: PetStats, activity: PetActivity): string[] {
+  const inner = Math.max(1, width - 2);
+  const covenants = stats.happiness < 30 || stats.energy < 25 ? "WARN" : "OK";
+  const close = activity === "praised" ? "COMPOUND" : activity === "working" ? "EXEC" : "WATCH";
+  const pipe = Math.round(stats.deals);
+  const fascia = width < 64
+    ? ` [IN] │ DREXLER DESK │ PIPE ${pipe}% │ [OUT] `
+    : width < 84
+    ? ` [IN] │ DREXLER DEAL DESK │ PIPE ${pipe}% │ COV ${covenants} │ [OUT] `
+    : ` [IN] │ DREXLER DEAL DESK │ PIPE ${pipe}% │ COV ${covenants} │ ${close} │ [OUT] `;
   return [
     `╔${"═".repeat(inner)}╗`,
-    `║${" ".repeat(inner)}║`,
-    `║${" ".repeat(inner)}║`,
-    `║${" ".repeat(inner)}║`,
-    `║${" ".repeat(inner)}║`,
-    `╚${"═".repeat(inner)}╝`,
+    deskContent(width),
+    deskContent(width),
+    deskContent(width),
+    deskContent(width),
+    deskJoinLine(width, "╠", "╦", "╦", "╣"),
+    deskContent(width, fascia),
+    deskJoinLine(width, "╚", "╩", "╩", "╝"),
+  ];
+}
+
+function floorShadowLines(width: number): string[] {
+  const label = "deal-room carpet shadow";
+  const shadow = `░░░░░░  ${label}  ░░░░░░`;
+  return [
+    centerText(blankRow(width), shadow),
+    centerText(blankRow(width), "▁▁▁▁        ▁▁▁▁        ▁▁▁▁"),
   ];
 }
 
@@ -575,6 +697,8 @@ function buildOfficeScene(
   const layout = sceneLayout(width);
   const sprites: Sprite[] = [];
   const mascotX = Math.max(0, Math.floor((width - MASCOT_WIDTH) / 2));
+  const mascotBob = activity !== "sleeping" && frame > 0 && frame % 8 === 4 ? -1 : 0;
+  const mascotY = R_MASCOT_START + mascotBob;
   const deskX = 1;
   const deskWidth = Math.max(30, width - 2);
   const coffeeFrameSet = coffeeFrames(stats);
@@ -582,6 +706,16 @@ function buildOfficeScene(
   const keyboardFrameSet = keyboardFrames(activity);
 
   sprites.push(makeSprite("background:title", 0, 0, R_TITLE, [titleLine(width, stats)], "background"));
+  const clock = analogClockLines(frame);
+  sprites.push(makeAnimatedSprite({
+    id: "wall:clock",
+    zIndex: 12,
+    x: Math.max(0, Math.floor((width - displayWidth(clock[0] ?? "")) / 2)),
+    y: R_CLOCK_TOP,
+    frames: [clock, analogClockLines(frame + 2)],
+    frameDuration: 2,
+    styleToken: "secondaryLine",
+  }));
 
   if (layout === "compact") {
     sprites.push(
@@ -595,8 +729,8 @@ function buildOfficeScene(
       ),
     );
   } else {
-    const windowWidth = layout === "wide" ? 24 : 18;
-    const marketX = windowWidth + 3;
+    const windowWidth = layout === "wide" ? 28 : width < 76 ? 18 : 24;
+    const marketX = windowWidth + 4;
     sprites.push(
       makeSprite("city:window", 10, 1, R_WIN_TOP, cityWindowLines(windowWidth, frame), "secondaryLine"),
       makeSprite(
@@ -610,6 +744,15 @@ function buildOfficeScene(
     );
   }
 
+  sprites.push(makeSprite(
+    "wall:rail",
+    8,
+    0,
+    R_WALL_RAIL,
+    [wallRailLine(width, activity, frame)],
+    "secondaryLine",
+  ));
+
   if (layout !== "compact") {
     sprites.push(makeAnimatedSprite({
       id: "lamp:side",
@@ -622,22 +765,34 @@ function buildOfficeScene(
     }));
   }
 
-  if (layout === "wide") {
+  if (layout === "wide" && width >= 118) {
     sprites.push(makeSprite(
       "status:card",
       30,
       Math.max(1, width - 21),
-      R_MASCOT_START,
+      R_MASCOT_START - 1,
       statusCardLines(20, activity, frame, stats),
       "statusAccent",
     ));
+  }
+
+  if (layout === "wide" && width >= 132) {
+    sprites.push(makeAnimatedSprite({
+      id: "storage:file-cabinet",
+      zIndex: 35,
+      x: Math.max(1, width - 34),
+      y: R_DESK_LINE - 6,
+      frames: [fileCabinetLines(frame), fileCabinetLines(frame + 2)],
+      frameDuration: 3,
+      styleToken: "secondaryLine",
+    }));
   }
 
   sprites.push(makeAnimatedSprite({
     id: "drexler:mascot",
     zIndex: 50,
     x: mascotX,
-    y: R_MASCOT_START + (activity !== "sleeping" && frame > 0 && frame % 6 === 0 ? 1 : 0),
+    y: mascotY,
     frames: [renderMascotLines(mascotStateForActivity(activity, frame))],
     frameDuration: 3,
     styleToken: "drexlerOutline",
@@ -648,8 +803,18 @@ function buildOfficeScene(
     80,
     deskX,
     R_DESK_LINE,
-    deskBaseLines(deskWidth),
+    deskBaseLines(deskWidth, stats, activity),
     "primaryLine",
+    false,
+  ));
+
+  sprites.push(makeSprite(
+    "drexler:money-panel",
+    95,
+    mascotX + 6,
+    Math.min(mascotY + 5, R_DESK_LINE - 1),
+    [activity === "sleeping" ? "║ ░░ ║" : "║ $$ ║"],
+    activity === "praised" ? "statusAccent" : "drexlerOutline",
     false,
   ));
 
@@ -668,7 +833,7 @@ function buildOfficeScene(
   sprites.push(makeAnimatedSprite({
     id: "desk:memo",
     zIndex: 90,
-    x: Math.max(deskX + 12, Math.floor(width / 2) - 5),
+    x: Math.max(deskX + 12, Math.floor(width / 2) - 7),
     y: R_DESK_PROPS,
     frames: memoFrameSet,
     frameDuration: 2,
@@ -683,7 +848,7 @@ function buildOfficeScene(
     zIndex: 90,
     x: Math.min(
       deskX + deskWidth - 2 - keyboardWidth,
-      Math.floor(width / 2) + 11,
+      Math.floor(width / 2) + 13,
     ),
     y: R_DESK_PROPS,
     frames: keyboardFrameSet,
@@ -705,53 +870,66 @@ function buildOfficeScene(
     ));
   }
 
+  sprites.push(makeSprite(
+    "floor:shadow",
+    2,
+    0,
+    R_FLOOR_SHADOW,
+    floorShadowLines(width),
+    "background",
+  ));
+
   return { width, height: SCENE_ROWS, sprites };
 }
 
-function buildScene(
+function buildStyledScene(
   activity: PetActivity,
   frame: number,
   stats: PetStats,
   width: number,
-): string[] {
+): StyledSegment[][] {
   const sceneWidth = Math.max(PET_SCENE_WIDTH, Math.floor(width));
   const timeline: AnimationTimeline = {
     frame,
     sceneState: sceneStateForActivity(activity),
   };
-  return composeScene(buildOfficeScene(activity, frame, stats, sceneWidth), timeline);
+  return composeStyledScene(buildOfficeScene(activity, frame, stats, sceneWidth), timeline);
 }
 
-// ─── row colors ───────────────────────────────────────────────────────────────
-// Four-stop brightness ladder so the eye finds a hierarchy:
-//   dim          → chrome (title rule, memo)
-//   primaryDim   → window frame, desk horizon, skyline silhouettes
-//   primary      → desk props, mascot body
-//   primaryLight → mascot eyes + activity accents
-function rowColor(i: number, activity: PetActivity, frame: number, t: Theme): string {
-  if (i >= R_MASCOT_START && i < R_DESK_LINE) {
-    if (activity === "sleeping") return t.dim;
-    if (activity === "praised")  return t.primaryLight;
-    if (activity === "eating")   return t.warning;
-    if (activity === "playing")  return frame % 6 >= 3 ? t.primaryLight : t.primary;
-    if (activity === "working" && frame % 32 >= 26) return t.error;
-    return t.primary;
+function colorForStyleToken(
+  token: StyleToken,
+  activity: PetActivity,
+  frame: number,
+  t: Theme,
+): string {
+  switch (token) {
+    case "background":
+      return t.dim;
+    case "secondaryLine":
+    case "chartGrid":
+      return t.primaryDim;
+    case "primaryLine":
+      return t.text;
+    case "drexlerOutline":
+      if (activity === "sleeping") return t.dim;
+      if (activity === "praised") return t.primaryLight;
+      if (activity === "eating") return t.warning;
+      if (activity === "playing") return frame % 6 >= 3 ? t.primaryLight : t.primary;
+      return t.primary;
+    case "positiveCandle":
+      return t.primaryLight;
+    case "negativeCandle":
+      return t.error;
+    case "lampGlow":
+      return activity === "sleeping" ? t.dim : t.warning;
+    case "statusAccent":
+      if (activity === "working" && frame % 32 >= 26) return t.warning;
+      if (activity === "praised") return t.primaryLight;
+      if (activity === "sleeping") return t.dim;
+      return t.primaryLight;
+    default:
+      return t.primary;
   }
-  if (i === R_TITLE) return t.dim;
-  if (i === R_WIN_SKY) return t.dim;
-  if (i === R_WIN_TOPS || i === R_WIN_MID || i === R_WIN_BASE) return t.primaryDim;
-  if (i === R_WIN_TOP || i === R_WIN_BOTTOM) return t.primaryDim;
-  if (i === R_DESK_LINE) return t.primaryDim;
-  if (i >= R_DESK_PROPS && i < R_MEMO) return t.primary;
-  if (i === R_MEMO) {
-    if (activity === "working" && frame % 32 >= 26) return t.error;
-    if (activity === "sleeping")  return t.dim;
-    if (activity === "praised")   return t.warning;
-    if (activity === "eating")    return t.warning;
-    if (activity === "playing")   return t.primaryLight;
-    return t.dim;
-  }
-  return t.primaryDim;
 }
 
 // ─── status messages ──────────────────────────────────────────────────────────
@@ -862,14 +1040,23 @@ export function PetScene({
     dead: stats.dead === true,
   });
   const scene = useMemo(
-    () => buildScene(activity, frame, stats, sceneWidth),
+    () => buildStyledScene(activity, frame, stats, sceneWidth),
     [activity, frame, sceneWidth, stats],
   );
 
   return (
     <Box flexDirection="column" width={sceneWidth} flexShrink={0}>
       {scene.map((row, i) => (
-        <Text key={i} color={rowColor(i, activity, frame, t)}>{row}</Text>
+        <Text key={i}>
+          {row.map((segment, segmentIdx) => (
+            <Text
+              key={segmentIdx}
+              color={colorForStyleToken(segment.styleToken, activity, frame, t)}
+            >
+              {segment.text}
+            </Text>
+          ))}
+        </Text>
       ))}
     </Box>
   );

@@ -85,7 +85,7 @@ describe("computeMascotLayout", () => {
 describe("MascotFrame", () => {
   test("intro boot status labels fit below the mascot without wrapping", () => {
     for (const note of INTRO_BOOT_NOTES) {
-      const statusWidth = Array.from(`${INTRO_STATUS_PREFIX}${note}`).length;
+      const statusWidth = displayWidth(`${INTRO_STATUS_PREFIX}${note}`);
       expect(statusWidth).toBeLessThanOrEqual(MASCOT_WIDTH);
     }
   });
@@ -275,7 +275,7 @@ describe("MascotFrame", () => {
         value: THEMES.apollo,
         children: React.createElement(MascotDashboard, {
           greeting: "Hello",
-          width: 160,
+          width: 200,
           mode: "pet",
           petActivity: "playing",
           petEnv: "home",
@@ -291,7 +291,7 @@ describe("MascotFrame", () => {
           },
         }),
       }),
-      { columns: 160 },
+      { columns: 200 },
     ).replace(ANSI_RE, "");
 
     expect(rendered).toContain("Drexler Pet Desk");
@@ -302,6 +302,7 @@ describe("MascotFrame", () => {
     expect(rendered).toContain("activity playing");
     expect(rendered).toContain("activity playing · office");
     expect(rendered).toContain("DREXLER OFFICE");
+    expect(rendered).toContain("│9  ─┼─ 3 │");
     expect(rendered).toContain("DREXLER MARKETS");
     expect(rendered).toContain("CITY WINDOW");
     expect(rendered).toContain("▐█▌");
@@ -309,6 +310,8 @@ describe("MascotFrame", () => {
     expect(rendered).toContain("c[__]");
     expect(rendered).toContain("memo");
     expect(rendered).toContain("▄ ▄");
+    expect(rendered).toContain("DREXLER DEAL DESK");
+    expect(rendered).toContain("deal-room carpet shadow");
     expect(rendered).toContain("happy");
     expect(rendered).toContain("hunger");
     expect(rendered).toContain("energy");
@@ -322,7 +325,7 @@ describe("MascotFrame", () => {
     expect(rendered).not.toContain("Drexler Deal Desk");
     expect(rendered).not.toContain("Drexler International");
     for (const row of rendered.split("\n")) {
-      expect(displayWidth(row)).toBeLessThanOrEqual(160);
+      expect(displayWidth(row)).toBeLessThanOrEqual(200);
     }
   });
 
@@ -357,6 +360,86 @@ describe("MascotFrame", () => {
     },
   );
 
+  test.each([
+    [72, false],
+    [154, false],
+    [178, false],
+    [179, true],
+    [200, true],
+  ] as const)(
+    "pet stats placement follows the scene-first policy at %d columns",
+    (width, expectSideBySide) => {
+      const rendered = renderToString(
+        React.createElement(ThemeProvider, {
+          value: THEMES.apollo,
+          children: React.createElement(MascotDashboard, {
+            greeting: "Hello",
+            width,
+            mode: "pet",
+            petActivity: "working",
+            petEnv: "office",
+            petStats: {
+              name: "Drex",
+              hunger: 82,
+              happiness: 76,
+              energy: 68,
+              deals: 41,
+              lastSaved: 1,
+            },
+          }),
+        }),
+        { columns: width },
+      ).replace(ANSI_RE, "");
+      const rows = rendered.split("\n");
+      const headerIdx = rows.findIndex((row) => row.includes("Drexler Pet Desk"));
+      const statsIdx = rows.findIndex((row) => row.includes("╭─ Pet Stats"));
+      const shadowIdx = rows.findIndex((row) => row.includes("deal-room carpet shadow"));
+
+      expect(rendered).toContain("CITY WINDOW");
+      expect(headerIdx).toBeGreaterThanOrEqual(0);
+      expect(statsIdx).toBeGreaterThanOrEqual(0);
+      expect(shadowIdx).toBeGreaterThanOrEqual(0);
+      if (expectSideBySide) {
+        expect(rows[headerIdx]).toContain("╭─ Pet Stats");
+        expect(statsIdx).toBeLessThan(shadowIdx);
+      } else {
+        expect(rows[headerIdx]).not.toContain("╭─ Pet Stats");
+        expect(statsIdx).toBeGreaterThan(shadowIdx);
+      }
+      for (const row of rows) {
+        expect(displayWidth(row)).toBeLessThanOrEqual(width);
+      }
+    },
+  );
+
+  test("full pet stats remain semantic without relying on color", () => {
+    const rendered = renderToString(
+      React.createElement(ThemeProvider, {
+        value: THEMES.mono,
+        children: React.createElement(MascotDashboard, {
+          greeting: "Hello",
+          width: 200,
+          mode: "pet",
+          petActivity: "idle",
+          petEnv: "office",
+          petStats: {
+            hunger: 12,
+            happiness: 35,
+            energy: 58,
+            deals: 91,
+            lastSaved: 1,
+          },
+        }),
+      }),
+      { columns: 200 },
+    ).replace(ANSI_RE, "");
+
+    expect(rendered).toContain("hunger critical");
+    expect(rendered).toContain("happy low");
+    expect(rendered).toContain("energy ok");
+    expect(rendered).toContain("deals peak");
+  });
+
   test.each([112, 160, 200])(
     "pet office scene keeps canonical mascot rows bounded at %d columns",
     (width) => {
@@ -388,6 +471,7 @@ describe("MascotFrame", () => {
       expect(rendered).not.toContain(BRIEFCASE_FINAL[6]);
       expect(rendered).toContain("Drexler Pet Desk [office]");
       expect(rendered).toContain("DREXLER OFFICE");
+      expect(rendered).toContain("│9  ─┼─ 3 │");
       expect(rendered).toContain("DREXLER MARKETS");
       if (width >= 160) {
         expect(rendered).toContain("CITY WINDOW");
@@ -395,6 +479,8 @@ describe("MascotFrame", () => {
       expect(rendered).toContain("c[__]");
       expect(rendered).toContain("memo");
       expect(rendered).toContain("▄ ▄");
+      expect(rendered).toContain("DREXLER DEAL DESK");
+      expect(rendered).toContain("deal-room carpet shadow");
       expect(rendered).not.toContain("[outdoors]");
       expect(rendered).not.toContain("env outdoors");
       for (const artifact of OLD_PET_SCENE_ARTIFACTS) {
