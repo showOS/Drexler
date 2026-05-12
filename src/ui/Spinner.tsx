@@ -1,5 +1,5 @@
 import { Box, Text } from "ink";
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { displayWidth, fitDisplayText } from "./graphemes.ts";
 import { useTheme } from "./ThemeContext.tsx";
 
@@ -17,7 +17,7 @@ interface Props {
   width?: number;
 }
 
-export function Spinner({ label, width = 80 }: Props) {
+function SpinnerInner({ label, width = 80 }: Props) {
   const t = useTheme();
   const [i, setI] = useState(0);
   const [elapsedMs, setElapsedMs] = useState(0);
@@ -78,3 +78,6 @@ export function Spinner({ label, width = 80 }: Props) {
     </Box>
   );
 }
+
+
+export const Spinner = memo(SpinnerInner);

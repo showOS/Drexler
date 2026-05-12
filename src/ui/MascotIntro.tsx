@@ -171,7 +171,7 @@ const RIGHT_COLUMN_PAD_RIGHT = 1;
 const LEFT_PANEL_MIN_COPY = 24;
 const PET_STATS_MIN_WIDTH = 24;
 const PET_STATS_MAX_WIDTH = 58;
-const PET_SPLIT_DIVIDER_HEIGHT = 19;
+const PET_SPLIT_DIVIDER_HEIGHT = 21;
 const PET_SPLIT_DIVIDER_ROWS: number[] = Array.from(
   { length: PET_SPLIT_DIVIDER_HEIGHT },
   (_, i) => i,
@@ -1166,11 +1166,14 @@ export function MascotDashboard({
 }: MascotDashboardProps) {
   const t = useTheme();
   const resolvedBarColor = barColor ?? t.primaryLight;
-  const layout = computeMascotLayout(width);
+  // Layout is a pure function of width — memo so resize-unrelated
+  // re-renders don't re-derive every panel box for the dashboard.
+  const layout = useMemo(() => computeMascotLayout(width), [width]);
   const sideBySide = layout.mode === "split";
-  const wideGreetingRows = sideBySide
-    ? fixedDisplayRows(greeting, layout.copy.width, 2)
-    : [];
+  const wideGreetingRows = useMemo(
+    () => (sideBySide ? fixedDisplayRows(greeting, layout.copy.width, 2) : []),
+    [sideBySide, greeting, layout.copy.width],
+  );
 
   if (mode === "pet" && petStats) {
     return (
