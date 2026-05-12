@@ -271,6 +271,13 @@ export function App({
       return [...prev.slice(0, idx), ...prev.slice(idx + 1)];
     });
   }, []);
+  const removeLastUserItem = useCallback(() => {
+    setItems((prev) => {
+      const idx = prev.findLastIndex((item) => item.role === "user");
+      if (idx === -1) return prev;
+      return [...prev.slice(0, idx), ...prev.slice(idx + 1)];
+    });
+  }, []);
 
   const [draft, setDraft] = useState({ value: "", cursor: 0 });
   const draftRef = useRef(draft);
@@ -473,6 +480,18 @@ export function App({
     return scrollOffset > 0 ? "PageDown newer" : "PageUp scrollback";
   }, [estimatedTranscriptRows, visibleTranscriptRows, scrollOffset]);
 
+  // Live token estimate: conversation history + in-progress draft + any
+  // streamed assistant content the user can currently see on screen.
+  // approximateTokens() walks the messages array once; cheap because the
+  // memo only invalidates when one of those parts changes.
+  const tokenCount = useMemo(
+    () =>
+      conversation.approximateTokens() +
+      Math.ceil(draft.value.length / 4) +
+      Math.ceil((streaming?.length ?? 0) / 4),
+    [conversation, msgCount, draft.value.length, streaming],
+  );
+
   // throttle streaming updates so React doesn't re-render every token
   // Token chunks accumulate as an array of strings; we join only when
   // flushing to React. Avoids the V8-rope churn that string += creates
@@ -642,9 +661,22 @@ export function App({
         if (result?.content) {
           conversation.push("assistant", result.content);
           addItem("assistant", result.content);
+          addItem("system", "(cancelled — Drexler taking lunch)");
+          setDeskNotice("response cancelled");
+        } else if (firstToken && instruction === undefined) {
+          // Aborted before any token arrived. Roll the just-pushed user
+          // turn back so the conversation doesn't accumulate dead user
+          // messages on repeated quick aborts. Skipped for /retry and
+          // /regenerate (instruction !== undefined) — those rerun against
+          // an existing user turn we must not pop.
+          conversation.popLastUser();
+          removeLastUserItem();
+          addItem("system", "(cancelled before Drexler started — message withdrawn)");
+          setDeskNotice("cancelled before response");
+        } else {
+          addItem("system", "(cancelled — Drexler taking lunch)");
+          setDeskNotice("response cancelled");
         }
-        addItem("system", "(cancelled — Drexler taking lunch)");
-        setDeskNotice("response cancelled");
       } else if (result?.ok) {
         conversation.push("assistant", result.content);
         addItem("assistant", result.content);
@@ -685,6 +717,7 @@ export function App({
     addItem,
     conversation,
     pushTokenToStream,
+    removeLastUserItem,
   ]);
 
   const handleSlashWithMutation = useCallback(
@@ -1021,29 +1054,39 @@ export function App({
       }
       return;
     }
-    if (paletteOpen && key.return) {
-      const sel = paletteItems[paletteIdx];
-      if (sel) {
-        // Bare /theme, /model, etc. — open the chooser, do not execute.
-        if (isArgumentParentCommand(sel.name)) {
-          const filled = sel.name + " ";
-          updateDraft({
-            value: filled,
-            cursor: graphemeLength(filled),
-          });
-          setPaletteIdx(0);
-          return;
-        }
-        updateDraft({ value: "", cursor: 0 });
-        setHistoryIdx(null);
-        historyDraftRef.current = null;
-        onSubmit(sel.name).catch((err) => {
-          reportSubmitError(err);
-        });
-      }
-      return;
-    }
     if (key.return) {
+      // Shift+Enter (Kitty/iTerm2/Windows Terminal) and Alt+Enter
+      // (universal) insert a literal newline at the cursor so the
+      // user can compose multi-line prompts without leaving the input.
+      // Plain Enter submits as before.
+      if (key.shift || key.meta) {
+        updateDraft((prev) =>
+          insertAtCursor(prev.value, clampCursor(prev.value, prev.cursor), "\n"),
+        );
+        return;
+      }
+      if (paletteOpen) {
+        const sel = paletteItems[paletteIdx];
+        if (sel) {
+          // Bare /theme, /model, etc. — open the chooser, do not execute.
+          if (isArgumentParentCommand(sel.name)) {
+            const filled = sel.name + " ";
+            updateDraft({
+              value: filled,
+              cursor: graphemeLength(filled),
+            });
+            setPaletteIdx(0);
+            return;
+          }
+          updateDraft({ value: "", cursor: 0 });
+          setHistoryIdx(null);
+          historyDraftRef.current = null;
+          onSubmit(sel.name).catch((err) => {
+            reportSubmitError(err);
+          });
+        }
+        return;
+      }
       const submitted = draftRef.current.value;
       updateDraft({ value: "", cursor: 0 });
       setHistoryIdx(null);
@@ -1150,10 +1193,14 @@ export function App({
       updateDraft({ value: "", cursor: 0 });
       return;
     }
-    // Plain text input. Filter out control chars except printable.
+    // Plain text input. Filter out control chars except printable +
+    // newline (so multi-line paste survives).
     if (!key.ctrl && !key.meta && char) {
-      // accept multi-char (paste)
-      const filtered = char.replace(/[\x00-\x1f]/g, "");
+      // Normalize CRLF / CR → LF first, then strip every other control
+      // byte. LF (0x0a) survives so pasted multi-line text renders as
+      // multiple lines in the input.
+      const normalized = char.replace(/\r\n?/g, "\n");
+      const filtered = normalized.replace(/[\x00-\x09\x0b-\x1f]/g, "");
       if (filtered.length > 0) {
         updateDraft((prev) =>
           insertAtCursor(
@@ -1311,6 +1358,7 @@ export function App({
                       status={isBusy ? "streaming" : deskStatus}
                       compact={isCompact}
                       scrollHint={scrollHint}
+                      tokenCount={tokenCount}
                     />
                   </Box>
                 </>
