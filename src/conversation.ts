@@ -47,6 +47,16 @@ export class Conversation {
     return false;
   }
 
+  popLastUser(): boolean {
+    const last = this.messages[this.messages.length - 1];
+    if (last && last.role === "user") {
+      this.messages.pop();
+      this.userTurnCount = Math.max(0, this.userTurnCount - 1);
+      return true;
+    }
+    return false;
+  }
+
   lastUserMessage(): string | null {
     for (let i = this.messages.length - 1; i >= 0; i--) {
       const m = this.messages[i];

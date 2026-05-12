@@ -91,6 +91,30 @@ describe("Conversation (V1, V2, V16)", () => {
     expect(c.popLastAssistant()).toBe(false);
   });
 
+  test("popLastUser drops trailing user and decrements userTurns", () => {
+    const c = new Conversation("SYS", 10);
+    c.push("user", "u1");
+    expect(c.userTurns).toBe(1);
+    expect(c.popLastUser()).toBe(true);
+    expect(c.length).toBe(0);
+    expect(c.userTurns).toBe(0);
+  });
+
+  test("popLastUser returns false when last is assistant", () => {
+    const c = new Conversation("SYS", 10);
+    c.push("user", "u1");
+    c.push("assistant", "a1");
+    expect(c.popLastUser()).toBe(false);
+    expect(c.length).toBe(2);
+    expect(c.userTurns).toBe(1);
+  });
+
+  test("popLastUser on empty conversation returns false", () => {
+    const c = new Conversation("SYS", 10);
+    expect(c.popLastUser()).toBe(false);
+    expect(c.userTurns).toBe(0);
+  });
+
   test("lastUserMessage returns most recent user content", () => {
     const c = new Conversation("SYS", 10);
     c.push("user", "u1");
