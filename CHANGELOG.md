@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.28
+
+- **Conversation autosave + `--resume`**: every assistant turn writes the transcript to `~/.local/state/drexler/last-session.json` (atomic temp + rename, schema-versioned, 200-message ring). Launch with `--resume` to rehydrate the prior session into the freshly-built conversation.
+- **Per-message actions**: `/history` now prints a numbered transcript with snippets. `/expand [n]`, `/quote [n]`, `/copy [n]` accept the 1-based index; bare forms still fall back to the last assistant turn. `/copy-last` stays as an alias.
+- **`/edit [n]`**: pulls a prior user message back into the input box for editing. Powered by a new `CommandAction { type: "draft"; value }`.
+- **In-session re-key via `/auth`**: 401/403 now surfaces a "Run /auth" prompt instead of forcing a restart. `/auth <key>` validates, replaces the in-session API key, and persists to the config — the next request uses the new key without restarting.
+
 ## 0.2.26
 
 - **Reliability**: connect timeout (10s) on every LLM fetch — composed with the user abort signal so Esc still cancels mid-handshake. Idle-stream timeout (30s) bails cleanly when a hung SSE connection stops emitting chunks. Exponential backoff on 5xx with ±25% jitter, up to 3 attempts. 429 second-shot retry on the primary model after both primary + fallback rate-limit.
