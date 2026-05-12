@@ -49,6 +49,7 @@ Options:
   --theme <name>                 color theme (default apollo)
   --no-intro                     skip startup banner and mascot
   --fast                         fast startup mode, implies --no-intro
+  --resume                       restore the prior session's transcript
   --version, -v                  print version
   --help, -h                     this help
 
@@ -79,9 +80,12 @@ Slash commands inside REPL:
   /export <fmt> [path] export md, txt, json, or html
   /save [path]   archive conversation as markdown
   /save-last [path] save latest response
-  /copy-last     copy latest response to clipboard
+  /copy [n]      copy a message to clipboard (default: last)
+  /copy-last     alias for /copy
+  /edit [n]      load a prior user message into the draft
   /setup         show config + API key source
   /update        show upgrade instructions
+  /auth <key>    replace API key in-session (no restart)
 
 Ctrl+C exits gracefully.`;
 
@@ -159,6 +163,34 @@ async function main(): Promise<void> {
     systemPromptWithMood,
     config.maxHistory,
   );
+
+  // --resume restores the prior session's user/assistant turns into the
+  // freshly-built conversation. System prompt stays current (mood may
+  // have changed), so we only rehydrate the body. Best-effort — a
+  // missing or corrupt save file is a silent no-op.
+  if (argv.includes("--resume")) {
+    const { loadSavedSession, describeSession, formatSessionAge } = await import(
+      "./conversation/persist.ts"
+    );
+    const saved = loadSavedSession();
+    if (saved) {
+      for (const m of saved.messages) {
+        if (m.role === "user" || m.role === "assistant") {
+          conversation.push(m.role, m.content);
+        }
+      }
+      const preview = describeSession(saved);
+      console.log(
+        infoLine() +
+          `  ·  resumed ${preview.messageCount} message${
+            preview.messageCount === 1 ? "" : "s"
+          } from ${formatSessionAge(saved.savedAt)}`,
+      );
+    } else {
+      console.log(infoLine() + "  ·  no saved session to resume");
+    }
+  }
+
   const skipIntro = config.noIntro === true || config.fast === true;
 
   if (isInteractive) {

@@ -42,6 +42,7 @@ export interface CliFlags {
   theme?: string;
   noIntro?: boolean;
   fast?: boolean;
+  resume?: boolean;
 }
 
 export interface OpenRouterRequestBody {

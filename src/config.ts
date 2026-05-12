@@ -98,6 +98,8 @@ export function parseFlags(argv: string[]): CliFlags {
       flags.noIntro = true;
     } else if (a === "--fast") {
       flags.fast = true;
+    } else if (a === "--resume") {
+      flags.resume = true;
     } else if (a !== undefined && a.startsWith("--model=")) {
       flags.model = a.slice("--model=".length);
     } else if (a !== undefined && a.startsWith("--persona=")) {

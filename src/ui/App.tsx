@@ -41,8 +41,9 @@ import {
   isSlash,
   type CommandAction,
 } from "../commands.ts";
-import { saveConfig } from "../config.ts";
+import { isValidApiKey, saveConfig } from "../config.ts";
 import type { Conversation } from "../conversation.ts";
+import { buildSavedSession, saveSession } from "../conversation/persist.ts";
 import { streamChat, type FetchFn } from "../llm.ts";
 import { pickLayout } from "../renderer.ts";
 import {
@@ -279,6 +280,14 @@ export function App({
     });
   }, []);
 
+  // Persist the current conversation to disk so the next launch can
+  // offer a resume. Best-effort: a failed save never blocks chat.
+  const persistSession = useCallback(() => {
+    saveSession(
+      buildSavedSession(conversation, conversation.systemPrompt, config.model),
+    );
+  }, [conversation, config.model]);
+
   const [draft, setDraft] = useState({ value: "", cursor: 0 });
   const draftRef = useRef(draft);
   const updateDraft = useCallback(
@@ -308,6 +317,7 @@ export function App({
   const [exitMsg, setExitMsg] = useState<string | null>(null);
   const [witticism, setWitticism] = useState<string>(() => pick(WITTICISMS));
   const [model, setModel] = useState<string>(config.model);
+  const [apiKey, setApiKey] = useState<string>(config.apiKey);
   const [msgCount, setMsgCount] = useState<number>(0);
   const [deskStatus, setDeskStatus] = useState<"idle" | "error">("idle");
   const [deskNotice, setDeskNotice] = useState<string | null>(null);
@@ -614,7 +624,7 @@ export function App({
       let caughtErr: unknown = null;
       try {
         result = await streamChat({
-          apiKey: config.apiKey,
+          apiKey,
           model,
           fallbackModel: pickFallback(model),
           messages: instruction
@@ -696,6 +706,13 @@ export function App({
         addItem("system", "(stream interrupted — partial response saved)");
         setDeskStatus("error");
         setDeskNotice("stream interrupted; partial response saved");
+      } else if (result?.authFailure) {
+        addItem(
+          "system",
+          `${result.error ?? "API key rejected by OpenRouter."} Run /auth to enter a new key without restarting.`,
+        );
+        setDeskStatus("error");
+        setDeskNotice("API key rejected — /auth to re-enter");
       } else {
         const detail = result?.error ? ` [${result.error}]` : "";
         addItem("system", `${STREAM_ERROR}${detail}`);
@@ -704,6 +721,10 @@ export function App({
       }
       setMsgCount(conversation.length);
       setWitticism(pick(WITTICISMS));
+      // Persist after every turn outcome so a crash never costs more
+      // than the last assistant response. Best-effort; failures are
+      // swallowed inside saveSession.
+      persistSession();
     } finally {
       requestInFlightRef.current = false;
       if (mountedRef.current) {
@@ -711,13 +732,14 @@ export function App({
       }
     }
   }, [
-    config,
+    apiKey,
     model,
     fetchFn,
     addItem,
     conversation,
     pushTokenToStream,
     removeLastUserItem,
+    persistSession,
   ]);
 
   const handleSlashWithMutation = useCallback(
@@ -852,6 +874,43 @@ export function App({
         addItem("system", `Pet renamed: "${cleaned}". Memo distributed to all departments.`);
         return;
       }
+      if (slashCommand === "/auth") {
+        const arg = line.slice("/auth".length).trim();
+        if (arg.length === 0) {
+          addItem(
+            "system",
+            "Drexler refuses to take dictation. Type `/auth <key>` to replace the in-session API key. Key is masked in the panel but echoed in your shell scrollback — clear that line afterward.",
+          );
+          return;
+        }
+        const candidate = arg.trim();
+        if (!isValidApiKey(candidate)) {
+          addItem(
+            "system",
+            "That doesn't look like a valid OpenRouter API key (length < 20 or placeholder).",
+          );
+          return;
+        }
+        setApiKey(candidate);
+        try {
+          await saveConfig({ apiKey: candidate });
+          addItem(
+            "system",
+            "API key updated and saved. The next request uses it without restarting.",
+          );
+          setDeskStatus("idle");
+          setDeskNotice("API key updated");
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          addItem(
+            "system",
+            `In-session key set, but persistence failed: ${msg}. Next launch will fall back to the prior key.`,
+          );
+          setDeskStatus("error");
+          setDeskNotice("key persist failed");
+        }
+        return;
+      }
       if (slashCommand === "/profile") {
         const s = petStatsRef.current;
         const tenure = formatTenure(petTenureMs(s));
@@ -927,6 +986,12 @@ export function App({
           removeLastAssistantItem();
         }
         await runLLM(action.instruction);
+      }
+      if (action.type === "draft") {
+        updateDraft({
+          value: action.value,
+          cursor: graphemeLength(action.value),
+        });
       }
       setMsgCount(conversation.length);
     },

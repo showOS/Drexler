@@ -467,7 +467,7 @@ describe("streamChat (V3 fallback)", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/HTTP 401/);
     expect(result.error).toMatch(/API key rejected/);
-    expect(result.error).toMatch(/\.env|config\.json/);
+    expect(result.authFailure).toBe(true);
   });
 
   test("403 returns friendly key-rejected message", async () => {

@@ -77,6 +77,10 @@ export class Conversation {
     return this.userTurnCount;
   }
 
+  get systemPrompt(): string {
+    return this.system.content;
+  }
+
   approximateTokens(): number {
     let chars = 0;
     for (const m of this.messages) chars += m.content.length;
