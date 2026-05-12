@@ -304,15 +304,17 @@ describe("MascotFrame", () => {
     expect(rendered).toContain("DREXLER OFFICE");
     expect(rendered).toContain("│9  ─┼─ 3 │");
     expect(rendered).toContain("DREXLER MARKETS");
-    expect(rendered).toContain("CITY WINDOW");
+    expect(rendered).toContain("╭──╮");
     expect(rendered).toContain("▐█▌");
     expect(rendered).toContain("▐░▌");
     expect(rendered).toContain("c[__]");
     expect(rendered).toContain("memo");
     expect(rendered).toContain("▄ ▄");
     expect(rendered).toContain("DREXLER DEAL DESK");
-    expect(rendered).toContain("market wall");
     expect(rendered).toContain("░░░░░░");
+    expect(rendered).not.toContain("CITY WINDOW");
+    expect(rendered).not.toContain("calendar clear");
+    expect(rendered).not.toContain("market wall");
     expect(rendered).not.toContain("deal-room carpet shadow");
     expect(rendered).not.toContain(" glow");
     expect(rendered).toContain("happy");
@@ -398,7 +400,7 @@ describe("MascotFrame", () => {
       const statsIdx = rows.findIndex((row) => row.includes("╭─ Pet Stats"));
       const shadowIdx = rows.findIndex((row) => row.includes("░░░░░░"));
 
-      expect(rendered).toContain("CITY WINDOW");
+      expect(rendered).toContain("╭──╮");
       expect(headerIdx).toBeGreaterThanOrEqual(0);
       expect(statsIdx).toBeGreaterThanOrEqual(0);
       expect(shadowIdx).toBeGreaterThanOrEqual(0);
@@ -477,14 +479,16 @@ describe("MascotFrame", () => {
       expect(rendered).toContain("│9  ─┼─ 3 │");
       expect(rendered).toContain("DREXLER MARKETS");
       if (width >= 160) {
-        expect(rendered).toContain("CITY WINDOW");
+        expect(rendered).toContain("╭──╮");
       }
       expect(rendered).toContain("c[__]");
       expect(rendered).toContain("memo");
       expect(rendered).toContain("▄ ▄");
       expect(rendered).toContain("DREXLER DEAL DESK");
-      expect(rendered).toContain("market wall");
       expect(rendered).toContain("░░░░░░");
+      expect(rendered).not.toContain("CITY WINDOW");
+      expect(rendered).not.toContain("calendar clear");
+      expect(rendered).not.toContain("market wall");
       expect(rendered).not.toContain("deal-room carpet shadow");
       expect(rendered).not.toContain("[outdoors]");
       expect(rendered).not.toContain("env outdoors");
