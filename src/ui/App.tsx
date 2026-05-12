@@ -407,6 +407,10 @@ export function App({
   }, []);
   const updatePetStats = useCallback((updater: (stats: PetStats) => PetStats) => {
     setPetStats((stats) => {
+      // Stamp lastSaved on the in-memory copy too. savePetState writes
+      // Date.now() to disk; mirroring it here keeps the in-memory ref
+      // in sync so the next applyDecay tick measures elapsed time from
+      // the correct anchor — critical for resume after OS suspend.
       const next = { ...updater(stats), lastSaved: Date.now() };
       petStatsRef.current = next;
       savePetState(next);
@@ -415,22 +419,38 @@ export function App({
   }, []);
   const applyPetAction = useCallback(
     (action: PetActionKey, mutator: (stats: PetStats) => PetStats) => {
-      const currentStats = petStatsRef.current;
-      const before = getPetRank(currentStats);
-      const next = accrueLifetimeDeals(stampAction(mutator(currentStats), action), action);
-      const after = getPetRank(next);
-      
-      updatePetStats(() => next);
-      
-      if (after !== before) {
+      // Run the mutator inside React's setState reducer so we always
+      // operate on the latest committed stats. Returning a value from
+      // the reducer is the only race-free way to compose with a
+      // concurrent decay tick — `() => precomputed` would silently
+      // overwrite anything the decay setInterval just committed.
+      updatePetStats((stats) =>
+        accrueLifetimeDeals(stampAction(mutator(stats), action), action),
+      );
+    },
+    [updatePetStats],
+  );
+
+  // Surface rank promotions as a system memo. Driven off committed
+  // state via lifetimeDeals so a decay tick that races with a pet
+  // action can't drop the memo on the floor.
+  const prevRankRef = useRef(getPetRank(petStats));
+  useEffect(() => {
+    const current = getPetRank(petStats);
+    if (current !== prevRankRef.current) {
+      const previous = prevRankRef.current;
+      prevRankRef.current = current;
+      // Only celebrate forward motion; a decay-induced rank drop
+      // shouldn't trigger a fake promotion.
+      const order = ["intern", "analyst", "associate", "vp", "md"] as const;
+      if (order.indexOf(current) > order.indexOf(previous)) {
         addItem(
           "system",
-          `PROMOTION MEMO: Drexler ranked up to ${rankLabel(after)}. Reward: more meetings.`,
+          `PROMOTION MEMO: Drexler ranked up to ${rankLabel(current)}. Reward: more meetings.`,
         );
       }
-    },
-    [updatePetStats, addItem],
-  );
+    }
+  }, [petStats, addItem]);
 
   useEffect(() => {
     petStatsRef.current = petStats;
