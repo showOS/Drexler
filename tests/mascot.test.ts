@@ -311,7 +311,10 @@ describe("MascotFrame", () => {
     expect(rendered).toContain("memo");
     expect(rendered).toContain("▄ ▄");
     expect(rendered).toContain("DREXLER DEAL DESK");
-    expect(rendered).toContain("deal-room carpet shadow");
+    expect(rendered).toContain("market wall");
+    expect(rendered).toContain("░░░░░░");
+    expect(rendered).not.toContain("deal-room carpet shadow");
+    expect(rendered).not.toContain(" glow");
     expect(rendered).toContain("happy");
     expect(rendered).toContain("hunger");
     expect(rendered).toContain("energy");
@@ -393,7 +396,7 @@ describe("MascotFrame", () => {
       const rows = rendered.split("\n");
       const headerIdx = rows.findIndex((row) => row.includes("Drexler Pet Desk"));
       const statsIdx = rows.findIndex((row) => row.includes("╭─ Pet Stats"));
-      const shadowIdx = rows.findIndex((row) => row.includes("deal-room carpet shadow"));
+      const shadowIdx = rows.findIndex((row) => row.includes("░░░░░░"));
 
       expect(rendered).toContain("CITY WINDOW");
       expect(headerIdx).toBeGreaterThanOrEqual(0);
@@ -480,7 +483,9 @@ describe("MascotFrame", () => {
       expect(rendered).toContain("memo");
       expect(rendered).toContain("▄ ▄");
       expect(rendered).toContain("DREXLER DEAL DESK");
-      expect(rendered).toContain("deal-room carpet shadow");
+      expect(rendered).toContain("market wall");
+      expect(rendered).toContain("░░░░░░");
+      expect(rendered).not.toContain("deal-room carpet shadow");
       expect(rendered).not.toContain("[outdoors]");
       expect(rendered).not.toContain("env outdoors");
       for (const artifact of OLD_PET_SCENE_ARTIFACTS) {

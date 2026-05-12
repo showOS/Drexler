@@ -35,6 +35,10 @@ const BROKEN_OFFICE_SEAMS = [
   "pipel╭",
   "╭─eFILE",
   "═║ $$ ║═",
+  "deal-room carpet shadow",
+  " glow",
+  "glow ",
+  "╰────────╯╮",
 ] as const;
 
 function renderScene(
@@ -101,9 +105,10 @@ describe("PetScene", () => {
     expect(rendered).toContain("memo");
     expect(rendered).toContain("▄ ▄ ▄");
     expect(rendered).toContain("DREXLER DEAL DESK");
-    expect(rendered).toContain("deal-room carpet shadow");
-    expect(rendered).toContain("╔");
-    expect(rendered).toContain("╚");
+    expect(rendered).toContain("market wall");
+    expect(rendered).toContain("╰────┬────╯");
+    expect(rendered).toContain("░░░░░░");
+    expect(rendered).toContain("╭──────╮");
     expectNoLegacyArtifacts(rendered);
     expectNoBrokenOfficeSeams(rendered);
   });

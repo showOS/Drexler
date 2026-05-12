@@ -179,7 +179,7 @@ export function loadPetState(): PetStats {
           energy: 50,
           deals: 25,
         };
-        writeFileSync(target, JSON.stringify(revived, null, 2));
+        savePetState(revived);
         return revived;
       }
       const lastActionAt: Partial<Record<PetActionKey, number>> = {};
