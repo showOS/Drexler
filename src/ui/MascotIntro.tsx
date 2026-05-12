@@ -21,6 +21,7 @@ import {
   CompactPetPanel,
   getPetStatusMessage,
   PetScene,
+  PET_SCENE_ROWS,
   PET_SCENE_WIDTH,
   type Environment,
 } from "./PetPanel.tsx";
@@ -171,7 +172,9 @@ const RIGHT_COLUMN_PAD_RIGHT = 1;
 const LEFT_PANEL_MIN_COPY = 24;
 const PET_STATS_MIN_WIDTH = 24;
 const PET_STATS_MAX_WIDTH = 58;
-const PET_SPLIT_DIVIDER_HEIGHT = 21;
+const PET_SCENE_FIRST_MIN_WIDTH = 132;
+const PET_SIDE_STATS_MIN_WIDTH = 40;
+const PET_SPLIT_DIVIDER_HEIGHT = PET_SCENE_ROWS + 1;
 const PET_SPLIT_DIVIDER_ROWS: number[] = Array.from(
   { length: PET_SPLIT_DIVIDER_HEIGHT },
   (_, i) => i,
@@ -880,6 +883,14 @@ function PetStatsBodyLine({
   );
 }
 
+function petStatSeverity(value: number): string {
+  if (value < 20) return "critical";
+  if (value < 40) return "low";
+  if (value < 65) return "ok";
+  if (value < 85) return "good";
+  return "peak";
+}
+
 function PetDashboardStatBar({
   label,
   value,
@@ -892,7 +903,8 @@ function PetDashboardStatBar({
   const t = useTheme();
   const innerWidth = Math.max(1, width - 4);
   const pct = `${Math.round(value).toString().padStart(3)}%`;
-  const labelText = padDisplayText(label, Math.min(7, innerWidth));
+  const severity = petStatSeverity(value);
+  const labelText = padDisplayText(`${label} ${severity}`, Math.min(15, innerWidth));
   const prefixWidth = displayWidth(labelText);
   const barWidth = Math.max(
     1,
@@ -1050,6 +1062,67 @@ function PetStatsReadout({
   );
 }
 
+function PetStatsMiniReadout({
+  stats,
+  activity,
+  width,
+}: {
+  stats: PetStats;
+  activity: PetActivity;
+  width: number;
+}) {
+  const t = useTheme();
+  const panelWidth = Math.max(
+    COMPACT_PET_PANEL_MIN_WIDTH,
+    Math.min(PET_STATS_MAX_WIDTH, Math.floor(width)),
+  );
+  const mood = getPetMood(stats);
+  const rank = rankLabel(getPetRank(stats));
+  const activityLabel = activity === "idle" ? "idle" : activity;
+  const title = "Pet Stats";
+  const topPrefix = "╭─ ";
+  const topSuffix = " ";
+  const topRule = "─".repeat(
+    Math.max(
+      0,
+      panelWidth -
+        displayWidth(topPrefix) -
+        displayWidth(title) -
+        displayWidth(topSuffix) -
+        displayWidth("╮"),
+    ),
+  );
+  const statsLine = [
+    `happy ${Math.round(stats.happiness)}%`,
+    `hunger ${Math.round(stats.hunger)}%`,
+    `energy ${Math.round(stats.energy)}%`,
+    `deals ${Math.round(stats.deals)}%`,
+  ].join(" · ");
+
+  return (
+    <Box flexDirection="column" width={panelWidth}>
+      <Text color={t.primary}>
+        {topPrefix}
+        <Text bold color={t.primaryLight}>{title}</Text>
+        {topSuffix}
+        {topRule}
+        ╮
+      </Text>
+      <PetStatsBodyLine
+        text={`rank ${rank} · mood ${mood} · activity ${activityLabel}`}
+        width={panelWidth}
+        color={t.primaryLight}
+      />
+      <PetStatsBodyLine
+        text={statsLine}
+        width={panelWidth}
+        color={t.text}
+      />
+      <Text color={t.primary}>{titledPanelBottom(panelWidth)}</Text>
+    </Box>
+  );
+}
+
 function PetDashboard({
   layout,
   stats,
@@ -1064,7 +1137,9 @@ function PetDashboard({
   isPaused: boolean;
 }) {
   const t = useTheme();
-  const sideBySide = layout.mode === "split";
+  const sideBySide =
+    layout.mode === "split" &&
+    layout.innerWidth >= PET_SCENE_FIRST_MIN_WIDTH + SPLIT_DIVIDER_WIDTH + PET_SIDE_STATS_MIN_WIDTH;
 
   if (layout.mode === "tiny" || layout.mode === "compact") {
     return (
@@ -1084,6 +1159,22 @@ function PetDashboard({
     );
   }
 
+  const petStatsWidth = sideBySide
+    ? Math.min(
+        PET_STATS_MAX_WIDTH,
+        Math.max(
+          PET_SIDE_STATS_MIN_WIDTH,
+          layout.innerWidth - PET_SCENE_FIRST_MIN_WIDTH - SPLIT_DIVIDER_WIDTH,
+        ),
+      )
+    : Math.min(PET_STATS_MAX_WIDTH, layout.innerWidth);
+  const petSceneWidth = sideBySide
+    ? Math.max(
+        PET_SCENE_FIRST_MIN_WIDTH,
+        layout.innerWidth - SPLIT_DIVIDER_WIDTH - petStatsWidth,
+      )
+    : layout.innerWidth;
+
   return (
     <Box width={layout.available}>
       <Box
@@ -1096,7 +1187,7 @@ function PetDashboard({
       >
         <Box
           flexDirection="column"
-          width={layout.leftPanel.width}
+          width={petSceneWidth}
           alignItems="center"
         >
           <PetSceneReadout
@@ -1104,7 +1195,7 @@ function PetDashboard({
             activity={activity}
             env={env}
             isPaused={isPaused}
-            width={layout.leftPanel.width}
+            width={petSceneWidth}
           />
         </Box>
         {sideBySide ? (
@@ -1122,24 +1213,24 @@ function PetDashboard({
             </Box>
             <Box
               flexDirection="column"
-              width={layout.rightColumn.width}
+              width={petStatsWidth}
               paddingRight={RIGHT_COLUMN_PAD_RIGHT}
             >
-              <Box marginLeft={layout.dealDesk.inset}>
+              <Box>
                 <PetStatsReadout
                   stats={stats}
                   activity={activity}
-                  width={Math.min(PET_STATS_MAX_WIDTH, layout.dealDesk.width)}
+                  width={petStatsWidth - RIGHT_COLUMN_PAD_RIGHT}
                 />
               </Box>
             </Box>
           </>
         ) : (
-          <Box marginTop={1} width={layout.tips.width} alignItems="center">
-            <PetStatsReadout
+          <Box marginTop={1} width={petStatsWidth} alignItems="center">
+            <PetStatsMiniReadout
               stats={stats}
               activity={activity}
-              width={Math.max(COMPACT_PET_PANEL_MIN_WIDTH, layout.tips.width)}
+              width={Math.max(COMPACT_PET_PANEL_MIN_WIDTH, petStatsWidth)}
             />
           </Box>
         )}

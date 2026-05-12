@@ -6,6 +6,7 @@ import { BRIEFCASE_FINAL } from "../src/ui/MascotFrame.tsx";
 import {
   COMPACT_PET_PANEL_MIN_WIDTH,
   CompactPetPanel,
+  PET_SCENE_ROWS,
   PET_SCENE_WIDTH,
   PetScene,
   type Environment,
@@ -13,7 +14,7 @@ import {
 import { displayWidth } from "../src/ui/graphemes.ts";
 
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
-const EXPECTED_SCENE_ROWS = 20;
+const EXPECTED_SCENE_ROWS = PET_SCENE_ROWS;
 const OLD_SCENE_ARTIFACTS = [
   "╔══TV════╗",
   "│ ~~~~ │",
@@ -31,6 +32,9 @@ const BROKEN_OFFICE_SEAMS = [
   "│═",
   "14:…",
   "▐…",
+  "pipel╭",
+  "╭─eFILE",
+  "═║ $$ ║═",
 ] as const;
 
 function renderScene(
@@ -85,6 +89,8 @@ describe("PetScene", () => {
     expect(rendered).toContain("║ $$ ║");
     expect(rendered).not.toContain(BRIEFCASE_FINAL[6]!.trimEnd());
     expect(rendered).toContain("DREXLER OFFICE");
+    expect(rendered).toContain("╭─────────╮");
+    expect(rendered).toContain("│9  ─┼─ 3 │");
     expect(rendered).toContain("DREXLER MARKETS");
     expect(rendered).toContain("BTC 67842");
     expect(rendered).toContain("CITY WINDOW");
@@ -94,6 +100,8 @@ describe("PetScene", () => {
     expect(rendered).toContain("c[__]");
     expect(rendered).toContain("memo");
     expect(rendered).toContain("▄ ▄ ▄");
+    expect(rendered).toContain("DREXLER DEAL DESK");
+    expect(rendered).toContain("deal-room carpet shadow");
     expect(rendered).toContain("╔");
     expect(rendered).toContain("╚");
     expectNoLegacyArtifacts(rendered);
@@ -130,7 +138,8 @@ describe("PetScene", () => {
       lastSaved: 1,
     });
 
-    expect(rendered).toContain("DL 100%");
+    expect(rendered).toContain("PIPE 100%");
+    expect(rendered).toContain("FEE 99%");
     expect(rendered).toContain("DREXLER OFFICE");
     expect(rendered).toContain("DREXLER MARKETS");
     for (const row of rendered.split("\n")) {
@@ -138,7 +147,7 @@ describe("PetScene", () => {
     }
   });
 
-  test.each([PET_SCENE_WIDTH, 68, 76, 96])(
+  test.each([PET_SCENE_WIDTH, 72, 96, 108, 124, 160, 200])(
     "fills and stays bounded at %d scene columns",
     (width) => {
       const rendered = renderScene("working", "outdoors", statsCases[0]!, width);
@@ -173,8 +182,8 @@ describe("PetScene", () => {
   test.each([
     [67, false, false],
     [68, true, false],
-    [95, true, false],
-    [96, true, true],
+    [117, true, false],
+    [118, true, true],
   ] as const)(
     "switches responsive office layout cleanly at %d columns",
     (width, expectCity, expectStatus) => {
