@@ -101,6 +101,7 @@ async function streamFromHistory(
   let cancelled = false;
 
   let escListener: KeypressListener | null = null;
+  let listenerAttached = false;
   if (process.stdin.isTTY) {
     escListener = (_str, key) => {
       if (key?.name === "escape") {
@@ -108,7 +109,8 @@ async function streamFromHistory(
         abort.abort();
       }
     };
-    process.stdin.addListener("keypress", escListener);
+    process.stdin.on("keypress", escListener);
+    listenerAttached = true;
   }
 
   const onToken = (t: string) => {
@@ -136,7 +138,7 @@ async function streamFromHistory(
       fetchFn: deps.fetchFn,
     });
   } finally {
-    if (escListener && process.stdin.isTTY) {
+    if (escListener && listenerAttached) {
       process.stdin.removeListener("keypress", escListener);
     }
   }
