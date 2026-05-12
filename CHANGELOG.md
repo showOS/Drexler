@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.24
+
+- Streaming pipeline: first token bypasses the 33ms throttle for noticeably snappier first-byte latency. The token buffer is now an array joined on flush instead of string concatenation, so long responses stop churning V8 ropes.
+- Render pass: `Spinner`, `StreamingMessage` content normalizers, and `computeMascotLayout` are memo'd so unrelated re-renders don't re-derive them. `renderDealDeskHeader` is a stable `useCallback` so `MascotDashboard.dealDesk` stays referentially identical.
+- Filtering: `filterArgumentPalette` is now a single-pass filter, halving the per-keystroke `toLowerCase` work for `/theme`, `/model`, `/startup`, `/retry`, `/export`. `/search` precomputes the term lowercase once.
+- Width math: `fitDisplayText` rewritten from an O(n²) `displayWidth`-in-loop to a single-pass O(n) accumulator. Hot path for every transcript / markdown / status / palette / pet-panel render.
+- Config caching: `loadConfigFile` is read once and cached for the process lifetime instead of three+ times per startup. `saveConfig` invalidates the cache so writes remain visible.
+- Pet office scene reworked into a structured sprite/timeline pipeline with `composeScene` driving named sprites with z-indexes and visibility predicates.
+
 ## 0.2.23
 
 - Redesigned the office pet scene from the ground up against ANSI/TUI art best practices: focal hierarchy, rule-of-thirds composition, single border vocabulary, four-stop brightness ladder, density-gradient backgrounds.
