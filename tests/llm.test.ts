@@ -90,6 +90,49 @@ describe("parseSSEStream", () => {
     expect(r.complete).toBe(false);
     expect(r.content).toBe("");
   });
+
+  test("fast-path slices content from realistic OpenRouter chunk", async () => {
+    const sse =
+      'data: {"id":"x","model":"m","choices":[{"delta":{"content":"hello"},"finish_reason":null}]}\n\n' +
+      "data: [DONE]\n\n";
+    const out: string[] = [];
+    const r = await parseSSEStream(streamFromString(sse), (t) => out.push(t));
+    expect(out).toEqual(["hello"]);
+    expect(r.content).toBe("hello");
+  });
+
+  test("escape sequences fall through to JSON.parse", async () => {
+    const sse =
+      `data: ${JSON.stringify({ choices: [{ delta: { content: "line1\nline2" }, finish_reason: null }] })}\n\n` +
+      "data: [DONE]\n\n";
+    const out: string[] = [];
+    const r = await parseSSEStream(streamFromString(sse), (t) => out.push(t));
+    expect(out).toEqual(["line1\nline2"]);
+    expect(r.content).toBe("line1\nline2");
+  });
+
+  test("escaped quote falls through to JSON.parse", async () => {
+    const content = 'she said "hi"';
+    const sse =
+      `data: ${JSON.stringify({ choices: [{ delta: { content }, finish_reason: null }] })}\n\n` +
+      "data: [DONE]\n\n";
+    const out: string[] = [];
+    const r = await parseSSEStream(streamFromString(sse), (t) => out.push(t));
+    expect(out).toEqual([content]);
+    expect(r.content).toBe(content);
+  });
+
+  test("idle stream timeout fires when no chunk arrives", async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      pull() {
+        // never enqueue — simulate a hung server
+      },
+    });
+    const out: string[] = [];
+    const r = await parseSSEStream(stream, (t) => out.push(t), 50);
+    expect(r.complete).toBe(false);
+    expect(r.error ?? "").toMatch(/idle stream timeout/);
+  });
 });
 
 describe("streamChat (V3 fallback)", () => {
@@ -122,7 +165,7 @@ describe("streamChat (V3 fallback)", () => {
     expect(result.content).toBe("fallback ok");
   });
 
-  test("V3: fallback only retried ONCE (no infinite loop)", async () => {
+  test("429 primary → 429 fallback → 429 primary-retry → http_error (no infinite loop)", async () => {
     let n = 0;
     const fetchFn: import("../src/llm.ts").FetchFn = async () => {
       n++;
@@ -136,9 +179,37 @@ describe("streamChat (V3 fallback)", () => {
       onToken: () => {},
       fetchFn,
     });
-    expect(n).toBe(2);
+    // Three attempts total: primary, fallback, primary-retry-after-pause.
+    expect(n).toBe(3);
     expect(result.ok).toBe(false);
     expect(result.fellBack).toBe(true);
+  });
+
+  test("429 primary → 429 fallback → 200 primary-retry recovers", async () => {
+    const calls: string[] = [];
+    const fetchFn: import("../src/llm.ts").FetchFn = async (_u, init) => {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      calls.push(body.model);
+      if (calls.length < 3) {
+        return new Response(null, { status: 429 });
+      }
+      return new Response(streamFromString(makeSSE(["recovered"])), {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      });
+    };
+    const result = await streamChat({
+      apiKey: "k",
+      model: MODEL_PRIMARY,
+      fallbackModel: MODEL_FALLBACK,
+      messages: [{ role: "user", content: "hi" }],
+      onToken: () => {},
+      fetchFn,
+    });
+    expect(calls).toEqual([MODEL_PRIMARY, MODEL_FALLBACK, MODEL_PRIMARY]);
+    expect(result.ok).toBe(true);
+    expect(result.fellBack).toBe(false);
+    expect(result.content).toBe("recovered");
   });
 
   test("no fallback when same model", async () => {
@@ -174,8 +245,9 @@ describe("streamChat (V3 fallback)", () => {
       onToken: () => {},
       fetchFn,
     });
-    // 5xx retries once on the SAME model; never falls back to a different model.
-    expect(calls).toEqual([MODEL_PRIMARY, MODEL_PRIMARY]);
+    // 5xx retries up to 3 attempts on the SAME model with exponential
+    // backoff; never falls back to a different model.
+    expect(calls).toEqual([MODEL_PRIMARY, MODEL_PRIMARY, MODEL_PRIMARY]);
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/HTTP 500/);
   });
@@ -208,7 +280,7 @@ describe("streamChat (V3 fallback)", () => {
     expect(result.content).toBe("recovered");
   });
 
-  test("5xx fails twice → http_error returned, no infinite loop", async () => {
+  test("5xx fails three times → http_error returned, no infinite loop", async () => {
     const calls: string[] = [];
     const fetchFn: import("../src/llm.ts").FetchFn = async (_u, init) => {
       const body = JSON.parse(String(init?.body ?? "{}"));
@@ -223,7 +295,7 @@ describe("streamChat (V3 fallback)", () => {
       onToken: () => {},
       fetchFn,
     });
-    expect(calls).toEqual([MODEL_PRIMARY, MODEL_PRIMARY]);
+    expect(calls).toEqual([MODEL_PRIMARY, MODEL_PRIMARY, MODEL_PRIMARY]);
     expect(result.ok).toBe(false);
     expect(result.fellBack).toBe(false);
     expect(result.error).toMatch(/HTTP 502/);
@@ -355,7 +427,7 @@ describe("streamChat (V3 fallback)", () => {
     );
   });
 
-  test("AbortSignal forwarded to fetch", async () => {
+  test("AbortSignal forwarded to fetch (composed with connect timeout)", async () => {
     let receivedSignal: AbortSignal | undefined;
     const fetchFn: import("../src/llm.ts").FetchFn = async (_u, init) => {
       receivedSignal = init?.signal ?? undefined;
@@ -373,7 +445,13 @@ describe("streamChat (V3 fallback)", () => {
       signal: controller.signal,
       fetchFn,
     });
-    expect(receivedSignal).toBe(controller.signal);
+    // The signal forwarded to fetch is now a composition of the user
+    // controller + a 10s connect timeout. Aborting the controller must
+    // still cancel that composed signal.
+    expect(receivedSignal).toBeInstanceOf(AbortSignal);
+    expect(receivedSignal!.aborted).toBe(false);
+    controller.abort();
+    expect(receivedSignal!.aborted).toBe(true);
   });
 
   test("401 returns friendly key-rejected message", async () => {
