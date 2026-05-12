@@ -1,5 +1,5 @@
 import { Box, Text } from "ink";
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import {
   firstDisplayLine,
   normalizeAssistantDisplayContent,
@@ -20,8 +20,17 @@ function StreamingMessageInner({ content, width = 80 }: StreamingProps) {
   const t = useTheme();
   const safeWidth = Math.max(1, Math.floor(width));
   const innerWidth = Math.max(1, safeWidth - 2);
-  const compactDisplayContent = normalizeAssistantDisplayContent(content);
-  const markdownDisplayContent = normalizeAssistantMarkdownRenderContent(content);
+  // Both normalizers walk the content string and strip fence markers.
+  // Memo so a re-render that doesn't touch `content` (e.g. theme flip,
+  // parent re-layout) doesn't redo the fence parse.
+  const compactDisplayContent = useMemo(
+    () => normalizeAssistantDisplayContent(content),
+    [content],
+  );
+  const markdownDisplayContent = useMemo(
+    () => normalizeAssistantMarkdownRenderContent(content),
+    [content],
+  );
 
   if (safeWidth < 18) {
     const compactLine = fitDisplayText(

@@ -13,7 +13,7 @@ import {
 import { displayWidth } from "../src/ui/graphemes.ts";
 
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
-const EXPECTED_SCENE_ROWS = 18;
+const EXPECTED_SCENE_ROWS = 20;
 const OLD_SCENE_ARTIFACTS = [
   "╔══TV════╗",
   "│ ~~~~ │",
@@ -61,26 +61,27 @@ describe("PetScene", () => {
   ];
 
   test("uses canonical mascot proportions inside an office desk scene", () => {
-    const rendered = renderScene("idle", "office", statsCases[0]!);
+    const rendered = renderScene("idle", "office", statsCases[0]!, 96);
 
-    for (const line of BRIEFCASE_FINAL) {
+    for (const line of BRIEFCASE_FINAL.slice(0, 5)) {
       expect(rendered).toContain(line.trimEnd());
     }
-    // Title bar identifies the room and shows the worst stat as a
-    // right-aligned readout (no chrome echo with the desk strip below).
+    // The desk is rendered in front of the lower mascot, so the lower
+    // "$$" panel remains readable without exposing the full bottom row.
+    expect(rendered).toContain("║ $$ ║");
+    expect(rendered).not.toContain(BRIEFCASE_FINAL[6]!.trimEnd());
     expect(rendered).toContain("DREXLER OFFICE");
-    // Boardroom window frames an animated city skyline with a quiet
-    // time label.
-    expect(rendered).toContain("Skyline");
+    expect(rendered).toContain("DREXLER MARKETS");
+    expect(rendered).toContain("BTC 67842");
+    expect(rendered).toContain("CITY WINDOW");
     expect(rendered).toMatch(/\d{2}:\d{2}/);
-    // Skyscraper silhouettes use half-block density gradients.
-    expect(rendered).toMatch(/[▆▇█]/);
-    // Steaming mug sits on the desk horizon.
-    expect(rendered).toContain("╭c~╮");
-    // Single horizon line carries the desk label, no bordered strip.
-    expect(rendered).toContain("DREXLER DEAL DESK");
-    // Nameplate replaces the laptop/papers clutter.
-    expect(rendered).toContain("▭ DREX");
+    expect(rendered).toContain("▐█▌");
+    expect(rendered).toContain("▐░▌");
+    expect(rendered).toContain("c[__]");
+    expect(rendered).toContain("memo");
+    expect(rendered).toContain("▄ ▄ ▄");
+    expect(rendered).toContain("╔");
+    expect(rendered).toContain("╚");
     expectNoLegacyArtifacts(rendered);
   });
 
@@ -93,7 +94,8 @@ describe("PetScene", () => {
 
           expect(rows.length).toBe(EXPECTED_SCENE_ROWS);
           expect(rendered).toContain("DREXLER OFFICE");
-          expect(rendered).toContain("DESK");
+          expect(rendered).toContain("DREXLER MARKETS");
+          expect(rendered).toContain("c[__]");
           expectNoLegacyArtifacts(rendered);
           for (const row of rows) {
             expect(displayWidth(row)).toBeLessThanOrEqual(PET_SCENE_WIDTH);
@@ -114,6 +116,7 @@ describe("PetScene", () => {
 
     expect(rendered).toContain("DL 100%");
     expect(rendered).toContain("DREXLER OFFICE");
+    expect(rendered).toContain("DREXLER MARKETS");
     for (const row of rendered.split("\n")) {
       expect(displayWidth(row)).toBeLessThanOrEqual(PET_SCENE_WIDTH);
     }
@@ -127,8 +130,10 @@ describe("PetScene", () => {
 
       expect(rows.length).toBe(EXPECTED_SCENE_ROWS);
       expect(rendered).toContain("DREXLER OFFICE");
-      // Working activity drives the window's bottom label.
-      expect(rendered).toContain("term sheet live");
+      expect(rendered).toContain("DREXLER MARKETS");
+      expect(rendered).toContain("EXECUTE");
+      expect(rendered).toContain("memo");
+      expect(rendered).toContain("▄ ▄");
       expectNoLegacyArtifacts(rendered);
       for (const row of rows) {
         expect(displayWidth(row)).toBeLessThanOrEqual(width);

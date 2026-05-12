@@ -302,11 +302,13 @@ describe("MascotFrame", () => {
     expect(rendered).toContain("activity playing");
     expect(rendered).toContain("activity playing · office");
     expect(rendered).toContain("DREXLER OFFICE");
-    expect(rendered).toContain("DREXLER DEAL DESK");
-    expect(rendered).toContain("Skyline");
-    expect(rendered).toMatch(/[▆▇█]/);
-    expect(rendered).toContain("╭c~╮");
-    expect(rendered).toContain("▭ DREX");
+    expect(rendered).toContain("DREXLER MARKETS");
+    expect(rendered).toContain("CITY WINDOW");
+    expect(rendered).toContain("▐█▌");
+    expect(rendered).toContain("▐░▌");
+    expect(rendered).toContain("c[__]");
+    expect(rendered).toContain("memo");
+    expect(rendered).toContain("▄ ▄");
     expect(rendered).toContain("happy");
     expect(rendered).toContain("hunger");
     expect(rendered).toContain("energy");
@@ -379,15 +381,20 @@ describe("MascotFrame", () => {
         { columns: width },
       ).replace(ANSI_RE, "");
 
-      for (const line of BRIEFCASE_FINAL) {
+      for (const line of BRIEFCASE_FINAL.slice(0, 5)) {
         expect(rendered).toContain(line);
       }
+      expect(rendered).toContain("║ $$ ║");
+      expect(rendered).not.toContain(BRIEFCASE_FINAL[6]);
       expect(rendered).toContain("Drexler Pet Desk [office]");
       expect(rendered).toContain("DREXLER OFFICE");
-      expect(rendered).toContain("DREXLER DEAL DESK");
-      expect(rendered).toContain("Skyline");
-      expect(rendered).toMatch(/[▆▇█]/);
-      expect(rendered).toContain("╭c-╮");
+      expect(rendered).toContain("DREXLER MARKETS");
+      if (width >= 160) {
+        expect(rendered).toContain("CITY WINDOW");
+      }
+      expect(rendered).toContain("c[__]");
+      expect(rendered).toContain("memo");
+      expect(rendered).toContain("▄ ▄");
       expect(rendered).not.toContain("[outdoors]");
       expect(rendered).not.toContain("env outdoors");
       for (const artifact of OLD_PET_SCENE_ARTIFACTS) {

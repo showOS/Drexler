@@ -278,13 +278,12 @@ function filterArgumentPalette(input: string): ReadonlyArray<SlashCommand> {
     }
     const prefix = `${group.command} `;
     if (!lower.startsWith(prefix)) continue;
-    const argPrefix = lower.slice(prefix.length);
+    // Collapse the previous double-filter into a single pass — both
+    // legs ended up checking the same lowercased prefix, so we did
+    // 2× toLowerCase per item per keystroke. One pass, one lowercase.
     return group.values.filter((item) =>
       item.name.toLowerCase().startsWith(lower),
-    ).filter((item) => {
-      if (argPrefix.trim() === "") return true;
-      return item.name.toLowerCase().slice(prefix.length).startsWith(argPrefix);
-    });
+    );
   }
   return [];
 }
@@ -779,9 +778,9 @@ function handleCopyLast(ctx: CommandContext): void {
   );
 }
 
-function compactSnippet(content: string, term: string): string {
+function compactSnippet(content: string, term: string, termLower: string): string {
   const normalized = content.replace(/\s+/g, " ").trim();
-  const idx = normalized.toLowerCase().indexOf(term.toLowerCase());
+  const idx = normalized.toLowerCase().indexOf(termLower);
   if (idx === -1) return normalized.slice(0, 96);
   const start = Math.max(0, idx - 32);
   const end = Math.min(normalized.length, idx + term.length + 48);
@@ -797,9 +796,12 @@ function handleSearch(rawTerm: string, ctx: CommandContext): void {
     return;
   }
 
+  // Lowercase the term once instead of recomputing in every filter
+  // iteration and every snippet rendering.
+  const termLower = term.toLowerCase();
   const matches = ctx.conversation
     .snapshot()
-    .filter((m) => m.role !== "system" && m.content.toLowerCase().includes(term.toLowerCase()));
+    .filter((m) => m.role !== "system" && m.content.toLowerCase().includes(termLower));
 
   if (matches.length === 0) {
     ctx.print(`No transcript matches for "${term}".`);
@@ -809,7 +811,7 @@ function handleSearch(rawTerm: string, ctx: CommandContext): void {
   const lines = [`Search results for "${term}": ${matches.length}`];
   matches.slice(0, 8).forEach((m, i) => {
     const label = m.role === "user" ? "You" : "Drexler";
-    lines.push(`${i + 1}. ${label}: ${compactSnippet(m.content, term)}`);
+    lines.push(`${i + 1}. ${label}: ${compactSnippet(m.content, term, termLower)}`);
   });
   if (matches.length > 8) {
     lines.push(`...${matches.length - 8} more matches`);

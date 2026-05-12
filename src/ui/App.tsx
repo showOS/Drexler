@@ -299,7 +299,7 @@ export function App({
     null,
   );
   const [exitMsg, setExitMsg] = useState<string | null>(null);
-  const [witticism, setWitticism] = useState<string>(pick(WITTICISMS));
+  const [witticism, setWitticism] = useState<string>(() => pick(WITTICISMS));
   const [model, setModel] = useState<string>(config.model);
   const [msgCount, setMsgCount] = useState<number>(0);
   const [deskStatus, setDeskStatus] = useState<"idle" | "error">("idle");
@@ -474,7 +474,11 @@ export function App({
   }, [estimatedTranscriptRows, visibleTranscriptRows, scrollOffset]);
 
   // throttle streaming updates so React doesn't re-render every token
-  const streamBufRef = useRef("");
+  // Token chunks accumulate as an array of strings; we join only when
+  // flushing to React. Avoids the V8-rope churn that string += creates
+  // for long responses (50–100 tokens/sec, several KB final size).
+  const streamChunksRef = useRef<string[]>([]);
+  const streamLengthRef = useRef(0);
   const streamTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const cancelledRef = useRef(false);
@@ -487,7 +491,7 @@ export function App({
   const historyDraftRef = useRef<{ value: string; cursor: number } | null>(null);
   const flushStream = useCallback(() => {
     if (!mountedRef.current) return;
-    setStreaming(streamBufRef.current);
+    setStreaming(streamChunksRef.current.join(""));
     streamTimerRef.current = null;
   }, []);
 
@@ -517,7 +521,15 @@ export function App({
 
   const pushTokenToStream = useCallback(
     (t: string) => {
-      streamBufRef.current += t;
+      streamChunksRef.current.push(t);
+      streamLengthRef.current += 1;
+      // First token bypasses the throttle so the user sees a character
+      // the instant it arrives; subsequent tokens batch on the 33ms
+      // cadence to keep React renders cheap.
+      if (streamLengthRef.current === 1) {
+        flushStream();
+        return;
+      }
       if (streamTimerRef.current === null) {
         streamTimerRef.current = setTimeout(flushStream, 33);
       }
@@ -574,7 +586,8 @@ export function App({
       setThinking(pick(THINKING_LINES));
       setDeskStatus("idle");
       setDeskNotice(null);
-      streamBufRef.current = "";
+      streamChunksRef.current = [];
+      streamLengthRef.current = 0;
       setStreaming(null);
       let firstToken = true;
       abortRef.current = new AbortController();
@@ -1174,16 +1187,19 @@ export function App({
   const isBusy =
     requestInFlight || streaming !== null || thinking !== null || synergyEvent !== null;
   const headerStatus = isBusy ? "streaming" : deskStatus;
-  const renderDealDeskHeader = (width: number, marginBottom = 1) => (
-    <DealDeskHeader
-      mood={mood}
-      messageCount={msgCount}
-      status={headerStatus}
-      compact={isCompact}
-      notice={!introActive ? deskNotice ?? undefined : undefined}
-      maxWidth={Math.max(1, width)}
-      marginBottom={marginBottom}
-    />
+  const renderDealDeskHeader = useCallback(
+    (width: number, marginBottom = 1) => (
+      <DealDeskHeader
+        mood={mood}
+        messageCount={msgCount}
+        status={headerStatus}
+        compact={isCompact}
+        notice={!introActive ? deskNotice ?? undefined : undefined}
+        maxWidth={Math.max(1, width)}
+        marginBottom={marginBottom}
+      />
+    ),
+    [mood, msgCount, headerStatus, isCompact, introActive, deskNotice],
   );
   const dealDeskHeader = renderDealDeskHeader(chromeWidth);
   const introBarColor = introPhaseColor(intro.colorPhase, t);
