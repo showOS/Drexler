@@ -90,6 +90,7 @@ export interface StreamResult {
   error?: string;
   fellBack?: boolean;
   interrupted?: boolean;
+  authFailure?: boolean;
 }
 
 export async function streamChat(opts: StreamOptions): Promise<StreamResult> {
@@ -115,7 +116,12 @@ export async function streamChat(opts: StreamOptions): Promise<StreamResult> {
   return toResult(third, opts.model, true);
 }
 
-type AttemptStatus = "ok" | "rate_limit" | "http_error" | "stream_error";
+type AttemptStatus =
+  | "ok"
+  | "rate_limit"
+  | "http_error"
+  | "stream_error"
+  | "auth_error";
 
 interface AttemptOutcome {
   status: AttemptStatus;
@@ -181,9 +187,9 @@ async function attempt(
       detail = await res.text();
     } catch {}
     return {
-      status: "http_error",
+      status: "auth_error",
       content: "",
-      error: `HTTP ${res.status}: API key rejected by OpenRouter. Update via .env (OPENROUTER_API_KEY=...) or run "rm ~/.config/drexler/config.json" to re-prompt. ${detail.slice(0, 120)}`,
+      error: `HTTP ${res.status}: API key rejected by OpenRouter. ${detail.slice(0, 120)}`,
     };
   }
 
@@ -246,6 +252,7 @@ function toResult(
     fellBack,
     interrupted:
       outcome.status === "stream_error" && outcome.content.length > 0,
+    authFailure: outcome.status === "auth_error",
   };
 }
 
