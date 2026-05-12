@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.2.31
+
+- **Reliability bundle (multi-pod patch set)**: 8 bugs + 8 perf fixes landed via the caveman queen/pods framework. Full audit + fix matrix in commit body.
+  - **B1** (`MoodReadout`): hoisted `useMemo` above the early-return guard so `mood`-toggling cannot trip React's hooks-order invariant.
+  - **B2** (`updatePetStats`): pet-state reducer is now pure — disk IO moved to a dedicated `useEffect` so React 19 StrictMode dev double-invokes no longer double-write `pet.json`.
+  - **B3** (`/vibe`): roll once outside the reducer, run `applyVibe(stats, roll)` inside it. Latest committed stats are now read, so a racing decay tick can't be clobbered.
+  - **B4** (`Conversation.trim`): user-turn counter now decrements when an oldest user message is evicted; drift-reminder cadence stays accurate across long sessions.
+  - **B5** (exit-timer race): extracted `replaceExitTimer(ref, fn, delayMs)` helper that cancels any prior handle before scheduling a new one. Prevents `exit()` from firing twice when pet-death and Ctrl-C overlap.
+  - **B6** (cli-highlight import): added `.catch(() => {})` so a failed dynamic import never surfaces as an unhandled rejection.
+  - **B7** (streaming buffer): single rolling `streamBufRef: string` replaces the `string[] + join()` pattern. V8 ropes give amortized O(1) per token instead of O(n²) across a stream.
+  - **B8** (spinner cursor): TTY `startSpinner` now installs `SIGINT` + `exit` handlers that restore `\x1b[?25h` if the process dies mid-stream.
+  - **P1** (`applyDecay`): returns same identity when no real movement occurs. Caller bails the React update, save-effect skips the disk write.
+  - **P2** (session persist): `saveSession` converted to async (`fs/promises`), wrapped in an 800ms debouncer (`makeDebouncer` utility) so burst turns collapse to one write. Flush on exit + unmount.
+  - **P3** (`graphemeLength`): ASCII short-circuit returns `s.length` directly — skips the `Array.from` allocation in `splitGraphemes`.
+  - **P4** (`wrapDisplayLine`): rewritten with an index-based algorithm + precomputed widths. O(n²) → O(n) for long non-ASCII wrap.
+  - **P5** (markdown normalize): `normalizeAssistantBoth` does one fence-scan and returns both compact and markdown-render forms. Cuts streaming-flush parse cost in half.
+  - **P7** (PetPanel scene): tightened `composeSceneCells` allocation loop; moved sprite sort into `buildOfficeScene` so it runs once per scene build instead of per frame.
+  - **P8** (banner gradient): precomputed chalk-styler palette indexed by `(row + col)` — eliminates per-glyph `chalk.hex` + lerp + regex on intro.
+  - **P10** (transcript wrap cache): `WeakMap`-keyed per-`ChatItem` cache of `wrappedTranscriptLines`. Settled items wrap at most once per `(role, contentWidth)`.
+- **Test coverage**: added 8 new tests (`B4` trim cadence, `B5` `replaceExitTimer`, `P2` `makeDebouncer`, `P10` wrap cache identity).
+- **Refactors as a side effect**: extracted `replaceExitTimer`, `makeDebouncer`, and exported `wrappedTranscriptLines` and `graphemeWidth` for testability.
+
 ## 0.2.29
 
 - **Pet decay now suspend-aware**: closing the laptop no longer dodges hours of pet decay. The 60s tick switched from a fixed 1-minute subtraction to the existing elapsed-aware `applyDecay`, and `updatePetStats` stamps `lastSaved` on the in-memory copy so subsequent ticks measure from the right anchor.

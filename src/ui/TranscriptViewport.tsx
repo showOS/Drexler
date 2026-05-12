@@ -283,7 +283,7 @@ function computeWrappedTranscriptLines(
   });
 }
 
-function wrappedTranscriptLines(
+export function wrappedTranscriptLines(
   item: TranscriptViewportItem,
   contentWidth: number,
 ): WrappedTranscriptLine[] {

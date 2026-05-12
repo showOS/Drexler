@@ -10,7 +10,9 @@ import type { FetchFn } from "../src/llm.ts";
 import { App } from "../src/ui/App.tsx";
 import {
   historyNavStep,
+  makeDebouncer,
   nextTranscriptScrollOffset,
+  replaceExitTimer,
   shouldRemoveVisibleAssistantForAction,
   transcriptRowsForTerminalRows,
 } from "../src/ui/App.tsx";
@@ -417,5 +419,87 @@ describe("historyNavStep", () => {
       historyDraft: null,
     };
     expect(historyNavStep(state, [], "up")).toEqual(state);
+  });
+});
+
+describe("makeDebouncer (P2)", () => {
+  test("collapses rapid schedules into one fire", async () => {
+    const d = makeDebouncer(20);
+    let count = 0;
+    d.schedule(() => count++);
+    d.schedule(() => count++);
+    d.schedule(() => count++);
+    expect(d.hasPending()).toBe(true);
+    await new Promise((r) => setTimeout(r, 60));
+    expect(count).toBe(1);
+    expect(d.hasPending()).toBe(false);
+  });
+
+  test("cancel suppresses pending fire", async () => {
+    const d = makeDebouncer(20);
+    let count = 0;
+    d.schedule(() => count++);
+    expect(d.hasPending()).toBe(true);
+    d.cancel();
+    expect(d.hasPending()).toBe(false);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(count).toBe(0);
+  });
+
+  test("each schedule uses the latest fn", async () => {
+    const d = makeDebouncer(20);
+    let stale = 0;
+    let fresh = 0;
+    d.schedule(() => stale++);
+    d.schedule(() => fresh++);
+    await new Promise((r) => setTimeout(r, 60));
+    expect(stale).toBe(0);
+    expect(fresh).toBe(1);
+  });
+
+  test("after fire, next schedule starts a fresh window", async () => {
+    const d = makeDebouncer(20);
+    let count = 0;
+    d.schedule(() => count++);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(count).toBe(1);
+    d.schedule(() => count++);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(count).toBe(2);
+  });
+});
+
+describe("replaceExitTimer (B5)", () => {
+  test("second call cancels first timer; only the latest fn fires", async () => {
+    const ref: { current: ReturnType<typeof setTimeout> | null } = {
+      current: null,
+    };
+    let firstCount = 0;
+    let secondCount = 0;
+    replaceExitTimer(ref, () => firstCount++, 30);
+    replaceExitTimer(ref, () => secondCount++, 30);
+    await new Promise((r) => setTimeout(r, 80));
+    expect(firstCount).toBe(0);
+    expect(secondCount).toBe(1);
+    expect(ref.current).toBeNull();
+  });
+
+  test("clears ref after the timer fires", async () => {
+    const ref: { current: ReturnType<typeof setTimeout> | null } = {
+      current: null,
+    };
+    replaceExitTimer(ref, () => undefined, 10);
+    expect(ref.current).not.toBeNull();
+    await new Promise((r) => setTimeout(r, 40));
+    expect(ref.current).toBeNull();
+  });
+
+  test("first call assigns a handle when ref starts null", () => {
+    const ref: { current: ReturnType<typeof setTimeout> | null } = {
+      current: null,
+    };
+    replaceExitTimer(ref, () => undefined, 10_000);
+    expect(ref.current).not.toBeNull();
+    clearTimeout(ref.current as ReturnType<typeof setTimeout>);
   });
 });

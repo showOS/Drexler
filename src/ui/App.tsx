@@ -128,6 +128,52 @@ export function shouldRemoveVisibleAssistantForAction(
   return action.type === "regenerate" && action.removedAssistant;
 }
 
+// Replace a timer handle on a ref. Cancels any prior timer first so two
+// fire-paths (e.g. pet-death + Ctrl-C) cannot leave a dangling callback
+// after the latest assignment.
+export function replaceExitTimer(
+  ref: { current: ReturnType<typeof setTimeout> | null },
+  fn: () => void,
+  delayMs: number,
+): void {
+  if (ref.current !== null) clearTimeout(ref.current);
+  ref.current = setTimeout(() => {
+    ref.current = null;
+    fn();
+  }, delayMs);
+}
+
+export interface Debouncer {
+  schedule: (fn: () => void) => void;
+  cancel: () => void;
+  hasPending: () => boolean;
+}
+
+// Coalesce rapid calls into one delayed fire. Each schedule replaces the
+// pending callback; cancel suppresses any pending fire. Used to keep
+// session-persistence writes off the hot path during burst turns.
+export function makeDebouncer(delayMs: number): Debouncer {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  return {
+    schedule(fn) {
+      if (timer !== null) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        fn();
+      }, delayMs);
+    },
+    cancel() {
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    },
+    hasPending() {
+      return timer !== null;
+    },
+  };
+}
+
 export interface HistoryNavState {
   historyIdx: number | null;
   draft: { value: string; cursor: number };
@@ -285,12 +331,8 @@ export function App({
   // Debounced 800ms so a burst of turns (e.g. rapid /retry → /regenerate)
   // collapses to one async write instead of N sync writes that would
   // block the Ink event loop.
-  const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const flushPersistSession = useCallback(() => {
-    if (persistTimerRef.current !== null) {
-      clearTimeout(persistTimerRef.current);
-      persistTimerRef.current = null;
-    }
+  const persistDebouncer = useMemo(() => makeDebouncer(800), []);
+  const writePersistNow = useCallback(() => {
     void saveSession(
       buildSavedSession(conversation, conversation.systemPrompt, config.model),
     ).catch(() => {
@@ -298,23 +340,13 @@ export function App({
       // promise rejects before the internal try/catch runs.
     });
   }, [conversation, config.model]);
+  const flushPersistSession = useCallback(() => {
+    persistDebouncer.cancel();
+    writePersistNow();
+  }, [persistDebouncer, writePersistNow]);
   const persistSession = useCallback(() => {
-    if (persistTimerRef.current !== null) {
-      clearTimeout(persistTimerRef.current);
-    }
-    persistTimerRef.current = setTimeout(() => {
-      persistTimerRef.current = null;
-      void saveSession(
-        buildSavedSession(
-          conversation,
-          conversation.systemPrompt,
-          config.model,
-        ),
-      ).catch(() => {
-        // best-effort; saveSession swallows internally
-      });
-    }, 800);
-  }, [conversation, config.model]);
+    persistDebouncer.schedule(writePersistNow);
+  }, [persistDebouncer, writePersistNow]);
 
   const [draft, setDraft] = useState({ value: "", cursor: 0 });
 
@@ -526,8 +558,7 @@ export function App({
     const deadStats = { ...petStats, dead: true };
     petStatsRef.current = deadStats;
     savePetState(deadStats);
-    if (exitTimerRef.current !== null) clearTimeout(exitTimerRef.current);
-    exitTimerRef.current = setTimeout(() => exit(), 5000);
+    replaceExitTimer(exitTimerRef, () => exit(), 5000);
   }, [petStats, isDead, exit]);
 
   const paletteItems = useMemo(() => filterPaletteByPrefix(input), [input]);
@@ -607,8 +638,7 @@ export function App({
       setRequestInFlight(false);
       setSynergyEvent(null);
       setExitMsg(msg);
-      if (exitTimerRef.current !== null) clearTimeout(exitTimerRef.current);
-      exitTimerRef.current = setTimeout(() => exit(), 50);
+      replaceExitTimer(exitTimerRef, () => exit(), 50);
     },
     [exit, flushPersistSession],
   );
@@ -1358,11 +1388,10 @@ export function App({
     return () => {
       mountedRef.current = false;
       abortRef.current?.abort();
-      if (persistTimerRef.current !== null) {
+      if (persistDebouncer.hasPending()) {
         // Flush any pending debounced write so the next launch sees
         // the latest turn; best-effort, the promise is fire-and-forget.
-        clearTimeout(persistTimerRef.current);
-        persistTimerRef.current = null;
+        persistDebouncer.cancel();
         void saveSession(
           buildSavedSession(
             conversation,

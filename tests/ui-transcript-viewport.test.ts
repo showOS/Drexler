@@ -3,6 +3,7 @@ import { Text, renderToString } from "ink";
 import React from "react";
 import {
   TranscriptViewport,
+  wrappedTranscriptLines,
   type TranscriptViewportItem,
 } from "../src/ui/TranscriptViewport.tsx";
 import { displayWidth } from "../src/ui/graphemes.ts";
@@ -461,5 +462,46 @@ describe("TranscriptViewport", () => {
     });
     expect(rendered).toMatch(/\d+ lines? earlier/);
     expect(rendered).toContain("PageUp scrollback");
+  });
+});
+
+describe("wrappedTranscriptLines cache (P10)", () => {
+  test("returns same array identity for identical (item, width) calls", () => {
+    const item: TranscriptViewportItem = {
+      id: "cache-test",
+      role: "assistant",
+      content: "alpha beta gamma delta epsilon zeta eta theta",
+    };
+    const first = wrappedTranscriptLines(item, 20);
+    const second = wrappedTranscriptLines(item, 20);
+    expect(second).toBe(first);
+  });
+
+  test("returns distinct arrays for different widths", () => {
+    const item: TranscriptViewportItem = {
+      id: "width-test",
+      role: "assistant",
+      content: "alpha beta gamma delta epsilon zeta eta theta",
+    };
+    const narrow = wrappedTranscriptLines(item, 10);
+    const wide = wrappedTranscriptLines(item, 40);
+    expect(wide).not.toBe(narrow);
+  });
+
+  test("returns distinct entries for different items even with identical content", () => {
+    const a: TranscriptViewportItem = {
+      id: "a",
+      role: "assistant",
+      content: "same content",
+    };
+    const b: TranscriptViewportItem = {
+      id: "b",
+      role: "assistant",
+      content: "same content",
+    };
+    const fromA = wrappedTranscriptLines(a, 20);
+    const fromB = wrappedTranscriptLines(b, 20);
+    expect(fromA).not.toBe(fromB);
+    expect(fromA.map((l) => l.text)).toEqual(fromB.map((l) => l.text));
   });
 });
