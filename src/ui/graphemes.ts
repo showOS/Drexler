@@ -1,5 +1,17 @@
 let segmenter: Intl.Segmenter | null = null;
 
+// Pure ASCII printable (\x20-\x7e) + TAB/LF/CR. Every code point in this
+// set is exactly one grapheme cluster — no combining marks, no
+// surrogates, no zero-width joiners — so we can skip Intl.Segmenter
+// entirely. English-heavy chat is the dominant case; Segmenter +
+// Array.from over its iterator is the single largest per-render cost
+// in transcript, markdown, status, and input rendering.
+const ASCII_ONLY_RE = /^[\x20-\x7e\t\n\r]*$/;
+
+function isAsciiOnly(s: string): boolean {
+  return ASCII_ONLY_RE.test(s);
+}
+
 function getSegmenter(): Intl.Segmenter | null {
   if (typeof Intl.Segmenter !== "function") return null;
   segmenter ??= new Intl.Segmenter(undefined, { granularity: "grapheme" });
@@ -7,6 +19,7 @@ function getSegmenter(): Intl.Segmenter | null {
 }
 
 export function splitGraphemes(input: string): string[] {
+  if (isAsciiOnly(input)) return Array.from(input);
   const active = getSegmenter();
   if (!active) return Array.from(input);
   return Array.from(active.segment(input), (part) => part.segment);
@@ -50,6 +63,17 @@ function graphemeWidth(input: string): number {
 }
 
 export function displayWidth(input: string): number {
+  if (isAsciiOnly(input)) {
+    // Tab/LF/CR are < 32 → graphemeWidth returns 0 for them; printable
+    // \x20-\x7e all have width 1. Count printable bytes only, preserving
+    // existing semantics for control chars in multi-line drafts.
+    let w = 0;
+    for (let i = 0; i < input.length; i++) {
+      const c = input.charCodeAt(i);
+      if (c >= 0x20 && c <= 0x7e) w++;
+    }
+    return w;
+  }
   return splitGraphemes(input).reduce(
     (sum, grapheme) => sum + graphemeWidth(grapheme),
     0,
