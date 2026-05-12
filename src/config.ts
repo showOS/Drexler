@@ -163,7 +163,20 @@ async function readConfigPath(
   }
 }
 
+// Cache the parsed config file for the lifetime of a single startup
+// pass. validateLaunchConfig, resolveConfig, ensureApiKey, and
+// describeApiKeySource all hit loadConfigFile back-to-back during boot;
+// without the cache we paid 3+ fs.readFile + JSON.parse cycles per
+// launch on what is the same byte-identical file. saveConfig
+// invalidates so writes are still visible to subsequent reads.
+let configFileCache: Partial<Config> | null = null;
+
+export function invalidateConfigFileCache(): void {
+  configFileCache = null;
+}
+
 export async function loadConfigFile(): Promise<Partial<Config>> {
+  if (configFileCache !== null) return configFileCache;
   // Try canonical XDG path first, then legacy ~/.drexlerrc. Reading
   // unconditionally (instead of gating on existsSync) means EACCES
   // surfaces a warning rather than silently masquerading as "no file".
@@ -174,7 +187,8 @@ export async function loadConfigFile(): Promise<Partial<Config>> {
       console.warn(
         `Drexler config at ${path} could not be read (${result.error.code ?? result.error.message}); ignoring (defaults applied).`,
       );
-      return {};
+      configFileCache = {};
+      return configFileCache;
     }
     try {
       const parsed: unknown = JSON.parse(result.raw);
@@ -182,18 +196,22 @@ export async function loadConfigFile(): Promise<Partial<Config>> {
         console.warn(
           `Drexler config at ${path} is not a JSON object; ignoring (defaults applied).`,
         );
-        return {};
+        configFileCache = {};
+        return configFileCache;
       }
-      return parsed as Partial<Config>;
+      configFileCache = parsed as Partial<Config>;
+      return configFileCache;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.warn(
         `Drexler config at ${path} could not be parsed (${msg}); ignoring (defaults applied).`,
       );
-      return {};
+      configFileCache = {};
+      return configFileCache;
     }
   }
-  return {};
+  configFileCache = {};
+  return configFileCache;
 }
 
 export async function saveConfig(partial: Partial<Config>): Promise<void> {
@@ -220,6 +238,10 @@ export async function saveConfig(partial: Partial<Config>): Promise<void> {
   try {
     await chmod(target, 0o600);
   } catch {}
+  // Drop the cache so subsequent reads see the merged state. Cheaper
+  // than rewriting the cache to `merged` because there are usually
+  // zero or one reads after a save in a startup pass.
+  invalidateConfigFileCache();
 }
 
 const PLACEHOLDER_RE = /your-key-here|sk-or-v1-\.\.\.|^(stub|test|todo)$/i;

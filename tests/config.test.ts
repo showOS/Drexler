@@ -8,6 +8,7 @@ import {
   ensureApiKey,
   getDrexlerVersion,
   getResolvedConfigPath,
+  invalidateConfigFileCache,
   isValidApiKey,
   LaunchConfigError,
   loadConfigFile,
@@ -161,6 +162,7 @@ describe("XDG_CONFIG_HOME respected", () => {
     origHome = process.env.HOME;
     origXdg = process.env.XDG_CONFIG_HOME;
     process.env.HOME = dir;
+    invalidateConfigFileCache();
   });
 
   afterEach(async () => {
@@ -211,6 +213,7 @@ describe("loadConfigFile / saveConfig", () => {
     origXdg = process.env.XDG_CONFIG_HOME;
     process.env.HOME = dir;
     delete process.env.XDG_CONFIG_HOME;
+    invalidateConfigFileCache();
   });
 
   afterEach(async () => {
@@ -360,6 +363,7 @@ describe("ensureApiKey + resolveConfig (no-prompt paths)", () => {
     delete process.env.DREXLER_THEME;
     delete process.env.DREXLER_NO_INTRO;
     delete process.env.DREXLER_FAST;
+    invalidateConfigFileCache();
   });
 
   afterEach(async () => {
