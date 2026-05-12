@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.26
+
+- **Reliability**: connect timeout (10s) on every LLM fetch — composed with the user abort signal so Esc still cancels mid-handshake. Idle-stream timeout (30s) bails cleanly when a hung SSE connection stops emitting chunks. Exponential backoff on 5xx with ±25% jitter, up to 3 attempts. 429 second-shot retry on the primary model after both primary + fallback rate-limit.
+- **Streaming latency**: SSE JSON fast-path slices `delta.content` between quotes for the common chunk shape, falling back to JSON.parse on any escape or alternate shape. ~3-5× cheaper per token chunk.
+- **Render latency**: `splitGraphemes` + `displayWidth` short-circuit for pure-ASCII input, skipping `Intl.Segmenter` entirely. Dominant cost for English-heavy renders across transcript, markdown, status, and input rendering.
+- **Multi-line input**: Shift+Enter (Kitty / iTerm2 / Windows Terminal) and Alt+Enter (universal) insert a literal newline at the cursor instead of submitting. Paste preserves CRLF/LF so multi-line content survives. Plain Enter still submits.
+- **Live token count**: surfaced in the status bar as `~N tok` (or `~N.Nk tok` above 1k). Hidden in compact mode.
+- **Early-abort rollback**: pressing Esc before the first assistant token arrives now pops the just-pushed user turn from both the conversation and the transcript so dead user turns no longer accumulate on repeated quick aborts.
+
 ## 0.2.24
 
 - Streaming pipeline: first token bypasses the 33ms throttle for noticeably snappier first-byte latency. The token buffer is now an array joined on flush instead of string concatenation, so long responses stop churning V8 ropes.
