@@ -56,14 +56,24 @@ export function displayWidth(input: string): number {
   );
 }
 
+const ELLIPSIS_WIDTH = 1;
+
 export function fitDisplayText(input: string, maxWidth: number): string {
   if (maxWidth <= 0) return "";
   if (displayWidth(input) <= maxWidth) return input;
   if (maxWidth === 1) return "…";
 
+  // Single-pass accumulator: track running width instead of recomputing
+  // displayWidth(out + part + "…") on every grapheme (O(n²) → O(n)).
+  // This is the dominant cost for every fitDisplayText call across the
+  // transcript / markdown / status bar render paths.
+  const budget = maxWidth - ELLIPSIS_WIDTH;
+  let used = 0;
   let out = "";
   for (const part of splitGraphemes(input)) {
-    if (displayWidth(`${out}${part}…`) > maxWidth) break;
+    const partWidth = graphemeWidth(part);
+    if (used + partWidth > budget) break;
+    used += partWidth;
     out += part;
   }
   return `${out}…`;
