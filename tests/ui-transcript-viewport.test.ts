@@ -504,4 +504,43 @@ describe("wrappedTranscriptLines cache (P10)", () => {
     expect(fromA).not.toBe(fromB);
     expect(fromA.map((l) => l.text)).toEqual(fromB.map((l) => l.text));
   });
+
+  test("LRU-evicts oldest entry once per-item cache exceeds bound", () => {
+    const item: TranscriptViewportItem = {
+      id: "lru-test",
+      role: "assistant",
+      content: "alpha beta gamma delta epsilon zeta eta theta",
+    };
+    // MAX_WIDTHS_PER_ITEM = 4. Fill with widths 10..13.
+    const first = wrappedTranscriptLines(item, 10);
+    wrappedTranscriptLines(item, 11);
+    wrappedTranscriptLines(item, 12);
+    wrappedTranscriptLines(item, 13);
+    // Inserting a fifth (width 14) must evict the oldest (width 10).
+    wrappedTranscriptLines(item, 14);
+    // Width 10 should now be recomputed → fresh array identity.
+    const refetched = wrappedTranscriptLines(item, 10);
+    expect(refetched).not.toBe(first);
+    // Width 14 should still be cached (most recent).
+    const w14a = wrappedTranscriptLines(item, 14);
+    const w14b = wrappedTranscriptLines(item, 14);
+    expect(w14b).toBe(w14a);
+  });
+
+  test("LRU-get bumps recency: re-fetching protects against eviction", () => {
+    const item: TranscriptViewportItem = {
+      id: "lru-bump-test",
+      role: "assistant",
+      content: "alpha beta gamma delta",
+    };
+    const w10 = wrappedTranscriptLines(item, 10);
+    wrappedTranscriptLines(item, 11);
+    wrappedTranscriptLines(item, 12);
+    wrappedTranscriptLines(item, 13);
+    // Bump width 10 to most-recent by re-fetching.
+    expect(wrappedTranscriptLines(item, 10)).toBe(w10);
+    // Adding a fifth distinct width must now evict width 11 (next oldest), NOT 10.
+    wrappedTranscriptLines(item, 14);
+    expect(wrappedTranscriptLines(item, 10)).toBe(w10);
+  });
 });

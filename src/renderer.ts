@@ -18,7 +18,18 @@ void import("cli-highlight")
   .then((m) => {
     highlightFn = m.highlight as HighlightFn;
   })
-  .catch(() => {});
+  .catch((err) => {
+    // Module load failed — code blocks fall back to chalk.gray(code) for
+    // the lifetime of this process. Surface a one-shot diagnostic when
+    // DREXLER_DEBUG is set so a broken install can be diagnosed without
+    // littering production stderr.
+    if (process.env.DREXLER_DEBUG && process.env.DREXLER_DEBUG !== "0") {
+      const msg = err instanceof Error ? err.message : String(err);
+      try {
+        process.stderr.write(`[drexler highlight-load] ${msg}\n`);
+      } catch {}
+    }
+  });
 
 function highlightCodeBlock(code: string, lang: string | undefined): string {
   let body: string;

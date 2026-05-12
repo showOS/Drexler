@@ -259,12 +259,32 @@ function displayLinesForItem(item: TranscriptViewportItem): AssistantDisplayLine
 // across renders — App.tsx only appends new ChatItem objects, never mutates
 // existing ones, so a settled item's wrap output is a pure function of
 // (role, contentWidth)). WeakMap auto-evicts when the item is dropped from
-// the transcript array and GC'd.
+// the transcript array and GC'd. Inner Map is LRU-bounded so a long
+// session of terminal resizes does not grow the per-item cache without
+// limit.
+const MAX_WIDTHS_PER_ITEM = 4;
 const wrapCache = new WeakMap<
   TranscriptViewportItem,
   Map<string, WrappedTranscriptLine[]>
 >();
 const itemRowsCache = new WeakMap<TranscriptViewportItem, Map<string, number>>();
+
+function lruGet<V>(map: Map<string, V>, key: string): V | undefined {
+  const value = map.get(key);
+  if (value === undefined) return undefined;
+  // Bump to most-recently-used: delete + re-insert moves to tail of insertion order.
+  map.delete(key);
+  map.set(key, value);
+  return value;
+}
+
+function lruSet<V>(map: Map<string, V>, key: string, value: V): void {
+  map.set(key, value);
+  if (map.size > MAX_WIDTHS_PER_ITEM) {
+    const oldest = map.keys().next().value;
+    if (oldest !== undefined) map.delete(oldest);
+  }
+}
 
 function computeWrappedTranscriptLines(
   item: TranscriptViewportItem,
@@ -297,10 +317,10 @@ export function wrappedTranscriptLines(
     perItem = new Map();
     wrapCache.set(item, perItem);
   }
-  const cached = perItem.get(innerKey);
+  const cached = lruGet(perItem, innerKey);
   if (cached !== undefined) return cached;
   const computed = computeWrappedTranscriptLines(item, contentWidth);
-  perItem.set(innerKey, computed);
+  lruSet(perItem, innerKey, computed);
   return computed;
 }
 
@@ -405,11 +425,11 @@ function getCachedItemRows(
   }
 
   const key = `${compact ? "c" : "f"}-${cols}`;
-  const cached = cache.get(key);
+  const cached = lruGet(cache, key);
   if (cached !== undefined) return cached;
 
   const rows = itemRows(item, compact, cols);
-  cache.set(key, rows);
+  lruSet(cache, key, rows);
   return rows;
 }
 

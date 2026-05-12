@@ -943,15 +943,17 @@ export function App({
       }
       if (slashCommand === "/vibe") {
         // Roll once outside the reducer so StrictMode's double-invoke
-        // gets the same branch both times. The reducer reads the latest
-        // committed stats, so a racing decay tick can't be clobbered.
+        // takes the same branch both times. The reducer reads the latest
+        // committed stats so a racing decay tick can't be clobbered in
+        // the stats update. Message text is derived from the pre-action
+        // snapshot — in the rare race window where a decay tick lands
+        // between snapshot and dispatch, the message describes pre-decay
+        // stats while the committed stats reflect post-decay+vibe. Cost
+        // of a fully race-free message is a non-pure reducer, which is
+        // not worth it for a satirical chat affordance.
         const roll = Math.random();
-        let vibeMessage = "";
-        applyPetAction("vibe", (stats) => {
-          const r = applyVibe(stats, roll);
-          vibeMessage = r.message;
-          return r.stats;
-        });
+        const { message: vibeMessage } = applyVibe(petStatsRef.current, roll);
+        applyPetAction("vibe", (stats) => applyVibe(stats, roll).stats);
         triggerPetActivity("vibing", 3500);
         addItem("system", vibeMessage);
         return;
