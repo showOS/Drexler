@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { renderToString, useStdout } from "ink";
+import { render, renderToString, useStdout } from "ink";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough, Writable } from "node:stream";
 import React from "react";
 import { dispatch } from "../src/commands.ts";
 import { Conversation } from "../src/conversation.ts";
+import { loadSavedSession } from "../src/conversation/persist.ts";
 import type { FetchFn } from "../src/llm.ts";
 import { App } from "../src/ui/App.tsx";
 import {
@@ -17,7 +19,7 @@ import {
   transcriptRowsForTerminalRows,
 } from "../src/ui/App.tsx";
 import { displayWidth } from "../src/ui/graphemes.ts";
-import { MODEL_PRIMARY, type Config } from "../src/types.ts";
+import { MODEL_FALLBACK, MODEL_PRIMARY, type Config } from "../src/types.ts";
 
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
 
@@ -57,6 +59,54 @@ function makeCtx() {
     config,
     print: () => undefined,
   };
+}
+
+function makeInteractiveStreams() {
+  const stdin = new PassThrough() as PassThrough & {
+    isTTY: boolean;
+    setRawMode: () => void;
+    ref: () => PassThrough;
+    unref: () => PassThrough;
+  };
+  stdin.isTTY = true;
+  stdin.setRawMode = () => undefined;
+  stdin.ref = () => stdin;
+  stdin.unref = () => stdin;
+
+  const stdout = new Writable({
+    write(_chunk, _encoding, callback) {
+      callback();
+    },
+  }) as Writable & {
+    columns: number;
+    rows: number;
+    isTTY: boolean;
+    cursorTo: () => void;
+    clearLine: () => void;
+    moveCursor: () => void;
+  };
+  stdout.columns = 96;
+  stdout.rows = 30;
+  stdout.isTTY = true;
+  stdout.cursorTo = () => undefined;
+  stdout.clearLine = () => undefined;
+  stdout.moveCursor = () => undefined;
+
+  return { stdin, stdout };
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function streamResponse(content: string): Response {
+  const chunk = JSON.stringify({
+    choices: [{ delta: { content }, finish_reason: null }],
+  });
+  return new Response(`data: ${chunk}\n\ndata: [DONE]\n\n`, {
+    status: 200,
+    headers: { "content-type": "text/event-stream" },
+  });
 }
 
 describe("App state helpers", () => {
@@ -160,6 +210,77 @@ describe("App state helpers", () => {
     expect(rendered).toContain("BOARDROOM");
     expect(rendered).toContain("0 memos");
     expect(rendered).toContain("fees ");
+  });
+
+  test("App unmount flushes pending persistence with the active model", async () => {
+    const origHome = process.env.HOME;
+    const origXdg = process.env.XDG_STATE_HOME;
+    const home = await mkdtemp(join(tmpdir(), "drexler-app-persist-"));
+    const { stdin, stdout } = makeInteractiveStreams();
+    const ctx = makeCtx();
+    let didUnmount = false;
+    try {
+      process.env.HOME = home;
+      delete process.env.XDG_STATE_HOME;
+
+      const instance = render(
+        React.createElement(App, {
+          conversation: ctx.conversation,
+          config: ctx.config,
+          mood: "ruthless",
+          fetchFn: async () => streamResponse("answer"),
+        }),
+        {
+          stdin: stdin as unknown as NodeJS.ReadStream,
+          stdout: stdout as unknown as NodeJS.WriteStream,
+          exitOnCtrlC: false,
+          interactive: true,
+          patchConsole: false,
+          maxFps: 60,
+        },
+      );
+
+      try {
+        await delay(30);
+        stdin.write("hello");
+        await delay(20);
+        stdin.write("\r");
+        for (let i = 0; i < 20 && ctx.conversation.length < 2; i++) {
+          await delay(20);
+        }
+        expect(ctx.conversation.length).toBeGreaterThanOrEqual(2);
+
+        stdin.write("/model 26b");
+        await delay(20);
+        stdin.write("\r");
+        await delay(80);
+        await instance.waitUntilRenderFlush();
+
+        instance.unmount();
+        didUnmount = true;
+
+        let loaded = loadSavedSession();
+        for (let i = 0; i < 20 && loaded?.model !== MODEL_FALLBACK; i++) {
+          await delay(25);
+          loaded = loadSavedSession();
+        }
+
+        expect(loaded).not.toBeNull();
+        expect(loaded!.model).toBe(MODEL_FALLBACK);
+        expect(loaded!.messages.map((m) => m.content)).toEqual([
+          "hello",
+          "answer",
+        ]);
+      } finally {
+        if (!didUnmount) instance.unmount();
+      }
+    } finally {
+      if (origHome !== undefined) process.env.HOME = origHome;
+      else delete process.env.HOME;
+      if (origXdg !== undefined) process.env.XDG_STATE_HOME = origXdg;
+      else delete process.env.XDG_STATE_HOME;
+      await rm(home, { recursive: true, force: true });
+    }
   });
 
   test("App can embed live deal desk chrome in the startup panel", () => {

@@ -77,6 +77,30 @@ describe("conversation persist", () => {
     expect(loaded!.messages[0]?.content).toBe("u1");
   });
 
+  test("concurrent saves serialize so the latest call wins", async () => {
+    const origNow = Date.now;
+    Date.now = () => 123_456_789;
+    try {
+      const sessions: SavedSession[] = Array.from({ length: 20 }, (_, i) => ({
+        version: 1,
+        savedAt: i,
+        systemPrompt: "SYS",
+        messages: [{ role: "user", content: `u${i}` }],
+        model: `model-${i}`,
+      }));
+
+      await Promise.all(sessions.map((session) => saveSession(session)));
+
+      const loaded = loadSavedSession();
+      expect(loaded).not.toBeNull();
+      expect(loaded!.savedAt).toBe(19);
+      expect(loaded!.messages[0]?.content).toBe("u19");
+      expect(loaded!.model).toBe("model-19");
+    } finally {
+      Date.now = origNow;
+    }
+  });
+
   test("loadSavedSession returns null for missing file", () => {
     expect(loadSavedSession()).toBeNull();
   });
