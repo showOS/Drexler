@@ -22,8 +22,7 @@ const SCENE_ROWS = 20;
 // Row map for the animated trading-office scene.
 // 0      title bar  (DREXLER OFFICE · stat readout)
 // 1-6    background wall, city window, and DREXLER MARKETS board
-// 8      breathing row (negative space anchor)
-// 9-15   Drexler mascot midground
+// 8-14   Drexler mascot midground
 // 14-19  foreground desk and props. This intentionally overlaps the
 //        lower mascot rows so Drexler reads as seated behind the desk.
 const R_TITLE = 0;
@@ -33,8 +32,8 @@ const R_WIN_TOPS = 3;
 const R_WIN_MID = 4;
 const R_WIN_BASE = 5;
 const R_WIN_BOTTOM = 6;
-const R_MASCOT_START = 9;
-const R_DESK_LINE = R_MASCOT_START + BRIEFCASE_FINAL.length - 2;
+const R_MASCOT_START = 8;
+const R_DESK_LINE = R_MASCOT_START + BRIEFCASE_FINAL.length - 1;
 const R_DESK_PROPS = R_DESK_LINE + 1;
 const R_MEMO = R_DESK_LINE + 5;
 
@@ -112,6 +111,7 @@ interface Sprite {
   styleToken: StyleToken;
   visibility?: (timeline: AnimationTimeline) => boolean;
   parentAnchor?: string;
+  transparentSpaces: boolean;
 }
 
 interface Scene {
@@ -152,6 +152,7 @@ function makeSprite(
   y: number,
   lines: readonly string[],
   styleToken: StyleToken,
+  transparentSpaces = true,
 ): Sprite {
   return {
     id,
@@ -161,6 +162,7 @@ function makeSprite(
     frames: [makeFrame(lines)],
     frameDuration: 1,
     styleToken,
+    transparentSpaces,
   };
 }
 
@@ -174,6 +176,7 @@ function makeAnimatedSprite({
   styleToken,
   visibility,
   parentAnchor,
+  transparentSpaces = true,
 }: {
   id: string;
   zIndex: number;
@@ -184,6 +187,7 @@ function makeAnimatedSprite({
   styleToken: StyleToken;
   visibility?: (timeline: AnimationTimeline) => boolean;
   parentAnchor?: string;
+  transparentSpaces?: boolean;
 }): Sprite {
   return {
     id,
@@ -195,6 +199,7 @@ function makeAnimatedSprite({
     styleToken,
     visibility,
     parentAnchor,
+    transparentSpaces,
   };
 }
 
@@ -204,7 +209,12 @@ function frameForSprite(sprite: Sprite, timeline: AnimationTimeline): readonly s
   return sprite.frames[index]?.lines ?? [];
 }
 
-function overlayCellLine(row: string, text: string, x: number): string {
+function overlayCellLine(
+  row: string,
+  text: string,
+  x: number,
+  transparentSpaces: boolean,
+): string {
   if (x >= displayWidth(row)) return row;
   const rowCells = Array.from(row);
   const available = Math.max(0, rowCells.length - Math.max(0, x));
@@ -214,7 +224,7 @@ function overlayCellLine(row: string, text: string, x: number): string {
   for (const glyph of Array.from(fitted)) {
     if (cursor >= rowCells.length) break;
     const glyphWidth = Math.max(1, displayWidth(glyph));
-    if (glyph !== " ") {
+    if (glyph !== " " || !transparentSpaces) {
       rowCells[cursor] = glyph;
     }
     cursor += glyphWidth;
@@ -236,7 +246,12 @@ function composeScene(scene: Scene, timeline: AnimationTimeline): string[] {
     for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
       const rowIdx = sprite.y + lineIdx;
       if (rowIdx < 0 || rowIdx >= rows.length) continue;
-      rows[rowIdx] = overlayCellLine(rows[rowIdx] ?? blankRow(scene.width), lines[lineIdx] ?? "", sprite.x);
+      rows[rowIdx] = overlayCellLine(
+        rows[rowIdx] ?? blankRow(scene.width),
+        lines[lineIdx] ?? "",
+        sprite.x,
+        sprite.transparentSpaces,
+      );
     }
   }
 
@@ -262,39 +277,6 @@ function boxBottom(width: number): string {
 
 function boxContent(width: number, text: string): string {
   return `│${padDisplayText(text, Math.max(1, width - 2))}│`;
-}
-
-function progressTicker(frame: number): string {
-  const dots = ".............";
-  const idx = frame % dots.length;
-  return `[${dots.slice(0, idx)}o${dots.slice(idx + 1)}]`;
-}
-
-function buildActivityLine(activity: PetActivity, frame: number): string {
-  switch (activity) {
-    case "eating":
-      return frame % 4 < 2
-        ? "deal snack memo routed"
-        : "lunch marked to market";
-    case "playing":
-      return frame % 6 < 3
-        ? "boardroom putting drill"
-        : "team morale accretive";
-    case "working":
-      return `term sheet live ${progressTicker(frame)}`;
-    case "sleeping":
-      return frame % 4 < 2
-        ? "lights dim · conference-line nap"
-        : "zzz · calendar defended";
-    case "praised":
-      return frame % 2 === 0
-        ? "bonus memo approved * * *"
-        : "* * * board applause logged";
-    case "vibing":
-      return ["lo-fi deal room ~ ~ ~", "~ ~ valuation waves ~ ~"][frame % 2]!;
-    default:
-      return "calendar clear · office quiet";
-  }
 }
 
 function mascotStateForActivity(activity: PetActivity, frame: number): MascotState {
@@ -423,15 +405,38 @@ function marketBoardLines(
   const candleB = activity === "praised" ? "▐█▌" : "▐░▌";
   const finalCandle = activity === "praised" ? "▐█▌" : frame % 6 < 3 ? "▐█▌" : "▐░▌";
   const fee = Math.max(40, Math.min(99, Math.round((stats.happiness + stats.deals) / 2)));
+  const chartSuffix = `${candleA} ${candleB} ${finalCandle} 14:00`;
+  const chartLabel = boardTapeLabel(activity, frame);
+  const footerBudget = Math.max(1, width - 2 - displayWidth(chartSuffix) - 3);
+  const footer = `${fitDisplayText(chartLabel, footerBudget)}   ${chartSuffix}`;
   return [
     boxTop(width, "DREXLER MARKETS"),
     boxContent(width, `DREX 0.8421 ▲ 3.17%       ${clockFromFrame(frame)}  ${status}`),
     boxContent(width, `BTC 67842  ▲ 1.25%   DL ${Math.round(stats.deals)}%  FEE ${fee}%`),
     boxContent(width, `ETH  3241  ▲ 0.82%       │   ${candleA}  68000`),
     boxContent(width, `SOL   157  ▲ 2.11%   ${candleB} │ ${finalCandle} ${candleA}  67000`),
-    boxContent(width, `${buildActivityLine(activity, frame)}   ${candleA} ${candleB} ${finalCandle}   14:00`),
+    boxContent(width, footer),
     boxBottom(width),
   ];
+}
+
+function boardTapeLabel(activity: PetActivity, frame: number): string {
+  switch (activity) {
+    case "working":
+      return frame % 2 === 0 ? "term live" : "keys live";
+    case "praised":
+      return "memo done";
+    case "sleeping":
+      return "desk quiet";
+    case "eating":
+      return "deal snack";
+    case "playing":
+      return "rally tape";
+    case "vibing":
+      return "lo-fi tape";
+    default:
+      return "desk quiet";
+  }
 }
 
 function lampLines(activity: PetActivity, frame: number): string[] {
@@ -465,12 +470,8 @@ function statusCardLines(width: number, activity: PetActivity, frame: number, st
 
 function deskBaseLines(width: number): string[] {
   const inner = Math.max(1, width - 2);
-  const gap = Math.min(12, Math.max(6, Math.floor(inner / 4)));
-  const gapStart = Math.max(2, Math.floor((inner - gap) / 2));
-  const top =
-    `╔${"═".repeat(gapStart)}${" ".repeat(gap)}${"═".repeat(Math.max(0, inner - gapStart - gap))}╗`;
   return [
-    top,
+    `╔${"═".repeat(inner)}╗`,
     `║${" ".repeat(inner)}║`,
     `║${" ".repeat(inner)}║`,
     `║${" ".repeat(inner)}║`,
@@ -511,20 +512,20 @@ function memoFrames(activity: PetActivity): readonly (readonly string[])[] {
   const idle = [
     "╭────────╮",
     "│ memo ╲ │",
-    "│ ────  │",
-    "╰── ────╯",
+    "│ ────   │",
+    "╰────────╯",
   ];
   const working = [
     "╭────────╮",
     "│ memo ╱ │",
-    "│ ───   │",
-    "╰─ ─────╯",
+    "│ ───    │",
+    "╰────────╯",
   ];
   const success = [
     "╭────────╮",
     "│ done ✓ │",
-    "│ ───   │",
-    "╰─ ─────╯",
+    "│ ───    │",
+    "╰────────╯",
   ];
 
   if (activity === "praised") return [success];
@@ -576,6 +577,9 @@ function buildOfficeScene(
   const mascotX = Math.max(0, Math.floor((width - MASCOT_WIDTH) / 2));
   const deskX = 1;
   const deskWidth = Math.max(30, width - 2);
+  const coffeeFrameSet = coffeeFrames(stats);
+  const memoFrameSet = memoFrames(activity);
+  const keyboardFrameSet = keyboardFrames(activity);
 
   sprites.push(makeSprite("background:title", 0, 0, R_TITLE, [titleLine(width, stats)], "background"));
 
@@ -633,7 +637,7 @@ function buildOfficeScene(
     id: "drexler:mascot",
     zIndex: 50,
     x: mascotX,
-    y: R_MASCOT_START + (activity === "sleeping" ? 1 : frame > 0 && frame % 6 === 0 ? 1 : 0),
+    y: R_MASCOT_START + (activity !== "sleeping" && frame > 0 && frame % 6 === 0 ? 1 : 0),
     frames: [renderMascotLines(mascotStateForActivity(activity, frame))],
     frameDuration: 3,
     styleToken: "drexlerOutline",
@@ -646,6 +650,7 @@ function buildOfficeScene(
     R_DESK_LINE,
     deskBaseLines(deskWidth),
     "primaryLine",
+    false,
   ));
 
   sprites.push(makeAnimatedSprite({
@@ -653,10 +658,11 @@ function buildOfficeScene(
     zIndex: 90,
     x: deskX + 3,
     y: R_DESK_PROPS,
-    frames: coffeeFrames(stats),
+    frames: coffeeFrameSet,
     frameDuration: activity === "sleeping" ? 5 : 2,
     styleToken: "statusAccent",
     parentAnchor: "desk:foreground",
+    transparentSpaces: true,
   }));
 
   sprites.push(makeAnimatedSprite({
@@ -664,21 +670,27 @@ function buildOfficeScene(
     zIndex: 90,
     x: Math.max(deskX + 12, Math.floor(width / 2) - 5),
     y: R_DESK_PROPS,
-    frames: memoFrames(activity),
+    frames: memoFrameSet,
     frameDuration: 2,
     styleToken: "primaryLine",
     parentAnchor: "desk:foreground",
+    transparentSpaces: false,
   }));
 
+  const keyboardWidth = displayWidth(keyboardFrameSet[0]?.[0] ?? "");
   sprites.push(makeAnimatedSprite({
     id: "desk:keyboard",
     zIndex: 90,
-    x: Math.min(width - 15, Math.floor(width / 2) + 11),
+    x: Math.min(
+      deskX + deskWidth - 2 - keyboardWidth,
+      Math.floor(width / 2) + 11,
+    ),
     y: R_DESK_PROPS,
-    frames: keyboardFrames(activity),
+    frames: keyboardFrameSet,
     frameDuration: activity === "working" ? 1 : 3,
     styleToken: "primaryLine",
     parentAnchor: "desk:foreground",
+    transparentSpaces: false,
   }));
 
   const accent = activityAccentLines(activity, frame);
@@ -717,7 +729,7 @@ function buildScene(
 //   primary      → desk props, mascot body
 //   primaryLight → mascot eyes + activity accents
 function rowColor(i: number, activity: PetActivity, frame: number, t: Theme): string {
-  if (i >= R_MASCOT_START && i < R_MASCOT_START + BRIEFCASE_FINAL.length) {
+  if (i >= R_MASCOT_START && i < R_DESK_LINE) {
     if (activity === "sleeping") return t.dim;
     if (activity === "praised")  return t.primaryLight;
     if (activity === "eating")   return t.warning;
@@ -730,7 +742,7 @@ function rowColor(i: number, activity: PetActivity, frame: number, t: Theme): st
   if (i === R_WIN_TOPS || i === R_WIN_MID || i === R_WIN_BASE) return t.primaryDim;
   if (i === R_WIN_TOP || i === R_WIN_BOTTOM) return t.primaryDim;
   if (i === R_DESK_LINE) return t.primaryDim;
-  if (i === R_DESK_PROPS) return t.primary;
+  if (i >= R_DESK_PROPS && i < R_MEMO) return t.primary;
   if (i === R_MEMO) {
     if (activity === "working" && frame % 32 >= 26) return t.error;
     if (activity === "sleeping")  return t.dim;

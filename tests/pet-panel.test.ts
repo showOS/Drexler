@@ -24,6 +24,14 @@ const OLD_SCENE_ARTIFACTS = [
   "[home]",
   "[outdoors]",
 ] as const;
+const BROKEN_OFFICE_SEAMS = [
+  "═memo",
+  "memo═",
+  "╚══│",
+  "│═",
+  "14:…",
+  "▐…",
+] as const;
 
 function renderScene(
   activity: PetActivity,
@@ -39,6 +47,12 @@ function renderScene(
 
 function expectNoLegacyArtifacts(rendered: string): void {
   for (const artifact of OLD_SCENE_ARTIFACTS) {
+    expect(rendered).not.toContain(artifact);
+  }
+}
+
+function expectNoBrokenOfficeSeams(rendered: string): void {
+  for (const artifact of BROKEN_OFFICE_SEAMS) {
     expect(rendered).not.toContain(artifact);
   }
 }
@@ -83,6 +97,7 @@ describe("PetScene", () => {
     expect(rendered).toContain("╔");
     expect(rendered).toContain("╚");
     expectNoLegacyArtifacts(rendered);
+    expectNoBrokenOfficeSeams(rendered);
   });
 
   test("keeps every activity, legacy environment prop, and stat state bounded", () => {
@@ -97,6 +112,7 @@ describe("PetScene", () => {
           expect(rendered).toContain("DREXLER MARKETS");
           expect(rendered).toContain("c[__]");
           expectNoLegacyArtifacts(rendered);
+          expectNoBrokenOfficeSeams(rendered);
           for (const row of rows) {
             expect(displayWidth(row)).toBeLessThanOrEqual(PET_SCENE_WIDTH);
           }
@@ -135,7 +151,40 @@ describe("PetScene", () => {
       expect(rendered).toContain("memo");
       expect(rendered).toContain("▄ ▄");
       expectNoLegacyArtifacts(rendered);
+      expectNoBrokenOfficeSeams(rendered);
       for (const row of rows) {
+        expect(displayWidth(row)).toBeLessThanOrEqual(width);
+      }
+    },
+  );
+
+  test("keeps desk props opaque over Drexler in sleeping mode", () => {
+    const rendered = renderScene("sleeping", "office", statsCases[0]!, PET_SCENE_WIDTH);
+
+    expect(rendered).toContain("║ ░░ ║");
+    expect(rendered).toContain("│ memo ╲ │");
+    expect(rendered).toContain("┌────────────┐");
+    expectNoBrokenOfficeSeams(rendered);
+    for (const row of rendered.split("\n")) {
+      expect(displayWidth(row)).toBeLessThanOrEqual(PET_SCENE_WIDTH);
+    }
+  });
+
+  test.each([
+    [67, false, false],
+    [68, true, false],
+    [95, true, false],
+    [96, true, true],
+  ] as const)(
+    "switches responsive office layout cleanly at %d columns",
+    (width, expectCity, expectStatus) => {
+      const rendered = renderScene("working", "home", statsCases[0]!, width);
+
+      expect(rendered.includes("CITY WINDOW")).toBe(expectCity);
+      expect(rendered.includes("STATUS")).toBe(expectStatus);
+      expectNoLegacyArtifacts(rendered);
+      expectNoBrokenOfficeSeams(rendered);
+      for (const row of rendered.split("\n")) {
         expect(displayWidth(row)).toBeLessThanOrEqual(width);
       }
     },
