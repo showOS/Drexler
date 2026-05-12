@@ -21,7 +21,8 @@ import {
 export type CommandAction =
   | { type: "continue"; persistConfig?: Partial<Config> }
   | { type: "exit"; message?: string }
-  | { type: "regenerate"; instruction?: string; removedAssistant: boolean };
+  | { type: "regenerate"; instruction?: string; removedAssistant: boolean }
+  | { type: "draft"; value: string };
 
 export type CommandGroup =
   | "directives"
@@ -63,15 +64,18 @@ const HELP_TEXT = `New memo to staff! Drexler permit following directives:
   /regenerate    - re-roll Drexler's last response
   /redo          - alias for /regenerate
   /retry [style] - re-roll last response, optionally terse or brutal
-  /expand        - print Drexler's latest response
+  /expand [n]    - print Drexler's latest response (or message #n)
+  /edit [n]      - pull a prior user message back into the draft
   /quote         - quote Drexler's latest response
   /search <term> - search this meeting transcript
   /export <fmt> [path] - export as md, txt, json, or html
   /save [path]   - archive conversation to markdown file
   /save-last [path] - save Drexler's last response
-  /copy-last     - copy Drexler's last response to clipboard
+  /copy [n]      - copy a message to clipboard (defaults to last response)
+  /copy-last     - alias for /copy
   /setup         - show config + API key source
-  /update        - show upgrade instructions`;
+  /update        - show upgrade instructions
+  /auth <key>    - replace the API key in-session (no restart)`;
 
 const WHITESPACE_RE = /\s+/;
 
@@ -103,15 +107,18 @@ export const COMMAND_PALETTE: ReadonlyArray<SlashCommand> = [
   { name: "/regenerate", description: "Re-roll last response", group: "directives" },
   { name: "/redo", description: "Alias for regenerate", group: "directives" },
   { name: "/retry", description: "Retry terse or brutal", group: "retry" },
-  { name: "/expand", description: "Print last response", group: "directives" },
-  { name: "/quote", description: "Quote last response", group: "directives" },
+  { name: "/expand", description: "Print last response (or #n)", group: "directives" },
+  { name: "/quote", description: "Quote last response (or #n)", group: "directives" },
+  { name: "/edit", description: "Pull a prior message into the draft", group: "directives" },
   { name: "/search", description: "Search transcript", group: "directives" },
   { name: "/export", description: "Export md, txt, json, or html", group: "export" },
   { name: "/save", description: "Archive conversation as markdown", group: "directives" },
   { name: "/save-last", description: "Save last Drexler response", group: "directives" },
-  { name: "/copy-last", description: "Copy last response", group: "directives" },
+  { name: "/copy", description: "Copy a message to clipboard", group: "directives" },
+  { name: "/copy-last", description: "Copy last response (alias)", group: "directives" },
   { name: "/setup", description: "Show config + key source", group: "directives" },
   { name: "/update", description: "Show upgrade instructions", group: "directives" },
+  { name: "/auth", description: "Replace the API key in-session", group: "directives" },
 ];
 
 const THEME_PALETTE_COPY: Record<
@@ -379,6 +386,7 @@ export function dispatch(input: string, ctx: CommandContext): CommandAction {
     case "vibe":
     case "name":
     case "profile":
+    case "auth":
       ctx.print(
         "Drexler pet directives require the interactive deal desk. Launch Drexler in a TTY.",
       );
@@ -395,11 +403,7 @@ export function dispatch(input: string, ctx: CommandContext): CommandAction {
       return handleStartup(args, ctx);
 
     case "history":
-      ctx.print(
-        `Drexler ledger: ${ctx.conversation.length} message${
-          ctx.conversation.length === 1 ? "" : "s"
-        }, ~${ctx.conversation.approximateTokens()} tokens.`,
-      );
+      handleHistory(ctx);
       return { type: "continue" };
 
     case "regenerate":
@@ -430,12 +434,15 @@ export function dispatch(input: string, ctx: CommandContext): CommandAction {
     }
 
     case "expand":
-      handleExpand(ctx);
+      handleExpand(args, ctx);
       return { type: "continue" };
 
     case "quote":
-      handleQuote(ctx);
+      handleQuote(args, ctx);
       return { type: "continue" };
+
+    case "edit":
+      return handleEdit(args, ctx);
 
     case "search":
       handleSearch(commandRemainder(input, name), ctx);
@@ -468,7 +475,12 @@ export function dispatch(input: string, ctx: CommandContext): CommandAction {
     }
 
     case "copy-last": {
-      handleCopyLast(ctx);
+      handleCopyLast([], ctx);
+      return { type: "continue" };
+    }
+
+    case "copy": {
+      handleCopyLast(args, ctx);
       return { type: "continue" };
     }
 
@@ -664,6 +676,62 @@ function lastAssistantMessage(conv: Conversation): string | null {
   return null;
 }
 
+interface IndexedMessage {
+  index: number;
+  role: "user" | "assistant";
+  content: string;
+}
+
+// Snapshot view used by /history, /copy, /quote, /expand, /edit. The
+// system message is hidden so user-visible indices match what /history
+// prints (1-based, contiguous, only user + assistant turns).
+function indexedBody(conv: Conversation): IndexedMessage[] {
+  const out: IndexedMessage[] = [];
+  let idx = 0;
+  for (const m of conv.snapshot()) {
+    if (m.role === "user" || m.role === "assistant") {
+      idx += 1;
+      out.push({ index: idx, role: m.role, content: m.content });
+    }
+  }
+  return out;
+}
+
+function parseIndexArg(arg: string | undefined): number | null {
+  if (arg === undefined) return null;
+  const n = Number.parseInt(arg, 10);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+
+function resolveTargetMessage(
+  conv: Conversation,
+  args: string[],
+  role: "assistant" | "user" | "any",
+): IndexedMessage | null {
+  const body = indexedBody(conv);
+  if (body.length === 0) return null;
+  const idx = parseIndexArg(args[0]);
+  if (idx !== null) {
+    const hit = body.find((m) => m.index === idx);
+    if (!hit) return null;
+    if (role !== "any" && hit.role !== role) return null;
+    return hit;
+  }
+  // No index supplied — fall back to the last matching role.
+  for (let i = body.length - 1; i >= 0; i--) {
+    const m = body[i]!;
+    if (role === "any" || m.role === role) return m;
+  }
+  return null;
+}
+
+function snippet(text: string, max = 80): string {
+  const cleaned = text.replace(/\s+/g, " ").trim();
+  if (cleaned.length <= max) return cleaned;
+  return `${cleaned.slice(0, max - 1)}…`;
+}
+
 function formatLastAssistantAsMarkdown(content: string): string {
   return [
     "# Drexler Last Response",
@@ -699,26 +767,68 @@ function handleSaveLast(rawPath: string, ctx: CommandContext): void {
   }
 }
 
-function handleExpand(ctx: CommandContext): void {
-  const last = lastAssistantMessage(ctx.conversation);
-  if (!last) {
-    ctx.print("Drexler has no response to expand yet.");
+function handleExpand(args: string[], ctx: CommandContext): void {
+  const target = resolveTargetMessage(ctx.conversation, args, "assistant");
+  if (!target) {
+    const requested = parseIndexArg(args[0]);
+    ctx.print(
+      requested !== null
+        ? `No Drexler response at index ${requested}. Try /history.`
+        : "Drexler has no response to expand yet.",
+    );
     return;
   }
-  ctx.print(last);
+  ctx.print(target.content);
 }
 
-function handleQuote(ctx: CommandContext): void {
-  const last = lastAssistantMessage(ctx.conversation);
-  if (!last) {
-    ctx.print("Drexler has no response to quote yet.");
+function handleQuote(args: string[], ctx: CommandContext): void {
+  const target = resolveTargetMessage(ctx.conversation, args, "assistant");
+  if (!target) {
+    const requested = parseIndexArg(args[0]);
+    ctx.print(
+      requested !== null
+        ? `No Drexler response at index ${requested}. Try /history.`
+        : "Drexler has no response to quote yet.",
+    );
     return;
   }
-  const quoted = last
+  const quoted = target.content
     .split("\n")
     .map((line) => `> ${line}`)
     .join("\n");
   ctx.print(quoted);
+}
+
+function handleHistory(ctx: CommandContext): void {
+  const body = indexedBody(ctx.conversation);
+  const total = ctx.conversation.length;
+  const header = `Drexler ledger: ${total} message${total === 1 ? "" : "s"}, ~${ctx.conversation.approximateTokens()} tokens.`;
+  if (body.length === 0) {
+    ctx.print(header);
+    return;
+  }
+  const lines = [header];
+  for (const m of body) {
+    const label = m.role === "user" ? "you" : "drexler";
+    lines.push(`  ${String(m.index).padStart(3)}. ${label}: ${snippet(m.content)}`);
+  }
+  lines.push("Tip: /expand <n> · /quote <n> · /copy <n> · /edit <n>");
+  ctx.print(lines.join("\n"));
+}
+
+function handleEdit(args: string[], ctx: CommandContext): CommandAction {
+  const target = resolveTargetMessage(ctx.conversation, args, "user");
+  if (!target) {
+    const requested = parseIndexArg(args[0]);
+    ctx.print(
+      requested !== null
+        ? `No user message at index ${requested}. Try /history.`
+        : "No prior user message to edit.",
+    );
+    return { type: "continue" };
+  }
+  ctx.print(`Loaded message ${target.index} into draft. Edit and press Enter.`);
+  return { type: "draft", value: target.content };
 }
 
 export function copyTextToClipboard(text: string): ClipboardResult {
@@ -758,16 +868,31 @@ export function copyTextToClipboard(text: string): ClipboardResult {
   };
 }
 
-function handleCopyLast(ctx: CommandContext): void {
-  const last = lastAssistantMessage(ctx.conversation);
-  if (!last) {
-    ctx.print("Drexler has not issued a response to copy yet.");
+function handleCopyLast(args: string[], ctx: CommandContext): void {
+  // `/copy-last` (args=[]) and `/copy [N]` share this handler. The N is
+  // 1-based and addresses any role; bare `/copy` falls back to the last
+  // assistant message for parity with the prior `/copy-last` behavior.
+  const target = resolveTargetMessage(
+    ctx.conversation,
+    args,
+    args.length === 0 ? "assistant" : "any",
+  );
+  if (!target) {
+    const requested = parseIndexArg(args[0]);
+    ctx.print(
+      requested !== null
+        ? `No message at index ${requested}. Try /history.`
+        : "Drexler has not issued a response to copy yet.",
+    );
     return;
   }
 
-  const result = (ctx.copyToClipboard ?? copyTextToClipboard)(last);
+  const result = (ctx.copyToClipboard ?? copyTextToClipboard)(target.content);
   if (result.ok) {
-    ctx.print(`Drexler copied last response to clipboard via ${result.command}.`);
+    const label = args.length === 0
+      ? "last response"
+      : `message ${target.index}`;
+    ctx.print(`Drexler copied ${label} to clipboard via ${result.command}.`);
     return;
   }
 

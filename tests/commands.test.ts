@@ -408,6 +408,90 @@ describe("isArgumentParentCommand", () => {
   });
 });
 
+describe("per-message actions", () => {
+  test("/history prints numbered transcript with snippets", () => {
+    const { ctx, out } = makeCtx();
+    ctx.conversation.push("user", "first question");
+    ctx.conversation.push("assistant", "first reply");
+    ctx.conversation.push("user", "second question");
+    ctx.conversation.push("assistant", "second reply");
+    dispatch("/history", ctx);
+    const printed = out.join("\n");
+    expect(printed).toContain("1. you: first question");
+    expect(printed).toContain("2. drexler: first reply");
+    expect(printed).toContain("3. you: second question");
+    expect(printed).toContain("4. drexler: second reply");
+  });
+
+  test("/expand without arg prints last assistant", () => {
+    const { ctx, out } = makeCtx();
+    ctx.conversation.push("user", "u1");
+    ctx.conversation.push("assistant", "winning answer");
+    dispatch("/expand", ctx);
+    expect(out.join("\n")).toContain("winning answer");
+  });
+
+  test("/expand 2 prints the indexed assistant message", () => {
+    const { ctx, out } = makeCtx();
+    ctx.conversation.push("user", "u1");
+    ctx.conversation.push("assistant", "alpha");
+    ctx.conversation.push("user", "u2");
+    ctx.conversation.push("assistant", "bravo");
+    dispatch("/expand 4", ctx);
+    expect(out.join("\n")).toContain("bravo");
+  });
+
+  test("/expand on unknown index surfaces a helpful message", () => {
+    const { ctx, out } = makeCtx();
+    ctx.conversation.push("user", "u1");
+    ctx.conversation.push("assistant", "alpha");
+    dispatch("/expand 99", ctx);
+    expect(out.join("\n")).toMatch(/index 99/);
+  });
+
+  test("/quote 2 quotes the indexed assistant message", () => {
+    const { ctx, out } = makeCtx();
+    ctx.conversation.push("user", "u1");
+    ctx.conversation.push("assistant", "line one\nline two");
+    dispatch("/quote 2", ctx);
+    const printed = out.join("\n");
+    expect(printed).toContain("> line one");
+    expect(printed).toContain("> line two");
+  });
+
+  test("/edit 1 returns a draft action with the user message content", () => {
+    const { ctx } = makeCtx();
+    ctx.conversation.push("user", "original prompt");
+    ctx.conversation.push("assistant", "answer");
+    const action = dispatch("/edit 1", ctx);
+    expect(action.type).toBe("draft");
+    if (action.type === "draft") {
+      expect(action.value).toBe("original prompt");
+    }
+  });
+
+  test("/edit without arg falls back to the last user message", () => {
+    const { ctx } = makeCtx();
+    ctx.conversation.push("user", "first");
+    ctx.conversation.push("assistant", "answer1");
+    ctx.conversation.push("user", "most recent");
+    const action = dispatch("/edit", ctx);
+    expect(action.type).toBe("draft");
+    if (action.type === "draft") {
+      expect(action.value).toBe("most recent");
+    }
+  });
+
+  test("/edit refuses if the target is not a user message", () => {
+    const { ctx, out } = makeCtx();
+    ctx.conversation.push("user", "u1");
+    ctx.conversation.push("assistant", "a1");
+    const action = dispatch("/edit 2", ctx);
+    expect(action.type).toBe("continue");
+    expect(out.join("\n")).toMatch(/index 2/);
+  });
+});
+
 describe("/save", () => {
   test("writes conversation to specified path", async () => {
     const { mkdtemp, rm, readFile } = await import("node:fs/promises");
@@ -820,11 +904,9 @@ describe("filterPaletteByPrefix", () => {
     ]);
   });
 
-  test("copy-last command advertises clipboard behavior", () => {
+  test("/copy prefix surfaces both /copy and /copy-last", () => {
     const out = filterPaletteByPrefix("/copy");
-    expect(out).toMatchObject([
-      { name: "/copy-last", description: "Copy last response" },
-    ]);
+    expect(out.map((c) => c.name)).toEqual(["/copy", "/copy-last"]);
   });
 
   test("known commands with constrained args show argument suggestions", () => {
