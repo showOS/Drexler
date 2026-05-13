@@ -40,13 +40,24 @@ describe("pet state", () => {
   });
 
   afterEach(async () => {
+    // Drain any in-flight async saves so a deferred write from this
+    // test (e.g. loadPetState's dead-pet revive path) doesn't race a
+    // subsequent test's HOME setup. saveQueue is FIFO so awaiting any
+    // newly scheduled save awaits everything ahead of it.
+    await savePetState({
+      hunger: 0,
+      happiness: 0,
+      energy: 0,
+      deals: 0,
+      lastSaved: 0,
+    });
     if (origHome !== undefined) process.env.HOME = origHome;
     else delete process.env.HOME;
     await rm(dir, { recursive: true, force: true });
   });
 
   test("savePetState writes under the active HOME", async () => {
-    savePetState({
+    await savePetState({
       hunger: 70,
       happiness: 60,
       energy: 50,
@@ -410,7 +421,7 @@ describe("pet state", () => {
 
   test("savePetState + loadPetState round-trips name and createdAt", async () => {
     const created = Date.now() - 60_000;
-    savePetState({
+    await savePetState({
       hunger: 70,
       happiness: 60,
       energy: 50,
@@ -501,7 +512,7 @@ describe("pet state", () => {
     expect(formatCooldownRemaining(125_000)).toBe("2m 5s");
   });
 
-  test("lastActionAt persists across save/load round-trips", () => {
+  test("lastActionAt persists across save/load round-trips", async () => {
     const now = Date.now();
     const stats: PetStats = {
       hunger: 50,
@@ -511,7 +522,7 @@ describe("pet state", () => {
       lastSaved: now,
       lastActionAt: { feed: now - 30_000, work: now - 10_000 },
     };
-    savePetState(stats);
+    await savePetState(stats);
     const loaded = loadPetState();
     expect(loaded.lastActionAt?.feed).toBe(now - 30_000);
     expect(loaded.lastActionAt?.work).toBe(now - 10_000);
@@ -568,9 +579,9 @@ describe("pet state", () => {
     expect(accrueLifetimeDeals(base, "praise").lifetimeDeals).toBe(100);
   });
 
-  test("lifetimeDeals persists across save/load round-trips", () => {
+  test("lifetimeDeals persists across save/load round-trips", async () => {
     const now = Date.now();
-    savePetState({
+    await savePetState({
       hunger: 50,
       happiness: 50,
       energy: 50,
@@ -579,5 +590,97 @@ describe("pet state", () => {
       lifetimeDeals: 250,
     });
     expect(loadPetState().lifetimeDeals).toBe(250);
+  });
+
+  test("20 parallel savePetState calls land final state on disk", async () => {
+    const base: PetStats = {
+      hunger: 50,
+      happiness: 50,
+      energy: 50,
+      deals: 0,
+      lastSaved: Date.now(),
+    };
+    const writes: Promise<void>[] = [];
+    for (let i = 0; i < 20; i++) {
+      writes.push(savePetState({ ...base, deals: i }));
+    }
+    await Promise.all(writes);
+    const raw = await readFile(join(dir, ".drexler", "pet.json"), "utf-8");
+    const parsed = JSON.parse(raw);
+    // FIFO queue lands the last scheduled call last on disk.
+    expect(parsed.deals).toBe(19);
+  });
+
+  test("stale lockfile from another process causes save to skip silently", async () => {
+    const petDirPath = join(dir, ".drexler");
+    await mkdir(petDirPath, { recursive: true });
+    const target = join(petDirPath, "pet.json");
+    // Pre-existing pet.json from "another process".
+    await writeFile(
+      target,
+      JSON.stringify({
+        hunger: 11,
+        happiness: 22,
+        energy: 33,
+        deals: 44,
+        lastSaved: 1,
+      }),
+    );
+    // Stale lockfile present.
+    await writeFile(`${target}.lock`, "");
+
+    // savePetState must not throw and must not clobber pet.json.
+    await savePetState({
+      hunger: 99,
+      happiness: 99,
+      energy: 99,
+      deals: 99,
+      lastSaved: 2,
+    });
+
+    const raw = await readFile(target, "utf-8");
+    const parsed = JSON.parse(raw);
+    expect(parsed.hunger).toBe(11);
+    expect(parsed.deals).toBe(44);
+  });
+
+  test("lockfile is cleaned up after a successful save", async () => {
+    await savePetState({
+      hunger: 60,
+      happiness: 60,
+      energy: 60,
+      deals: 60,
+      lastSaved: Date.now(),
+    });
+    const lockPath = join(dir, ".drexler", "pet.json.lock");
+    const { existsSync } = await import("node:fs");
+    expect(existsSync(lockPath)).toBe(false);
+  });
+
+  test("tmp file cleaned up when rename fails (best-effort)", async () => {
+    const { readdirSync } = await import("node:fs");
+    const petDirPath = join(dir, ".drexler");
+    await mkdir(petDirPath, { recursive: true });
+    // Sabotage rename: make pet.json a non-empty directory so
+    // renameSync(tmp, pet.json) fails. The tmp write succeeds, but
+    // rename throws → finally branch should unlink the tmp file.
+    const target = join(petDirPath, "pet.json");
+    await mkdir(target, { recursive: true });
+    await writeFile(join(target, "sentinel"), "x");
+
+    await savePetState({
+      hunger: 70,
+      happiness: 70,
+      energy: 70,
+      deals: 70,
+      lastSaved: Date.now(),
+    });
+
+    const entries = readdirSync(petDirPath);
+    const tmps = entries.filter((e) => e.includes(".tmp."));
+    expect(tmps).toEqual([]);
+    // Lockfile also cleaned up.
+    const locks = entries.filter((e) => e.endsWith(".lock"));
+    expect(locks).toEqual([]);
   });
 });
