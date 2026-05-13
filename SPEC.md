@@ -128,7 +128,7 @@ Palette opens on `/`. Argument choosers: `/theme`, `/startup`, `/retry`, `/expor
 - V5 — `--persona` resolves to regular `.md`. Symlinks + non-md rejected.
 - V6 — Unknown slash prints in-character local error. No model call.
 - V7 — Empty input prints local nudge. No model call.
-- V8 — Stream error ⇒ no partial assistant text appended to history.
+- V8 — Stream error ⇒ no partial assistant text appended to history. User-visible "stream interrupted" notice surfaced in REPL + Ink UI. `/retry` re-rolls failed turn.
 - V9 — SIGINT closes active work, exits clean.
 - V10 — ESC cancels active model response without quitting. `/synergy` owns input until done; ESC does not cancel it.
 - V11 — Startup greeting selected from persona session openers.
@@ -153,12 +153,17 @@ Palette opens on `/`. Argument choosers: `/theme`, `/startup`, `/retry`, `/expor
 - V30 — `lifetimeDeals` independent of volatile `deals` stat. Decay + spam do not roll back rank.
 - V31 — Slash command palette filtered by prefix. Argument-parent commands open chooser.
 - V32 — Markdown rendering supports code-block syntax via `cli-highlight` (Dracula-inspired palette).
+- V33 — Pet save serialized via async FIFO queue. Concurrent `savePetState` calls run sequentially; never overlap rename. Cross-instance writes guarded by exclusive-create lockfile (`pet.json.lock`, `fs.openSync(..., 'wx')`); contention ⇒ skip write (best-effort).
+- V34 — Lint + format gates: `bun lint` + `bun format:check` pass in CI before publish. ESLint flat config + Prettier check. Ink JSX prop allowlist documented.
 
 ## §T Tasks
 
 | id | status | task | cites |
 |---|---|---|---|
-| T1 | . | ? Resolve in-flight edits: `src/ui/PetPanel.tsx`, `tests/mascot.test.ts`, `tests/pet-panel.test.ts` | V17,V21 |
+| T1 | x | Resolve in-flight edits: `src/ui/PetPanel.tsx` market-board panel row refactor | V17,V21 |
+| T2 | . | Add ESLint flat config + Prettier + CI step | V34 |
+| T3 | . | Pet save FIFO queue + cross-instance lockfile | V33 |
+| T4 | . | Fix Ink UI §V8 violation; surface STREAM_ERROR in App.tsx | V8 |
 
 ## §B Bugs
 
