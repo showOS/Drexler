@@ -12,16 +12,10 @@ interface Props {
   status?: StatusDot;
   compact?: boolean;
   scrollHint?: string;
-  tokenCount?: number;
 }
 
 const MAX_WITTICISM_LEN = 60;
 const STATUS_BAR_PROMPT_INDENT = 2;
-
-function formatTokens(n: number): string {
-  if (n < 1000) return `~${n} tok`;
-  return `~${(n / 1000).toFixed(1)}k tok`;
-}
 
 function StatusBarInner({
   messageCount,
@@ -30,7 +24,6 @@ function StatusBarInner({
   status = "idle",
   compact = false,
   scrollHint,
-  tokenCount,
 }: Props) {
   const t = useTheme();
   const dotColor = useMemo<Record<StatusDot, string>>(
@@ -44,13 +37,9 @@ function StatusBarInner({
   const safeWidth = typeof maxWidth === "number" ? Math.max(1, Math.floor(maxWidth)) : undefined;
   const countLabel = `${messageCount} message${messageCount === 1 ? "" : "s"}`;
   const quote = `"${fitDisplayText(witticism, MAX_WITTICISM_LEN)}"`;
-  const tokenLabel =
-    typeof tokenCount === "number" && tokenCount >= 0 && !compact
-      ? `  │  ${formatTokens(tokenCount)}`
-      : "";
   const line = compact
     ? `${countLabel}${scrollHint ? `  │  ${scrollHint}` : ""}`
-    : `${countLabel}${scrollHint ? `  │  ${scrollHint}` : ""}${tokenLabel}  │  ${quote}`;
+    : `${countLabel}${scrollHint ? `  │  ${scrollHint}` : ""}  │  ${quote}`;
   const leadingIndent =
     typeof safeWidth === "number"
       ? Math.min(STATUS_BAR_PROMPT_INDENT, Math.max(0, safeWidth - 1))

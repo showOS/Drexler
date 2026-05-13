@@ -564,21 +564,6 @@ export function App({
     return scrollOffset > 0 ? "PageDown newer" : "PageUp scrollback";
   }, [estimatedTranscriptRows, visibleTranscriptRows, scrollOffset]);
 
-  // Live token estimate: conversation history + in-progress draft + any
-  // streamed assistant content the user can currently see on screen.
-  // approximateTokens() walks the messages array once; cheap because the
-  // memo only invalidates when one of those parts changes.
-  const tokenCount = useMemo(
-    () =>
-      conversation.approximateTokens() +
-      Math.ceil(draft.value.length / 4) +
-      Math.ceil((streaming?.length ?? 0) / 4),
-    // msgCount is a tripwire: Conversation is identity-stable but
-    // mutated, so we re-run when its length changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [conversation, msgCount, draft.value.length, streaming],
-  );
-
   // throttle streaming updates so React doesn't re-render every token.
   // A single rolling string buffer; `+=` is O(1) amortized per token in
   // V8 (rope concat), whereas array-push + join() rebuilds the full
@@ -1563,7 +1548,6 @@ export function App({
                     status={isBusy ? "streaming" : deskStatus}
                     compact={isCompact}
                     scrollHint={scrollHint}
-                    tokenCount={tokenCount}
                   />
                 </>
               )}
