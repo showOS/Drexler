@@ -171,6 +171,27 @@ describe("pet state", () => {
     expect(Date.now() - decayed.lastSaved).toBeLessThan(1_000);
   });
 
+  test("applyDecay uses injected time for deterministic updater behavior", () => {
+    const baseTime = 1_700_000_000_000;
+    const now = baseTime + 2 * 3_600_000;
+    const decayed = applyDecay(
+      {
+        hunger: 80,
+        happiness: 80,
+        energy: 80,
+        deals: 80,
+        lastSaved: baseTime,
+      },
+      now,
+    );
+
+    expect(decayed.hunger).toBeCloseTo(50, 5);
+    expect(decayed.happiness).toBeCloseTo(64, 5);
+    expect(decayed.energy).toBeCloseTo(60, 5);
+    expect(decayed.deals).toBeCloseTo(70, 5);
+    expect(decayed.lastSaved).toBe(now);
+  });
+
   test("applyPlay boosts happiness, costs energy, nudges deals", () => {
     const base: PetStats = {
       hunger: 80,
@@ -262,6 +283,20 @@ describe("pet state", () => {
       expect(seen.size).toBe(4);
     } finally {
       Math.random = orig;
+    }
+  });
+
+  test("applyVibe returns a user-facing message for every seeded branch", () => {
+    const base: PetStats = {
+      hunger: 80,
+      happiness: 60,
+      energy: 80,
+      deals: 40,
+      lastSaved: Date.now(),
+    };
+
+    for (const roll of [0.1, 0.3, 0.6, 0.9]) {
+      expect(applyVibe(base, roll).message.length).toBeGreaterThan(0);
     }
   });
 
