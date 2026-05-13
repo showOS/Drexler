@@ -27,7 +27,9 @@ void import("cli-highlight")
       const msg = err instanceof Error ? err.message : String(err);
       try {
         process.stderr.write(`[drexler highlight-load] ${msg}\n`);
-      } catch {}
+      } catch {
+        // best-effort debug log; never crash on a closed stderr
+      }
     }
   });
 
@@ -201,6 +203,8 @@ export function tipsList(): string {
 }
 
 function visibleLength(s: string): number {
+  // intentional: strip ANSI/control chars to compute display width
+  // eslint-disable-next-line no-control-regex
   return s.replace(/\x1b\[[0-9;]*m/g, "").length;
 }
 
@@ -364,7 +368,9 @@ export function startSpinner(label?: string): Spinner {
   const restoreCursor = () => {
     try {
       process.stdout.write("\x1b[?25h");
-    } catch {}
+    } catch {
+      // best-effort: stdout may be closed during shutdown; ignore
+    }
   };
   const onSigint = () => {
     restoreCursor();

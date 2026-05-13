@@ -269,15 +269,21 @@ async function writePetStateGuarded(stats: PetStats): Promise<void> {
       } catch {
         try {
           unlinkSync(tmp);
-        } catch {}
+        } catch {
+          // best-effort: tmp may already be unlinked or never created (§V29)
+        }
       }
     } finally {
       try {
         closeSync(lockFd);
-      } catch {}
+      } catch {
+        // best-effort: lockfd may already be closed on a partial failure (§V33)
+      }
       try {
         unlinkSync(lockPath);
-      } catch {}
+      } catch {
+        // best-effort: lockfile may have been swept by another instance (§V33)
+      }
     }
   } catch {
     // best-effort

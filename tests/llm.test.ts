@@ -303,9 +303,9 @@ describe("streamChat (V3 fallback)", () => {
   });
 
   test("stop sequence array present in request body sent to fetch", async () => {
-    let capturedBody: any = null;
+    const captured: { body: Record<string, unknown> | null } = { body: null };
     const fetchFn: import("../src/llm.ts").FetchFn = async (_u, init) => {
-      capturedBody = JSON.parse(String(init?.body ?? "{}"));
+      captured.body = JSON.parse(String(init?.body ?? "{}"));
       return new Response(streamFromString(makeSSE(["ok"])), {
         status: 200,
         headers: { "content-type": "text/event-stream" },
@@ -318,8 +318,8 @@ describe("streamChat (V3 fallback)", () => {
       onToken: () => {},
       fetchFn,
     });
-    expect(Array.isArray(capturedBody.stop)).toBe(true);
-    expect(capturedBody.stop).toEqual([
+    expect(Array.isArray(captured.body?.stop)).toBe(true);
+    expect(captured.body?.stop).toEqual([
       "Meeting adjourned.",
       "Severance package incoming.",
       "Not culture-fit.",
@@ -363,7 +363,7 @@ describe("streamChat (V3 fallback)", () => {
   });
 
   test("request body includes max_tokens and temperature", async () => {
-    let body: any;
+    let body: Record<string, unknown> | undefined;
     const fetchFn: import("../src/llm.ts").FetchFn = async (_u, init) => {
       body = JSON.parse(String(init?.body ?? "{}"));
       return new Response(streamFromString(makeSSE(["ok"])), {
@@ -378,16 +378,16 @@ describe("streamChat (V3 fallback)", () => {
       onToken: () => {},
       fetchFn,
     });
-    expect(typeof body.max_tokens).toBe("number");
-    expect(body.max_tokens).toBeGreaterThan(0);
-    expect(typeof body.temperature).toBe("number");
-    expect(body.stream).toBe(true);
+    expect(typeof body?.max_tokens).toBe("number");
+    expect(body?.max_tokens as number).toBeGreaterThan(0);
+    expect(typeof body?.temperature).toBe("number");
+    expect(body?.stream).toBe(true);
   });
 
   test("request headers include Authorization Bearer + content-type + UA tags", async () => {
-    let headers: any;
+    let headers: Record<string, string> | undefined;
     const fetchFn: import("../src/llm.ts").FetchFn = async (_u, init) => {
-      headers = init?.headers;
+      headers = init?.headers as Record<string, string> | undefined;
       return new Response(streamFromString(makeSSE(["ok"])), {
         status: 200,
         headers: { "content-type": "text/event-stream" },
@@ -400,10 +400,10 @@ describe("streamChat (V3 fallback)", () => {
       onToken: () => {},
       fetchFn,
     });
-    expect(headers.Authorization).toBe("Bearer the-secret-key");
-    expect(headers["Content-Type"]).toBe("application/json");
-    expect(headers["HTTP-Referer"]).toMatch(/^https?:\/\//);
-    expect(headers["X-Title"]).toBe("Drexler CLI");
+    expect(headers?.Authorization).toBe("Bearer the-secret-key");
+    expect(headers?.["Content-Type"]).toBe("application/json");
+    expect(headers?.["HTTP-Referer"]).toMatch(/^https?:\/\//);
+    expect(headers?.["X-Title"]).toBe("Drexler CLI");
   });
 
   test("request POSTs to OpenRouter chat completions URL", async () => {

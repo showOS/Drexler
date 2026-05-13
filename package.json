@@ -40,7 +40,7 @@
     "link": "bun link",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "lint": "bunx eslint src tests --max-warnings=30",
+    "lint": "bunx eslint src tests --max-warnings=5",
     "format": "bunx prettier --write src tests",
     "format:check": "bunx prettier --check src tests",
     "prepublishOnly": "bun test && bun run typecheck"

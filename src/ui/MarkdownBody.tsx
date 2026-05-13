@@ -20,7 +20,7 @@ type Block =
   | { kind: "hr" }
   | { kind: "blank" };
 
-const BULLET_RE = /^(\s*)([*+\-]|\d+\.)\s+(.*)$/;
+const BULLET_RE = /^(\s*)([*+-]|\d+\.)\s+(.*)$/;
 const HEADING_RE = /^(#{1,6})\s+(.*)$/;
 const HR_RE = /^\s*([-*_])\1\1[-*_\s]*$/;
 const FENCE_RE = /^\s*(`{3,}|~{3,})(.*)$/;
@@ -91,7 +91,7 @@ export function tokenizeInline(input: string): InlineToken[] {
             break;
           }
         }
-        if (end !== -1 && (prev === undefined || /\s|[(\[{]/.test(prev))) {
+        if (end !== -1 && (prev === undefined || /\s|[([{]/.test(prev))) {
           flushBuf();
           tokens.push({ text: input.slice(i + 1, end), italic: true });
           i = end + 1;
@@ -233,6 +233,8 @@ function renderInline(tokens: InlineToken[], colors: { code: string; link: strin
     if (tok.code) {
       return (
         <Text key={idx} color={colors.code}>
+          {/* intentional U+2009 thin spaces for inline code visual padding */}
+          {/* eslint-disable-next-line no-irregular-whitespace */}
           {` ${tok.text} `}
         </Text>
       );
