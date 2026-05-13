@@ -60,7 +60,7 @@ function SpinnerInner({ label, width = 80 }: Props) {
   return (
     <Box
       borderStyle="round"
-      borderColor={t.primaryDim}
+      borderColor={t.primary}
       paddingX={1}
       width={safeWidth}
       flexShrink={1}

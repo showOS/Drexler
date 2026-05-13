@@ -1,12 +1,15 @@
 import { Box, Text, render, useApp, useInput } from "ink";
 import React, { useState } from "react";
 import { isValidApiKey } from "../config.ts";
+import { ThemeProvider, useTheme } from "./ThemeContext.tsx";
+import { getActiveTheme } from "./themes.ts";
 
 interface SetupPromptProps {
   onDone: (value: string | null) => void;
 }
 
 function SetupPrompt({ onDone }: SetupPromptProps) {
+  const t = useTheme();
   const { exit } = useApp();
   const [key, setKey] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
@@ -49,21 +52,21 @@ function SetupPrompt({ onDone }: SetupPromptProps) {
   const masked = key.length > 0 ? "•".repeat(Math.min(key.length, 48)) : "";
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="green" paddingX={1}>
-      <Text color="green" bold>
+    <Box flexDirection="column" borderStyle="round" borderColor={t.primary} paddingX={1}>
+      <Text color={t.primary} bold>
         Drexler first-run setup
       </Text>
-      <Text color="gray">OpenRouter key required. Get one at https://openrouter.ai/keys</Text>
+      <Text color={t.dim}>OpenRouter key required. Get one at https://openrouter.ai/keys</Text>
       <Box marginTop={1}>
-        <Text color="green" bold>
+        <Text color={t.primary} bold>
           API key
         </Text>
-        <Text color="gray"> │ </Text>
-        <Text>{masked}</Text>
+        <Text color={t.dim}> │ </Text>
+        <Text color={t.text}>{masked}</Text>
         <Text inverse>{key.length === 0 ? " " : ""}</Text>
       </Box>
-      <Text color="gray">Enter saves securely. Esc cancels. Ctrl+C exits.</Text>
-      {notice ? <Text color="yellow">{notice}</Text> : null}
+      <Text color={t.dim}>Enter saves securely. Esc cancels. Ctrl+C exits.</Text>
+      {notice ? <Text color={t.warning}>{notice}</Text> : null}
     </Box>
   );
 }
@@ -74,8 +77,11 @@ export async function promptForApiKeyWithInk(): Promise<string | null> {
     resolvePrompt = resolve;
   });
   const instance = render(
-    React.createElement(SetupPrompt, {
-      onDone: (value) => resolvePrompt(value),
+    React.createElement(ThemeProvider, {
+      value: getActiveTheme(),
+      children: React.createElement(SetupPrompt, {
+        onDone: (value) => resolvePrompt(value),
+      }),
     }),
     { exitOnCtrlC: false },
   );

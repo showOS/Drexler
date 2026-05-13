@@ -285,7 +285,6 @@ export function App({
     : 0;
   const contentWidth = chromeWidth;
   const contentInputWidth = Math.max(1, contentWidth);
-  const contentStatusWidth = Math.max(1, contentInputWidth - 2);
   const dashboardRowBudget =
     showFullDashboard
       ? chromeWidth >= 112
@@ -1507,7 +1506,7 @@ export function App({
                 </Box>
               )}
               {thinking !== null && streaming === null && (
-                <Box paddingX={1} marginBottom={1}>
+                <Box marginBottom={1}>
                   <Spinner label={thinking} width={contentWidth} />
                 </Box>
               )}
@@ -1520,7 +1519,7 @@ export function App({
                 />
               )}
               {exitMsg !== null ? (
-                <Box paddingX={1} marginBottom={1}>
+                <Box paddingX={2} marginBottom={1}>
                   <Text color={t.primaryLight} bold>
                     {exitMsg}
                   </Text>
@@ -1547,17 +1546,15 @@ export function App({
                       width={contentInputWidth}
                     />
                   </Box>
-                  <Box paddingLeft={2}>
-                    <StatusBar
-                      messageCount={msgCount}
-                      witticism={witticism}
-                      maxWidth={contentStatusWidth}
-                      status={isBusy ? "streaming" : deskStatus}
-                      compact={isCompact}
-                      scrollHint={scrollHint}
-                      tokenCount={tokenCount}
-                    />
-                  </Box>
+                  <StatusBar
+                    messageCount={msgCount}
+                    witticism={witticism}
+                    maxWidth={contentInputWidth}
+                    status={isBusy ? "streaming" : deskStatus}
+                    compact={isCompact}
+                    scrollHint={scrollHint}
+                    tokenCount={tokenCount}
+                  />
                 </>
               )}
             </Box>

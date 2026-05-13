@@ -18,22 +18,22 @@ export type Environment = "office" | "home" | "outdoors";
 
 const PANEL_BORDER_COLUMNS = 2;
 const PANEL_PADDING_COLUMNS = 2;
-export const PET_SCENE_ROWS = 32;
+export const PET_SCENE_ROWS = 33;
 const SCENE_ROWS = PET_SCENE_ROWS;
 // Row map for the animated trading-office scene.
 // 0      title bar  (DREXLER OFFICE · stat readout)
-// 1-6    wall-mounted analog clock
-// 7-13   city window and DREXLER MARKETS wall board
-// 15     rear wall trim
-// 16-22  Drexler mascot midground
-// 22-29  centered foreground desk and props. This intentionally overlaps the
+// 1-7    wall-mounted analog clock
+// 8-15   city window and DREXLER MARKETS wall board
+// 16     rear wall trim
+// 17-23  Drexler mascot midground
+// 23-30  centered foreground desk and props. This intentionally overlaps the
 //        lower mascot rows so Drexler reads as seated behind the desk.
 const R_TITLE = 0;
 const R_CLOCK_TOP = 1;
-const R_BOARD_TOP = 7;
+const R_BOARD_TOP = 8;
 const R_WIN_TOP = R_BOARD_TOP;
-const R_WALL_RAIL = 15;
-const R_MASCOT_START = 16;
+const R_WALL_RAIL = 16;
+const R_MASCOT_START = 17;
 const R_DESK_LINE = R_MASCOT_START + BRIEFCASE_FINAL.length - 1;
 const R_DESK_PROPS = R_DESK_LINE + 1;
 const R_FLOOR_SHADOW = SCENE_ROWS - 2;
@@ -449,30 +449,118 @@ function mascotStateForActivity(activity: PetActivity, frame: number): MascotSta
   }
 }
 
-function clockFromFrame(frame: number): string {
-  // Slow ambient clock — advances roughly one minute every 5 frames.
+function clockTimeFromFrame(frame: number): { hour: number; minute: number } {
   const startHour = 9; // boardroom opens at 9 AM corporate time.
   const totalMinutes = startHour * 60 + Math.floor(frame / 5);
-  const hour = Math.floor(totalMinutes / 60) % 24;
-  const minute = totalMinutes % 60;
+  return {
+    hour: Math.floor(totalMinutes / 60) % 24,
+    minute: totalMinutes % 60,
+  };
+}
+
+function clockFromFrame(frame: number): string {
+  // Slow ambient clock — advances roughly one minute every 5 frames.
+  const { hour, minute } = clockTimeFromFrame(frame);
   return `${hour.toString().padStart(2, "0")}:${minute.toString().padStart(2, "0")}`;
 }
 
-function analogClockLines(frame: number): string[] {
-  const hand = [
-    "9  ─┼─ 3 ",
-    "9   ╱  3 ",
-    "9  ╶┼─ 3 ",
-    "9   ╲  3 ",
-  ][Math.floor(frame / 2) % 4] ?? "9  ─┼─ 3 ";
-  return [
-    "╭─────────╮",
-    "│   12    │",
-    `│${hand}│`,
-    "│    6    │",
-    "╰────┬────╯",
-    "     │     ",
-  ];
+const CLOCK_WIDTH = 21;
+const CLOCK_ROWS = 7;
+const CLOCK_CENTER_X = 10;
+const CLOCK_CENTER_Y = 3;
+
+function normalizeClockNumber(value: number, modulo: number): number {
+  const whole = Math.trunc(Number.isFinite(value) ? value : 0);
+  return ((whole % modulo) + modulo) % modulo;
+}
+
+function drawHand(cells: string[][], hourPos: number, isLong: boolean): void {
+  const h = Math.floor(hourPos) % 12;
+  const glyphs: Record<number, string> = {
+    0: "│", 1: "╱", 2: "╱", 3: "─", 4: "╲", 5: "╲",
+    6: "│", 7: "╱", 8: "╱", 9: "─", 10: "╲", 11: "╲",
+  };
+  const glyph = glyphs[h] || "·";
+
+  // Handcrafted offsets for a 21x7 clock. These are stable and aspect-ratio aware.
+  const offsets: Record<number, [number, number][]> = {
+    0:  [[0, -1]],
+    1:  [[2, -1]],
+    2:  [[4, -1]],
+    3:  [[1, 0], [2, 0], [3, 0], [4, 0]],
+    4:  [[4, 1]],
+    5:  [[2, 1]],
+    6:  [[0, 1]],
+    7:  [[-2, 1]],
+    8:  [[-4, 1]],
+    9:  [[-1, 0], [-2, 0], [-3, 0], [-4, 0]],
+    10: [[-4, -1]],
+    11: [[-2, -1]],
+  };
+
+  const points = offsets[h] || [];
+  const limit = isLong ? points.length : Math.max(1, Math.floor(points.length / 2));
+
+  for (let i = 0; i < limit; i++) {
+    const [dx, dy] = points[i]!;
+    const x = CLOCK_CENTER_X + dx;
+    const y = CLOCK_CENTER_Y + dy;
+    if (x > 0 && x < CLOCK_WIDTH - 1 && y > 0 && y < CLOCK_ROWS - 1) {
+      cells[y]![x] = glyph;
+    }
+  }
+}
+
+function stampClockBorder(cells: string[][]): void {
+  for (let x = 0; x < CLOCK_WIDTH; x++) {
+    cells[0]![x] = x === 0 ? "╭" : x === CLOCK_WIDTH - 1 ? "╮" : "─";
+    cells[CLOCK_ROWS - 1]![x] = x === 0 ? "╰" : x === CLOCK_WIDTH - 1 ? "╯" : "─";
+  }
+  for (let y = 1; y < CLOCK_ROWS - 1; y++) {
+    cells[y]![0] = "│";
+    cells[y]![CLOCK_WIDTH - 1] = "│";
+  }
+}
+
+function stampClockText(cells: string[][], text: string, x: number, y: number): void {
+  if (y < 0 || y >= CLOCK_ROWS) return;
+  for (let i = 0; i < text.length; i++) {
+    const col = x + i;
+    if (col < 0 || col >= CLOCK_WIDTH) continue;
+    cells[y]![col] = text[i]!;
+  }
+}
+
+function buildAsciiClockLines(hour: number, minute: number): string[] {
+  const safeHour = normalizeClockNumber(hour, 24);
+  const safeMinute = normalizeClockNumber(minute, 60);
+  const cells = Array.from({ length: CLOCK_ROWS }, () =>
+    Array.from({ length: CLOCK_WIDTH }, () => " "),
+  );
+
+  const hourPos = (safeHour % 12);
+  const minutePos = Math.floor(safeMinute / 5);
+
+  drawHand(cells, minutePos, true);
+  drawHand(cells, hourPos, false);
+
+  stampClockText(cells, "12", 9, 1);
+  stampClockText(cells, "9", 5, 3);
+  stampClockText(cells, "·", CLOCK_CENTER_X, 3);
+  stampClockText(cells, "3", 15, 3);
+  stampClockText(cells, "6", CLOCK_CENTER_X, 5);
+  stampClockBorder(cells);
+
+  return cells.map((row) => row.join("").padEnd(CLOCK_WIDTH, " ").slice(0, CLOCK_WIDTH));
+}
+
+export function buildAsciiClock(hour: number, minute: number): string {
+  return buildAsciiClockLines(hour, minute).join("\n");
+}
+
+export function analogClockLines(frame: number): string[] {
+  const { hour, minute } = clockTimeFromFrame(frame);
+  return buildAsciiClockLines(hour, minute);
 }
 
 function titleLine(width: number, stats: PetStats): string {
@@ -533,13 +621,42 @@ function cityWindowLines(width: number, frame: number): string[] {
 function marketBoardRow(width: number, left: string, chart: string, axis: string): string {
   const inner = Math.max(1, width - 2);
   let row = blankRow(inner);
-  row = place(row, left, 1);
   row = placeRight(row, axis, 1);
   const chartX = Math.max(
     18,
     Math.min(inner - displayWidth(axis) - displayWidth(chart) - 3, Math.floor(inner * 0.46)),
   );
+  row = place(row, fitDisplayText(left, Math.max(1, chartX - 2)), 1);
   row = place(row, chart, Math.max(1, chartX));
+  return boxRowFromInner(width, row);
+}
+
+function marketBoardSplitRow(width: number, left: string, right: string): string {
+  const inner = Math.max(1, width - 2);
+  let row = blankRow(inner);
+  const fittedRight = fitDisplayText(right, Math.max(1, inner - 2));
+  const rightX = Math.max(0, inner - displayWidth(fittedRight) - 1);
+  row = place(row, fitDisplayText(left, Math.max(1, rightX - 2)), 1);
+  row = place(row, fittedRight, rightX);
+  return boxRowFromInner(width, row);
+}
+
+function marketBoardTrioRow(width: number, left: string, center: string, right: string): string {
+  const inner = Math.max(1, width - 2);
+  let row = blankRow(inner);
+  const fittedRight = fitDisplayText(right, Math.max(1, inner - 2));
+  const rightWidth = displayWidth(fittedRight);
+  const rightX = Math.max(0, inner - rightWidth - 1);
+  const centerLimit = Math.max(1, rightX - 3);
+  const fittedCenter = fitDisplayText(center, centerLimit);
+  const centerWidth = displayWidth(fittedCenter);
+  const centeredX = Math.floor((inner - centerWidth) / 2);
+  const centerX = Math.max(1, Math.min(centeredX, Math.max(1, rightX - centerWidth - 2)));
+  const leftLimit = Math.max(1, centerX - 2);
+
+  row = place(row, fitDisplayText(left, leftLimit), 1);
+  row = place(row, fittedCenter, centerX);
+  row = place(row, fittedRight, rightX);
   return boxRowFromInner(width, row);
 }
 
@@ -555,29 +672,44 @@ function marketBoardLines(
   const candleC = activity === "working" ? "▐█▌" : "▐░▌";
   const finalCandle = activity === "praised" ? "▐█▌" : frame % 6 < 3 ? "▐█▌" : "▐░▌";
   const fee = Math.max(40, Math.min(99, Math.round((stats.happiness + stats.deals) / 2)));
+  const pipe = Math.round(stats.deals);
   const chartLabel = boardTapeLabel(activity, frame);
-  const narrow = width < 52;
-  const chartA = `┄┄┄┄ │ ${candleA} │`;
-  const chartB = `${candleB} │ ${candleA} ${candleC} │`;
-  const chartC = narrow
-    ? `09:00 ${chartLabel}   13:00  ${candleC} ${candleB} ${finalCandle}`
-    : `09:00 ${chartLabel}     13:00    ${candleC} ${candleB} ${finalCandle} 14:00`;
-  const header = narrow
-    ? `DREX ▲ 3.17%  ${clockFromFrame(frame)} ${status}`
-    : `DREX 0.8421 ▲ 3.17%     DEMO ${clockFromFrame(frame)}  ${status}`;
+  const narrow = width < 58;
+  const tapeMarker = frame % 2 === 0 ? ">" : "_";
+  const chartA = `┄┄┄┄ ${candleA} │`;
+  const chartB = `│ ${candleB} │ ${candleC}`;
+  const chartC = `${candleB} │ ${finalCandle} │`;
+
+  if (narrow) {
+    return [
+      boxTop(width, "DREXLER MARKETS"),
+      marketBoardSplitRow(width, `DEMO ${clockFromFrame(frame)} ${status}`, `FEE ${fee}%`),
+      boxContent(width, ` TAPE${tapeMarker} BTC ▲1.25  ETH ▲0.82`),
+      boxContent(width, " BID .8419   ASK .8423   VOL 24K"),
+      marketBoardRow(width, "BTC 67842 ▲1.25", chartA, "69000"),
+      marketBoardRow(width, "ETH  3241 ▲0.82", chartB, "68000"),
+      boxContent(width, ` OPEN 09:00  ${chartLabel}  PIPE ${pipe}%`),
+      boxBottom(width),
+    ];
+  }
+
+  const standard = width < 88;
+  const headerLeft = standard ? "DREX 0.8421 ▲3.17" : "DREX 0.8421 ▲ 3.17%";
+  const headerCenter = `DEMO ${clockFromFrame(frame)} ${status}`;
+  const tape = standard
+    ? `TAPE${tapeMarker} BTC ▲1.25  ETH ▲0.82`
+    : `TAPE${tapeMarker} BTC ▲1.25  ETH ▲0.82  SOL ▲2.11`;
+  const footerCenter = standard
+    ? `OPEN 09:00  ${chartLabel}`
+    : `OPEN 09:00  13:00  ${chartLabel}  CLOSE 16:00`;
   return [
     boxTop(width, "DREXLER MARKETS"),
-    boxContent(width, header),
-    narrow
-      ? boxContent(width, `BTC 67842 FEE ${fee}%  ┄┄┄ 69000`)
-      : marketBoardRow(width, `BTC 67842 ▲ 1.25%  FEE ${fee}%`, "┄┄┄┄┄┄┄┄┄", "69000"),
-    narrow
-      ? boxContent(width, `ETH 3241  │ ${candleA} 68000`)
-      : marketBoardRow(width, "ETH  3241 ▲ 0.82%", chartA, "68000"),
-    narrow
-      ? boxContent(width, `SOL  157 ${candleB}│${finalCandle} 67000`)
-      : marketBoardRow(width, "SOL   157 ▲ 2.11%", chartB, "67000"),
-    boxContent(width, chartC),
+    marketBoardTrioRow(width, headerLeft, headerCenter, `FEE ${fee}%`),
+    marketBoardTrioRow(width, tape, "CANDLE", "VOL 24K"),
+    marketBoardTrioRow(width, "BTC 67842  ▲1.25", chartA, "69000"),
+    marketBoardTrioRow(width, "ETH  3241  ▲0.82", chartB, "68000"),
+    marketBoardTrioRow(width, "SOL   157  ▲2.11", chartC, "67000"),
+    marketBoardTrioRow(width, "BID .8419  ASK .8423", footerCenter, `PIPE ${pipe}%`),
     boxBottom(width),
   ];
 }
@@ -826,15 +958,14 @@ function buildOfficeScene(
 
   sprites.push(makeSprite("background:title", 0, 0, R_TITLE, [titleLine(width, stats)], "background"));
   const clock = analogClockLines(frame);
-  sprites.push(makeAnimatedSprite({
-    id: "wall:clock",
-    zIndex: 12,
-    x: Math.max(0, Math.floor((width - displayWidth(clock[0] ?? "")) / 2)),
-    y: R_CLOCK_TOP,
-    frames: [clock, analogClockLines(frame + 2)],
-    frameDuration: 2,
-    styleToken: "secondaryLine",
-  }));
+  sprites.push(makeSprite(
+    "wall:clock",
+    12,
+    Math.max(0, Math.floor((width - displayWidth(clock[0] ?? "")) / 2)),
+    R_CLOCK_TOP,
+    clock,
+    "secondaryLine",
+  ));
 
   if (layout === "compact") {
     sprites.push(
