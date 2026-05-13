@@ -2,11 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  extractGreetings,
-  loadPersona,
-  pickGreeting,
-} from "../src/persona.ts";
+import { extractGreetings, loadPersona, pickGreeting } from "../src/persona.ts";
 
 const FIXTURE = `# Persona
 
@@ -23,11 +19,7 @@ const FIXTURE = `# Persona
 
 describe("extractGreetings", () => {
   test("parses bullet list under heading", () => {
-    expect(extractGreetings(FIXTURE)).toEqual([
-      "Hello one!",
-      "Hello two!",
-      "Hello three!",
-    ]);
+    expect(extractGreetings(FIXTURE)).toEqual(["Hello one!", "Hello two!", "Hello three!"]);
   });
 
   test("stops at next heading", () => {
@@ -42,9 +34,7 @@ describe("extractGreetings", () => {
 
 describe("loadPersona", () => {
   test("throws on missing file (V6)", async () => {
-    await expect(loadPersona("/no/such/path.md")).rejects.toThrow(
-      /Failed to load persona/,
-    );
+    await expect(loadPersona("/no/such/path.md")).rejects.toThrow(/Failed to load persona/);
   });
 
   test("returns systemPrompt and greetings", async () => {

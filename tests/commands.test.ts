@@ -311,9 +311,7 @@ describe("dispatch (V7, V8, V16, V17)", () => {
     if (action.type === "regenerate") {
       expect(action.removedAssistant).toBe(false);
     }
-    expect(ctx.conversation.snapshot().map((m) => m.content)).toContain(
-      "first reply",
-    );
+    expect(ctx.conversation.snapshot().map((m) => m.content)).toContain("first reply");
   });
 
   test("/expand and /quote print the latest assistant response", () => {
@@ -389,8 +387,16 @@ describe("isArgumentParentCommand", () => {
   });
   test("false for commands without chooser", () => {
     for (const n of [
-      "/help", "/clear", "/exit", "/synergy", "/history",
-      "/expand", "/quote", "/copy-last", "/setup", "/update",
+      "/help",
+      "/clear",
+      "/exit",
+      "/synergy",
+      "/history",
+      "/expand",
+      "/quote",
+      "/copy-last",
+      "/setup",
+      "/update",
     ]) {
       expect(isArgumentParentCommand(n)).toBe(false);
     }
@@ -816,8 +822,7 @@ describe("search, export, and last-response commands", () => {
     ctx.conversation.push("assistant", "clipboard reply");
     dispatch("/copy-last", {
       ...ctx,
-      copyToClipboard: () =>
-        ({ ok: false, reason: "no clipboard utility found" }) as const,
+      copyToClipboard: () => ({ ok: false, reason: "no clipboard utility found" }) as const,
     });
     expect(out.join("\n")).toContain("Clipboard unavailable");
     expect(out.join("\n")).toContain("/save-last");
@@ -855,9 +860,7 @@ describe("filterPaletteByPrefix", () => {
 
   test("theme command appears in palette", () => {
     const out = filterPaletteByPrefix("/t");
-    expect(out).toMatchObject([
-      { name: "/theme", description: "Show or switch theme" },
-    ]);
+    expect(out).toMatchObject([{ name: "/theme", description: "Show or switch theme" }]);
   });
 
   test("exact constrained commands open their argument chooser smoothly", () => {
@@ -882,26 +885,17 @@ describe("filterPaletteByPrefix", () => {
 
   test("redo command appears in palette", () => {
     const out = filterPaletteByPrefix("/re");
-    expect(out.map((c) => c.name)).toEqual([
-      "/rest",
-      "/regenerate",
-      "/redo",
-      "/retry",
-    ]);
+    expect(out.map((c) => c.name)).toEqual(["/rest", "/regenerate", "/redo", "/retry"]);
   });
 
   test("pet command appears in palette", () => {
     const out = filterPaletteByPrefix("/pe");
-    expect(out).toMatchObject([
-      { name: "/pet", description: "Toggle pet dashboard mode" },
-    ]);
+    expect(out).toMatchObject([{ name: "/pet", description: "Toggle pet dashboard mode" }]);
   });
 
   test("save-last command appears after overlapping prefix", () => {
     const out = filterPaletteByPrefix("/save-");
-    expect(out).toMatchObject([
-      { name: "/save-last", description: "Save last Drexler response" },
-    ]);
+    expect(out).toMatchObject([{ name: "/save-last", description: "Save last Drexler response" }]);
   });
 
   test("/copy prefix surfaces both /copy and /copy-last", () => {
@@ -910,12 +904,8 @@ describe("filterPaletteByPrefix", () => {
   });
 
   test("known commands with constrained args show argument suggestions", () => {
-    expect(filterPaletteByPrefix("/theme ").map((c) => c.name)).toContain(
-      "/theme midnight",
-    );
-    expect(
-      filterPaletteByPrefix("/theme ").find((c) => c.name === "/theme midnight"),
-    ).toEqual({
+    expect(filterPaletteByPrefix("/theme ").map((c) => c.name)).toContain("/theme midnight");
+    expect(filterPaletteByPrefix("/theme ").find((c) => c.name === "/theme midnight")).toEqual({
       name: "/theme midnight",
       description: "Cool blue night desk",
       hint: "focused late-session work",
@@ -929,15 +919,9 @@ describe("filterPaletteByPrefix", () => {
       "/startup no-intro",
       "/startup normal",
     ]);
-    expect(filterPaletteByPrefix("/retry b").map((c) => c.name)).toEqual([
-      "/retry brutal",
-    ]);
-    expect(filterPaletteByPrefix("/export j").map((c) => c.name)).toEqual([
-      "/export json",
-    ]);
-    expect(filterPaletteByPrefix("/model 2").map((c) => c.name)).toEqual([
-      "/model 26b",
-    ]);
+    expect(filterPaletteByPrefix("/retry b").map((c) => c.name)).toEqual(["/retry brutal"]);
+    expect(filterPaletteByPrefix("/export j").map((c) => c.name)).toEqual(["/export json"]);
+    expect(filterPaletteByPrefix("/model 2").map((c) => c.name)).toEqual(["/model 26b"]);
   });
 
   test("free-form commands with args close palette", () => {

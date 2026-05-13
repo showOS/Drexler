@@ -88,8 +88,7 @@ export const THINKING_LINES = [
 ] as const;
 
 export const EMPTY_NUDGE = "Drexler's time is money. YOUR money. Speak up.";
-export const STREAM_ERROR =
-  "Trading tantrum! Drexler's stream interrupted. Try again.";
+export const STREAM_ERROR = "Trading tantrum! Drexler's stream interrupted. Try again.";
 export const SIGINT_MSG = "Drexler do exit interview. Meeting adjourned.";
 export const REMINDER_INTERVAL = 5;
 export const DRIFT_REMINDER =

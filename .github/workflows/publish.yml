@@ -52,7 +52,6 @@ jobs:
 
       - name: Format check
         run: bun run format:check
-        continue-on-error: true
 
       - name: Publish to npm
         run: npm publish --access public --provenance

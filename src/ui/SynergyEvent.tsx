@@ -39,14 +39,8 @@ export const SYNERGY_EVENTS: readonly SynergyEventDefinition[] = [
       "converting meetings into margin",
       "minting provisional shareholder value",
     ],
-    kpis: [
-      "EBITDA +0.4%",
-      "morale provisionally approved",
-      "consultants +7",
-      "clarity -3",
-    ],
-    finalLine:
-      "Synergy achieved. Headcount unchanged. Morale amortized.",
+    kpis: ["EBITDA +0.4%", "morale provisionally approved", "consultants +7", "clarity -3"],
+    finalLine: "Synergy achieved. Headcount unchanged. Morale amortized.",
     transcriptLine: "SYNERGY EVENT: shareholder value allegedly unlocked.",
   },
   {
@@ -129,13 +123,8 @@ export const SYNERGY_EVENTS: readonly SynergyEventDefinition[] = [
   },
 ];
 
-export function pickSynergyEvent(
-  random: () => number = Math.random,
-): SynergyEventDefinition {
-  const idx = Math.min(
-    SYNERGY_EVENTS.length - 1,
-    Math.floor(random() * SYNERGY_EVENTS.length),
-  );
+export function pickSynergyEvent(random: () => number = Math.random): SynergyEventDefinition {
+  const idx = Math.min(SYNERGY_EVENTS.length - 1, Math.floor(random() * SYNERGY_EVENTS.length));
   return SYNERGY_EVENTS[idx]!;
 }
 
@@ -162,10 +151,7 @@ function bar(progress: number, width: number): string {
 
 function stageAt(event: SynergyEventDefinition, frame: number): string {
   const progress = easedProgress(frame);
-  const idx = Math.min(
-    event.stages.length - 1,
-    Math.floor(progress * event.stages.length),
-  );
+  const idx = Math.min(event.stages.length - 1, Math.floor(progress * event.stages.length));
   return event.stages[idx]!;
 }
 
@@ -186,12 +172,7 @@ interface Props {
   compact?: boolean;
 }
 
-function SynergyEventInner({
-  event,
-  frame,
-  width = 80,
-  compact = false,
-}: Props) {
+function SynergyEventInner({ event, frame, width = 80, compact = false }: Props) {
   const t = useTheme();
   const safeWidth = Math.max(1, Math.floor(width));
   const progress = easedProgress(frame);
@@ -201,10 +182,7 @@ function SynergyEventInner({
   const earlyPulse = !done && frame < 6 && frame % 2 === 0;
   const titleColor = done ? t.primaryLight : earlyPulse ? t.primary : t.warning;
 
-  const artFrames = useMemo(
-    () => event.art.slice(0, FULL_EVENT_ART_ROWS),
-    [event],
-  );
+  const artFrames = useMemo(() => event.art.slice(0, FULL_EVENT_ART_ROWS), [event]);
   const revealedRows = visibleArtCount(event, frame);
 
   if (tiny) {
@@ -265,9 +243,7 @@ function SynergyEventInner({
         </Box>
         <Box>
           <Text color={t.primaryDim}>[</Text>
-          <Text color={done ? t.primaryLight : t.warning}>
-            {bar(progress, progressWidth)}
-          </Text>
+          <Text color={done ? t.primaryLight : t.warning}>{bar(progress, progressWidth)}</Text>
           <Text color={t.primaryDim}>] </Text>
           <Text color={t.dim}>{progressPct}</Text>
         </Box>

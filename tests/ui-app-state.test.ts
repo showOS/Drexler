@@ -41,10 +41,7 @@ function renderAppWithStdout(
     (ctx as { stdout: NodeJS.WriteStream }).stdout = stdout;
     return React.createElement(App, props);
   }
-  return renderToString(
-    React.createElement(StdoutBackedApp),
-    { columns },
-  ).replace(ANSI_RE, "");
+  return renderToString(React.createElement(StdoutBackedApp), { columns }).replace(ANSI_RE, "");
 }
 
 function makeCtx() {
@@ -280,10 +277,7 @@ describe("App state helpers", () => {
 
         expect(loaded).not.toBeNull();
         expect(loaded!.model).toBe(MODEL_FALLBACK);
-        expect(loaded!.messages.map((m) => m.content)).toEqual([
-          "hello",
-          "answer",
-        ]);
+        expect(loaded!.messages.map((m) => m.content)).toEqual(["hello", "answer"]);
       } finally {
         if (!didUnmount) instance.unmount();
       }
@@ -412,37 +406,34 @@ describe("App state helpers", () => {
   test.each([
     [90, 30],
     [100, 30],
-  ])(
-    "App does not render automatic pet chrome on %d-column terminals",
-    async (columns, rows) => {
-      const origHome = process.env.HOME;
-      const home = await mkdtemp(join(tmpdir(), "drexler-app-no-pet-"));
-      try {
-        process.env.HOME = home;
-        const ctx = makeCtx();
-        const rendered = renderAppWithStdout(
-          {
-            conversation: ctx.conversation,
-            config: ctx.config,
-            mood: "ruthless",
-          },
-          columns,
-          rows,
-        );
+  ])("App does not render automatic pet chrome on %d-column terminals", async (columns, rows) => {
+    const origHome = process.env.HOME;
+    const home = await mkdtemp(join(tmpdir(), "drexler-app-no-pet-"));
+    try {
+      process.env.HOME = home;
+      const ctx = makeCtx();
+      const rendered = renderAppWithStdout(
+        {
+          conversation: ctx.conversation,
+          config: ctx.config,
+          mood: "ruthless",
+        },
+        columns,
+        rows,
+      );
 
-        expect(rendered).toContain("Drexler Deal Desk");
-        expect(rendered).not.toContain("Drexler Pet Desk");
-        expect(rendered).not.toContain("pet ");
-        for (const row of rendered.split("\n")) {
-          expect(displayWidth(row)).toBeLessThanOrEqual(columns);
-        }
-      } finally {
-        if (origHome !== undefined) process.env.HOME = origHome;
-        else delete process.env.HOME;
-        await rm(home, { recursive: true, force: true });
+      expect(rendered).toContain("Drexler Deal Desk");
+      expect(rendered).not.toContain("Drexler Pet Desk");
+      expect(rendered).not.toContain("pet ");
+      for (const row of rendered.split("\n")) {
+        expect(displayWidth(row)).toBeLessThanOrEqual(columns);
       }
-    },
-  );
+    } finally {
+      if (origHome !== undefined) process.env.HOME = origHome;
+      else delete process.env.HOME;
+      await rm(home, { recursive: true, force: true });
+    }
+  });
 
   test("App does not render a one-line pet ticker on tiny terminals by default", async () => {
     const origHome = process.env.HOME;

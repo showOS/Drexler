@@ -19,8 +19,10 @@ function StreamingMessageInner({ content, width = 80 }: StreamingProps) {
   // Single fence-scan produces both forms. Memo so a re-render that
   // doesn't touch `content` (e.g. theme flip, parent re-layout) doesn't
   // redo the parse.
-  const { compact: compactDisplayContent, markdownRender: markdownDisplayContent } =
-    useMemo(() => normalizeAssistantBoth(content), [content]);
+  const { compact: compactDisplayContent, markdownRender: markdownDisplayContent } = useMemo(
+    () => normalizeAssistantBoth(content),
+    [content],
+  );
 
   if (safeWidth < 18) {
     const compactLine = fitDisplayText(

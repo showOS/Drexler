@@ -8,9 +8,7 @@ import { THEMES } from "../src/ui/themes.ts";
 
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
 
-function renderStatusBar(
-  props: React.ComponentProps<typeof StatusBar>,
-): string {
+function renderStatusBar(props: React.ComponentProps<typeof StatusBar>): string {
   return renderToString(
     React.createElement(ThemeProvider, {
       value: THEMES.apollo,
@@ -20,6 +18,16 @@ function renderStatusBar(
 }
 
 describe("StatusBar", () => {
+  test("aligns the status dot with the bordered input prompt column", () => {
+    const rendered = renderStatusBar({
+      messageCount: 0,
+      witticism: "watch leverage",
+      maxWidth: 64,
+    });
+
+    expect(rendered.startsWith("  ●")).toBe(true);
+  });
+
   test("shows transcript scroll hint when provided", () => {
     const rendered = renderStatusBar({
       messageCount: 12,

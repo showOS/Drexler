@@ -94,7 +94,7 @@ describe("live chrome width handling", () => {
     const rendered = renderChrome(
       React.createElement(StreamingMessage, {
         content:
-          "```markdown\n1. Procure 80/20 beef.\n```\n\n```python\nprint(\"Synergy achieved.\")\n```",
+          '```markdown\n1. Procure 80/20 beef.\n```\n\n```python\nprint("Synergy achieved.")\n```',
         width,
       }),
     );
@@ -112,7 +112,7 @@ describe("live chrome width handling", () => {
   test("tiny streaming message starts with useful fenced content", () => {
     const rendered = renderChrome(
       React.createElement(StreamingMessage, {
-        content: "```python\nprint(\"fees\")\n```",
+        content: '```python\nprint("fees")\n```',
         width: 16,
       }),
     );
@@ -139,9 +139,7 @@ describe("live chrome width handling", () => {
 
   test("synergy event variants rotate from deterministic random input", () => {
     expect(pickSynergyEvent(() => 0).id).toBe(SYNERGY_EVENTS[0]?.id);
-    expect(pickSynergyEvent(() => 0.99).id).toBe(
-      SYNERGY_EVENTS[SYNERGY_EVENTS.length - 1]?.id,
-    );
+    expect(pickSynergyEvent(() => 0.99).id).toBe(SYNERGY_EVENTS[SYNERGY_EVENTS.length - 1]?.id);
   });
 
   test("synergy event renders a bounded animated event frame", () => {

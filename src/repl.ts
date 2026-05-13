@@ -1,10 +1,5 @@
 import * as readline from "node:readline";
-import {
-  COMMAND_PALETTE,
-  dispatch,
-  isSlash,
-  type CommandAction,
-} from "./commands.ts";
+import { COMMAND_PALETTE, dispatch, isSlash, type CommandAction } from "./commands.ts";
 import { saveConfig } from "./config.ts";
 import type { Conversation } from "./conversation.ts";
 import { streamChat, type FetchFn } from "./llm.ts";
@@ -90,10 +85,7 @@ interface KeypressKey {
 }
 type KeypressListener = (str: string | undefined, key: KeypressKey) => void;
 
-async function streamFromHistory(
-  deps: ReplDeps,
-  instruction?: string,
-): Promise<void> {
+async function streamFromHistory(deps: ReplDeps, instruction?: string): Promise<void> {
   const spinner = startSpinner();
   let firstToken = true;
   const accent = createAccentBarWriter();
@@ -166,10 +158,7 @@ async function streamFromHistory(
   }
 }
 
-export async function handleLine(
-  raw: string,
-  deps: ReplDeps,
-): Promise<CommandAction> {
+export async function handleLine(raw: string, deps: ReplDeps): Promise<CommandAction> {
   const line = raw.trim();
 
   if (line === "") {

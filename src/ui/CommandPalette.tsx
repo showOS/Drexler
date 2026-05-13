@@ -107,21 +107,12 @@ function CommandPaletteInner({ items, selectedIdx, width = 80 }: Props) {
 
   const innerWidth = Math.max(1, safeWidth - 4);
   const markerWidth = 2;
-  const nameBudget = Math.max(
-    6,
-    Math.min(maxNameW + 1, Math.floor(innerWidth * 0.44)),
-  );
+  const nameBudget = Math.max(6, Math.min(maxNameW + 1, Math.floor(innerWidth * 0.44)));
   const descBudget = Math.max(
     6,
-    Math.min(
-      Math.floor(innerWidth * 0.34),
-      innerWidth - markerWidth - nameBudget - 1,
-    ),
+    Math.min(Math.floor(innerWidth * 0.34), innerWidth - markerWidth - nameBudget - 1),
   );
-  const hintBudget = Math.max(
-    0,
-    innerWidth - markerWidth - nameBudget - 1 - descBudget - 2,
-  );
+  const hintBudget = Math.max(0, innerWidth - markerWidth - nameBudget - 1 - descBudget - 2);
 
   return (
     <Box
@@ -139,22 +130,17 @@ function CommandPaletteInner({ items, selectedIdx, width = 80 }: Props) {
         </Text>
         <Text color={t.primaryDim}> ─ </Text>
         <Text color={t.dim} wrap="truncate">
-          {fitDisplayText(
-            heading.hint,
-            Math.max(1, innerWidth - displayWidth(heading.title) - 3),
-          )}
+          {fitDisplayText(heading.hint, Math.max(1, innerWidth - displayWidth(heading.title) - 3))}
         </Text>
       </Box>
       {items.map((item, idx) => {
         const sel = idx === selectedIdx;
         const isArgumentSuggestion = item.name.includes(" ");
         const hint =
-          item.hint ??
-          (isArgumentSuggestion ? "" : COMMAND_HINTS[item.name] ?? item.description);
+          item.hint ?? (isArgumentSuggestion ? "" : (COMMAND_HINTS[item.name] ?? item.description));
         const name = padDisplayText(item.name, nameBudget);
         const desc = padDisplayText(item.description, descBudget);
-        const clippedHint =
-          hintBudget > 0 ? fitDisplayText(hint, hintBudget) : "";
+        const clippedHint = hintBudget > 0 ? fitDisplayText(hint, hintBudget) : "";
         return (
           <Box key={item.name} width={innerWidth} flexShrink={1}>
             <Text color={sel ? t.primaryLight : t.primaryDim} bold={sel}>
@@ -164,12 +150,10 @@ function CommandPaletteInner({ items, selectedIdx, width = 80 }: Props) {
               {name}
             </Text>
             <Text color={t.primaryDim}> </Text>
-            <Text color={sel ? t.text : t.dim}>
-              {desc}
-            </Text>
+            <Text color={sel ? t.text : t.dim}>{desc}</Text>
             {clippedHint ? (
               <>
-                <Text color={t.primaryDim}>  </Text>
+                <Text color={t.primaryDim}> </Text>
                 <Text color={sel ? t.primaryLight : t.primaryDim} wrap="truncate">
                   {clippedHint}
                 </Text>

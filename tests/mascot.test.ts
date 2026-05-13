@@ -61,9 +61,9 @@ describe("computeMascotLayout", () => {
     expect(layout.mode).toBe("split");
     expect(layout.rightChildWidth).toBe(layout.tips.width);
     expect(layout.rightChildWidth).toBe(layout.dealDesk.width);
-    expect(
-      layout.leftPanel.width + 3 + layout.rightColumn.width,
-    ).toBeLessThanOrEqual(layout.innerWidth);
+    expect(layout.leftPanel.width + 3 + layout.rightColumn.width).toBeLessThanOrEqual(
+      layout.innerWidth,
+    );
   });
 
   test("collapses to tiny / compact / stacked / split at breakpoints", () => {
@@ -152,10 +152,7 @@ describe("MascotFrame", () => {
     // which forces MascotIntro into its tiny-terminal text-only fallback and
     // makes the mascot frame disappear from the snapshot. 80 is wide enough
     // for full layout but below the sideBySide threshold (112).
-    const originalColumns = Object.getOwnPropertyDescriptor(
-      process.stdout,
-      "columns",
-    );
+    const originalColumns = Object.getOwnPropertyDescriptor(process.stdout, "columns");
     Object.defineProperty(process.stdout, "columns", {
       value: 80,
       configurable: true,
@@ -168,16 +165,10 @@ describe("MascotFrame", () => {
         }),
       ).replace(ANSI_RE, "");
       const rows = rendered.split("\n");
-      const mascotBottomIdx = rows.findIndex((row) =>
-        row.includes(BRIEFCASE_FINAL[6].trim()),
-      );
+      const mascotBottomIdx = rows.findIndex((row) => row.includes(BRIEFCASE_FINAL[6].trim()));
       const bootBarIdx = rows.findIndex((row) => row.includes("▰▰▱▱"));
-      const statusIdx = rows.findIndex((row) =>
-        row.includes("◆ Briefcase boot"),
-      );
-      const brandIdx = rows.findIndex((row) =>
-        row.includes("Drexler International™"),
-      );
+      const statusIdx = rows.findIndex((row) => row.includes("◆ Briefcase boot"));
+      const brandIdx = rows.findIndex((row) => row.includes("Drexler International™"));
 
       expect(mascotBottomIdx).toBeGreaterThan(-1);
       expect(bootBarIdx).toBe(mascotBottomIdx + 1);
@@ -186,9 +177,7 @@ describe("MascotFrame", () => {
       expect(rows[bootBarIdx]?.indexOf("▰")).toBe(
         rows[mascotBottomIdx]?.indexOf(BRIEFCASE_FINAL[6].trim()),
       );
-      expect(rows[statusIdx]?.indexOf("◆")).toBe(
-        rows[bootBarIdx]?.indexOf("▰"),
-      );
+      expect(rows[statusIdx]?.indexOf("◆")).toBe(rows[bootBarIdx]?.indexOf("▰"));
     } finally {
       if (originalColumns) {
         Object.defineProperty(process.stdout, "columns", originalColumns);
@@ -197,10 +186,7 @@ describe("MascotFrame", () => {
   });
 
   test("wide intro places startup tips across a vertical split", () => {
-    const originalColumns = Object.getOwnPropertyDescriptor(
-      process.stdout,
-      "columns",
-    );
+    const originalColumns = Object.getOwnPropertyDescriptor(process.stdout, "columns");
     Object.defineProperty(process.stdout, "columns", {
       value: 160,
       configurable: true,
@@ -212,15 +198,11 @@ describe("MascotFrame", () => {
           children: React.createElement(MascotIntro, { greeting: "Hello" }),
         }),
       ).replace(ANSI_RE, "");
-      const tipsLine = rendered
-        .split("\n")
-        .find((row) => row.includes("╭─ Tips"));
+      const tipsLine = rendered.split("\n").find((row) => row.includes("╭─ Tips"));
 
       expect(tipsLine).toBeDefined();
       expect(tipsLine?.match(/│/g)?.length).toBeGreaterThanOrEqual(2);
-      expect(tipsLine?.indexOf("╭─ Tips")).toBeGreaterThan(
-        tipsLine?.indexOf("│") ?? 0,
-      );
+      expect(tipsLine?.indexOf("╭─ Tips")).toBeGreaterThan(tipsLine?.indexOf("│") ?? 0);
     } finally {
       if (originalColumns) {
         Object.defineProperty(process.stdout, "columns", originalColumns);
@@ -597,34 +579,29 @@ describe("MascotFrame", () => {
     }
   });
 
-  test.each([
-    "angry",
-    "exhausted",
-    "generous",
-    "manic",
-    "paranoid",
-    "ruthless",
-    "victorious",
-  ])("dashboard settled mood maps %s to satirical copy", (mood) => {
-    const rendered = renderToString(
-      React.createElement(ThemeProvider, {
-        value: THEMES.apollo,
-        children: React.createElement(MascotDashboard, {
-          greeting: "Hello",
-          width: 120,
-          mood,
-          bootProgress: 1,
+  test.each(["angry", "exhausted", "generous", "manic", "paranoid", "ruthless", "victorious"])(
+    "dashboard settled mood maps %s to satirical copy",
+    (mood) => {
+      const rendered = renderToString(
+        React.createElement(ThemeProvider, {
+          value: THEMES.apollo,
+          children: React.createElement(MascotDashboard, {
+            greeting: "Hello",
+            width: 120,
+            mood,
+            bootProgress: 1,
+          }),
         }),
-      }),
-      { columns: 120 },
-    ).replace(ANSI_RE, "");
+        { columns: 120 },
+      ).replace(ANSI_RE, "");
 
-    expect(rendered).toContain(mood.toUpperCase());
-    expect(rendered).not.toContain("%");
-    for (const row of rendered.split("\n")) {
-      expect(displayWidth(row)).toBeLessThanOrEqual(120);
-    }
-  });
+      expect(rendered).toContain(mood.toUpperCase());
+      expect(rendered).not.toContain("%");
+      for (const row of rendered.split("\n")) {
+        expect(displayWidth(row)).toBeLessThanOrEqual(120);
+      }
+    },
+  );
 
   test("dashboard mood copy rotates for the same mood across seeds", () => {
     const originalRandom = Math.random;
@@ -707,11 +684,7 @@ describe("MascotFrame", () => {
 
     const alignedRow = rendered
       .split("\n")
-      .find(
-        (row) =>
-          row.includes("╭─ Mood") &&
-          row.includes("╭─ Drexler Deal Desk"),
-      );
+      .find((row) => row.includes("╭─ Mood") && row.includes("╭─ Drexler Deal Desk"));
 
     expect(alignedRow).toBeDefined();
     expect(displayWidth(alignedRow!)).toBeLessThanOrEqual(200);
@@ -741,12 +714,8 @@ describe("MascotFrame", () => {
 
     const bootRows = renderDashboard(0.5).split("\n");
     const settledRows = renderDashboard(1).split("\n");
-    const bootPostureIdx = bootRows.findIndex((row) =>
-      row.includes("╭─ Mood"),
-    );
-    const settledPostureIdx = settledRows.findIndex((row) =>
-      row.includes("╭─ Mood"),
-    );
+    const bootPostureIdx = bootRows.findIndex((row) => row.includes("╭─ Mood"));
+    const settledPostureIdx = settledRows.findIndex((row) => row.includes("╭─ Mood"));
 
     expect(bootRows.length).toBe(settledRows.length);
     expect(bootPostureIdx).toBe(settledPostureIdx);
@@ -793,12 +762,8 @@ describe("MascotFrame", () => {
       "New memo to staff. Drexler accept questions for next 6 minutes. Begin.",
     ).split("\n");
     const shortMoodIdx = shortRows.findIndex((row) => row.includes("╭─ Mood"));
-    const wrappedMoodIdx = wrappedRows.findIndex((row) =>
-      row.includes("╭─ Mood"),
-    );
-    const wrappedDealDeskIdx = wrappedRows.findIndex((row) =>
-      row.includes("╭─ Drexler Deal Desk"),
-    );
+    const wrappedMoodIdx = wrappedRows.findIndex((row) => row.includes("╭─ Mood"));
+    const wrappedDealDeskIdx = wrappedRows.findIndex((row) => row.includes("╭─ Drexler Deal Desk"));
 
     expect(shortMoodIdx).toBeGreaterThan(-1);
     expect(wrappedMoodIdx).toBe(shortMoodIdx);
@@ -828,9 +793,7 @@ describe("MascotFrame", () => {
       }),
       { columns: 200 },
     ).replace(ANSI_RE, "");
-    const deskRow = rendered
-      .split("\n")
-      .find((row) => row.includes("Drexler Deal Desk"));
+    const deskRow = rendered.split("\n").find((row) => row.includes("Drexler Deal Desk"));
 
     expect(deskRow).toBeDefined();
     const deskLeft = deskRow!.indexOf("╭─ Drexler Deal Desk");

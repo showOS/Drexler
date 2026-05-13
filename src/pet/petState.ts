@@ -64,13 +64,7 @@ const DECAY_PER_HOUR = {
   deals: 5,
 };
 
-export type PetActionKey =
-  | "feed"
-  | "play"
-  | "work"
-  | "praise"
-  | "rest"
-  | "vibe";
+export type PetActionKey = "feed" | "play" | "work" | "praise" | "rest" | "vibe";
 
 export const PET_COOLDOWN_MS = 90_000;
 
@@ -148,9 +142,7 @@ function clamp(v: unknown, fallback = 0): number {
 }
 
 function safeTimestamp(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value)
-    ? value
-    : Date.now();
+  return typeof value === "number" && Number.isFinite(value) ? value : Date.now();
 }
 
 // Decay over (now - stats.lastSaved). Works the same on a 1-minute
@@ -220,8 +212,7 @@ export function loadPetState(): PetStats {
         deals: clamp(parsed.deals, DEFAULT_STATS.deals),
         lastSaved: safeTimestamp(parsed.lastSaved),
         createdAt:
-          typeof parsed.createdAt === "number" &&
-          Number.isFinite(parsed.createdAt)
+          typeof parsed.createdAt === "number" && Number.isFinite(parsed.createdAt)
             ? parsed.createdAt
             : Date.now(),
         name:
@@ -273,10 +264,7 @@ async function writePetStateGuarded(stats: PetStats): Promise<void> {
       // pet.json intact rather than a truncated zero-byte file.
       const tmp = `${target}.tmp.${process.pid}.${Date.now()}`;
       try {
-        writeFileSync(
-          tmp,
-          JSON.stringify({ ...stats, lastSaved: Date.now() }, null, 2),
-        );
+        writeFileSync(tmp, JSON.stringify({ ...stats, lastSaved: Date.now() }, null, 2));
         renameSync(tmp, target);
       } catch {
         try {
@@ -378,7 +366,6 @@ export function applyRest(stats: PetStats): PetStats {
   };
 }
 
-
 export function isPetDead(stats: PetStats): boolean {
   return stats.hunger <= 0 || stats.happiness <= 0 || stats.energy <= 0;
 }
@@ -413,11 +400,16 @@ export function getPetRank(stats: PetStats): PetRank {
 
 export function rankLabel(rank: PetRank): string {
   switch (rank) {
-    case "intern":    return "Intern";
-    case "analyst":   return "Analyst";
-    case "associate": return "Associate";
-    case "vp":        return "Vice President";
-    case "md":        return "Managing Director";
+    case "intern":
+      return "Intern";
+    case "analyst":
+      return "Analyst";
+    case "associate":
+      return "Associate";
+    case "vp":
+      return "Vice President";
+    case "md":
+      return "Managing Director";
   }
 }
 

@@ -156,77 +156,94 @@ describe("PetScene", () => {
   });
 
   test.each([
-    [12, 0, [
-      "╭───────────────────╮",
-      "│        12         │",
-      "│         │         │",
-      "│    9    ·    3    │",
-      "│                   │",
-      "│         6         │",
-      "╰───────────────────╯",
-    ]],
-    [3, 0, [
-      "╭───────────────────╮",
-      "│        12         │",
-      "│         │         │",
-      "│    9    ·──  3    │",
-      "│                   │",
-      "│         6         │",
-      "╰───────────────────╯",
-    ]],
-    [6, 30, [
-      "╭───────────────────╮",
-      "│        12         │",
-      "│                   │",
-      "│    9    ·    3    │",
-      "│         │         │",
-      "│         6         │",
-      "╰───────────────────╯",
-    ]],
-    [9, 15, [
-      "╭───────────────────╮",
-      "│        12         │",
-      "│                   │",
-      "│    9  ──·────3    │",
-      "│                   │",
-      "│         6         │",
-      "╰───────────────────╯",
-    ]],
-    [10, 10, [
-      "╭───────────────────╮",
-      "│        12         │",
-      "│     ╲       ╱     │",
-      "│    9    ·    3    │",
-      "│                   │",
-      "│         6         │",
-      "╰───────────────────╯",
-    ]],
-  ] as const)(
-    "renders the requested 21x7 ASCII clock for %d:%d",
-    (hour, minute, expected) => {
-      const clock = buildAsciiClock(hour, minute);
-      const lines = clock.split("\n");
+    [
+      12,
+      0,
+      [
+        "╭───────────────────╮",
+        "│        12         │",
+        "│         │         │",
+        "│    9    ·    3    │",
+        "│                   │",
+        "│         6         │",
+        "╰───────────────────╯",
+      ],
+    ],
+    [
+      3,
+      0,
+      [
+        "╭───────────────────╮",
+        "│        12         │",
+        "│         │         │",
+        "│    9    ·──  3    │",
+        "│                   │",
+        "│         6         │",
+        "╰───────────────────╯",
+      ],
+    ],
+    [
+      6,
+      30,
+      [
+        "╭───────────────────╮",
+        "│        12         │",
+        "│                   │",
+        "│    9    ·    3    │",
+        "│         │         │",
+        "│         6         │",
+        "╰───────────────────╯",
+      ],
+    ],
+    [
+      9,
+      15,
+      [
+        "╭───────────────────╮",
+        "│        12         │",
+        "│                   │",
+        "│    9  ──·────3    │",
+        "│                   │",
+        "│         6         │",
+        "╰───────────────────╯",
+      ],
+    ],
+    [
+      10,
+      10,
+      [
+        "╭───────────────────╮",
+        "│        12         │",
+        "│     ╲       ╱     │",
+        "│    9    ·    3    │",
+        "│                   │",
+        "│         6         │",
+        "╰───────────────────╯",
+      ],
+    ],
+  ] as const)("renders the requested 21x7 ASCII clock for %d:%d", (hour, minute, expected) => {
+    const clock = buildAsciiClock(hour, minute);
+    const lines = clock.split("\n");
 
-      expect(lines).toEqual([...expected]);
-      expect(lines).toHaveLength(7);
-      expect(lines[0]).toBe("╭───────────────────╮");
-      expect(lines[6]).toBe("╰───────────────────╯");
-      expect(lines[1]!.slice(9, 11)).toBe("12");
-      expect(lines[3]![5]).toBe("9");
-      expect(lines[3]![10]).toBe("·");
-      expect(lines[3]![15]).toBe("3");
-      expect(lines[5]![10]).toBe("6");
-      expect(clock).not.toContain("┼");
-      for (let row = 1; row < 6; row++) {
-        expect(lines[row]![0]).toBe("│");
-        expect(lines[row]![20]).toBe("│");
-      }
-      for (const line of lines) {
-        expect(line).toHaveLength(21);
-        expect(displayWidth(line)).toBe(21);
-      }
-    },
-  );
+    expect(lines).toEqual([...expected]);
+    expect(lines).toHaveLength(7);
+    expect(lines[0]).toBe("╭───────────────────╮");
+    expect(lines[6]).toBe("╰───────────────────╯");
+    expect(lines[1]!.slice(9, 11)).toBe("12");
+    expect(lines[3]![5]).toBe("9");
+    expect(lines[3]![10]).toBe("·");
+    expect(lines[3]![15]).toBe("3");
+    expect(lines[5]![10]).toBe("6");
+    expect(clock).not.toContain("┼");
+    for (let row = 1; row < 6; row++) {
+      expect(lines[row]![0]).toBe("│");
+      expect(lines[row]![20]).toBe("│");
+    }
+    for (const line of lines) {
+      expect(line).toHaveLength(21);
+      expect(displayWidth(line)).toBe(21);
+    }
+  });
 
   test("keeps every activity, legacy environment prop, and stat state bounded", () => {
     for (const activity of activities) {
@@ -300,6 +317,8 @@ describe("PetScene", () => {
       expect(rendered).toContain("VOL");
       expect(rendered).toContain("FEE");
       expect(rendered).toContain("BTC 67842");
+      expect(rendered).toContain("▲ 1.25");
+      expect(rendered).not.toContain("▲1.25");
       expect(rendered).toContain("OPEN 09:00");
       expect(rendered).toContain("▐█▌");
       expect(rendered).toContain("▐░▌");
@@ -319,6 +338,23 @@ describe("PetScene", () => {
       }
     },
   );
+
+  test.each([
+    [52, ["TAPE> BTC", "BTC 67842", "ETH 3241"]],
+    [124, ["DREX 0.8421", "TAPE> BTC", "BTC 67842", "ETH 3241", "SOL 157"]],
+  ] as const)("keeps market quote arrows aligned at %d scene columns", (width, labels) => {
+    const rendered = renderScene("working", "office", statsCases[0]!, width);
+    const lines = rendered.split("\n");
+    const arrowColumns = labels.map((label) => {
+      const line = lines.find((candidate) => candidate.includes(label));
+
+      expect(line).toBeDefined();
+      expect(line!.includes("▲")).toBe(true);
+      return line!.indexOf("▲");
+    });
+
+    expect(new Set(arrowColumns).size).toBe(1);
+  });
 
   test("keeps desk props opaque over Drexler in sleeping mode", () => {
     const rendered = renderScene("sleeping", "office", statsCases[0]!, PET_SCENE_WIDTH);
@@ -353,11 +389,7 @@ describe("PetScene", () => {
   );
 });
 
-function renderCompact(
-  width: number,
-  stats: PetStats,
-  activity: PetActivity = "idle",
-): string {
+function renderCompact(width: number, stats: PetStats, activity: PetActivity = "idle"): string {
   return renderToString(
     React.createElement(CompactPetPanel, {
       stats,

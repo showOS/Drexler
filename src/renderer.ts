@@ -121,7 +121,9 @@ function hexToRgb(hex: string): [number, number, number] {
 
 function rgbToHex(r: number, g: number, b: number): string {
   const clamp = (n: number) =>
-    Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
+    Math.max(0, Math.min(255, Math.round(n)))
+      .toString(16)
+      .padStart(2, "0");
   return "#" + clamp(r) + clamp(g) + clamp(b);
 }
 
@@ -154,11 +156,7 @@ function buildBannerPalette(totalRows: number, maxCols: number): BannerStyler[] 
   return palette;
 }
 
-function colorBannerLine(
-  line: string,
-  rowIndex: number,
-  palette: BannerStyler[],
-): string {
+function colorBannerLine(line: string, rowIndex: number, palette: BannerStyler[]): string {
   if (palette.length === 0) {
     // Mono / no-color theme — skip gradient; just print the line.
     return line;
@@ -192,17 +190,13 @@ export async function typewriterBanner(delayMs = 60): Promise<void> {
 }
 
 export function tagline(): string {
-  return getColors().warning.italic(
-    "  Corporate AI · OpenRouter · Hostile Takeover Edition",
-  );
+  return getColors().warning.italic("  Corporate AI · OpenRouter · Hostile Takeover Edition");
 }
 
 export function tipsList(): string {
   const c = getColors();
   const header = c.dim("Tips for getting started:");
-  const lines = STARTUP_TIPS.map(
-    (t, i) => `  ${c.apollo(`${i + 1}.`)} ${c.dim(t)}`,
-  );
+  const lines = STARTUP_TIPS.map((t, i) => `  ${c.apollo(`${i + 1}.`)} ${c.dim(t)}`);
   return [header, ...lines].join("\n");
 }
 
@@ -235,17 +229,12 @@ export function welcomeBox(greetingLine: string, cols?: number): string {
       "",
       ...tipRows,
     ];
-    const widest = innerRows.reduce(
-      (max, r) => Math.max(max, visibleLength(r)),
-      0,
-    );
+    const widest = innerRows.reduce((max, r) => Math.max(max, visibleLength(r)), 0);
     const innerWidth = Math.max(1, Math.min(widest, (cols ?? 80) - 2));
     const top = c.apollo("╭" + "─".repeat(innerWidth + 2) + "╮");
     const bot = c.apollo("╰" + "─".repeat(innerWidth + 2) + "╯");
     const side = c.apollo("│");
-    const bordered = innerRows.map(
-      (r) => `${side} ${padVisible(r, innerWidth)} ${side}`,
-    );
+    const bordered = innerRows.map((r) => `${side} ${padVisible(r, innerWidth)} ${side}`);
     return [top, ...bordered, bot].map((l) => " " + l).join("\n");
   }
 
@@ -260,17 +249,12 @@ export function welcomeBox(greetingLine: string, cols?: number): string {
       ...tipRows,
     ];
     const innerRows: string[] = [...mascot, "", ...text];
-    const widest = innerRows.reduce(
-      (max, r) => Math.max(max, visibleLength(r)),
-      0,
-    );
+    const widest = innerRows.reduce((max, r) => Math.max(max, visibleLength(r)), 0);
     const innerWidth = Math.max(1, Math.min(widest, (cols ?? 80) - 4));
     const top = c.apollo("╭" + "─".repeat(innerWidth + 2) + "╮");
     const bot = c.apollo("╰" + "─".repeat(innerWidth + 2) + "╯");
     const side = c.apollo("│");
-    const bordered = innerRows.map(
-      (r) => `${side} ${padVisible(r, innerWidth)} ${side}`,
-    );
+    const bordered = innerRows.map((r) => `${side} ${padVisible(r, innerWidth)} ${side}`);
     return [top, ...bordered, bot].map((l) => "  " + l).join("\n");
   }
 
@@ -294,28 +278,21 @@ export function welcomeBox(greetingLine: string, cols?: number): string {
   // Build inner rows: mascot · greeting · divider · tips.
   const innerRows: string[] = [];
   const leftWidth = left.reduce((max, r) => Math.max(max, visibleLength(r)), 0);
-  const middleWidth = middle.reduce(
-    (max, r) => Math.max(max, visibleLength(r)),
-    0,
-  );
+  const middleWidth = middle.reduce((max, r) => Math.max(max, visibleLength(r)), 0);
   const rightWidth = right.reduce((max, r) => Math.max(max, visibleLength(r)), 0);
   for (let i = 0; i < totalRows; i++) {
     innerRows.push(
-      `${padVisible(left[i] ?? "", leftWidth)}    ${
-        padVisible(middle[i] ?? "", middleWidth)
-      }  ${c.apolloDim("│")}  ${padVisible(right[i] ?? "", rightWidth)}`,
+      `${padVisible(left[i] ?? "", leftWidth)}    ${padVisible(
+        middle[i] ?? "",
+        middleWidth,
+      )}  ${c.apolloDim("│")}  ${padVisible(right[i] ?? "", rightWidth)}`,
     );
   }
-  const innerWidth = innerRows.reduce(
-    (max, r) => Math.max(max, visibleLength(r)),
-    0,
-  );
+  const innerWidth = innerRows.reduce((max, r) => Math.max(max, visibleLength(r)), 0);
   const top = c.apollo("╭" + "─".repeat(innerWidth + 2) + "╮");
   const bot = c.apollo("╰" + "─".repeat(innerWidth + 2) + "╯");
   const side = c.apollo("│");
-  const bordered = innerRows.map(
-    (r) => `${side} ${padVisible(r, innerWidth)} ${side}`,
-  );
+  const bordered = innerRows.map((r) => `${side} ${padVisible(r, innerWidth)} ${side}`);
   return [top, ...bordered, bot].map((l) => "  " + l).join("\n");
 }
 
@@ -323,10 +300,7 @@ export function infoLine(): string {
   return getColors().dim(`/help for directives  ·  Ctrl+C to adjourn`);
 }
 
-export function statusLine(
-  msgCount: number,
-  mode?: LayoutMode,
-): string {
+export function statusLine(msgCount: number, mode?: LayoutMode): string {
   const c = getColors();
   const middle = c.dim(`${msgCount} message${msgCount === 1 ? "" : "s"}`);
   if (mode === "very-narrow") {
@@ -338,25 +312,17 @@ export function statusLine(
 }
 
 export function inputBoxTop(cols?: number): string {
-  const w =
-    cols === undefined
-      ? BOX_WIDTH
-      : Math.max(20, Math.min(cols - 2, BOX_WIDTH));
+  const w = cols === undefined ? BOX_WIDTH : Math.max(20, Math.min(cols - 2, BOX_WIDTH));
   return getColors().apollo("╭" + "─".repeat(w - 2) + "╮");
 }
 
 export function inputBoxBottom(cols?: number): string {
-  const w =
-    cols === undefined
-      ? BOX_WIDTH
-      : Math.max(20, Math.min(cols - 2, BOX_WIDTH));
+  const w = cols === undefined ? BOX_WIDTH : Math.max(20, Math.min(cols - 2, BOX_WIDTH));
   return getColors().apollo("╰" + "─".repeat(w - 2) + "╯");
 }
 
 export function inputBoxHint(): string {
-  return getColors().dim(
-    "  /help · /clear · /regenerate · /save · /exit",
-  );
+  return getColors().dim("  /help · /clear · /regenerate · /save · /exit");
 }
 
 export function prompt(): string {

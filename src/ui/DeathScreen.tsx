@@ -46,21 +46,21 @@ const VARIANTS = [
 ] as const;
 
 const REASON_MSGS: Record<string, string> = {
-  hunger:    "Cause: severe caloric deficiency. The pipeline, unreplenished, consumed itself.",
+  hunger: "Cause: severe caloric deficiency. The pipeline, unreplenished, consumed itself.",
   happiness: "Cause: total morale collapse. The board's confidence evaporated entirely.",
-  energy:    "Cause: complete energy depletion. Drexler's systems ceased. Standups continued.",
+  energy: "Cause: complete energy depletion. Drexler's systems ceased. Standups continued.",
 };
 
-// Stock chart — backslash must be escaped in TS string literals
-const CHART: string[] = [
-  "  100 ┤\\",
-  "      │  \\",
-  "      │   \\",
-  "   50 ┤    \\",
-  "      │     \\",
-  "      │      \\________________________________",
-  "    0 ┴───────────────────────────────────────",
-  "       Q1   Q2   Q3   Q4   Q5   now  →",
+// Stock chart — axis text is styled separately from the crash line.
+const CHART: readonly { axis: string; crash?: string }[] = [
+  { axis: "  100 ┤", crash: "\\" },
+  { axis: "      │ ", crash: "\\" },
+  { axis: "      │  ", crash: "\\" },
+  { axis: "   50 ┤   ", crash: "\\" },
+  { axis: "      │    ", crash: "\\" },
+  { axis: "      │     ", crash: "\\________________________________" },
+  { axis: "    0 ┴───────────────────────────────────────" },
+  { axis: "       Q1   Q2   Q3   Q4   Q5   now  →" },
 ];
 
 const INNER_W = 44;
@@ -87,24 +87,39 @@ export function DeathScreen({ reason = "energy", variant = 0 }: Props) {
 
   return (
     <Box flexDirection="column" paddingX={2} paddingY={1}>
-      <Text color={t.error} bold>{TOP}</Text>
-      <Text color={t.error} bold>{banner("D R E X L E R   H A S   D I E D")}</Text>
-      <Text color={t.error} bold>{BOT}</Text>
+      <Text color={t.error} bold>
+        {TOP}
+      </Text>
+      <Text color={t.error} bold>
+        {banner("D R E X L E R   H A S   D I E D")}
+      </Text>
+      <Text color={t.error} bold>
+        {BOT}
+      </Text>
       <Text> </Text>
-      <Text color={t.warning} bold>  {v.headline}</Text>
+      <Text color={t.warning} bold>
+        {" "}
+        {v.headline}
+      </Text>
       {v.lines.map((line, i) => (
-        <Text key={i} color={t.dim}>  {line}</Text>
+        <Text key={i} color={t.dim}>
+          {" "}
+          {line}
+        </Text>
       ))}
       <Text> </Text>
-      <Text color={t.primaryDim}>  {reasonMsg}</Text>
+      <Text color={t.primaryDim}> {reasonMsg}</Text>
       <Text> </Text>
-      <Text color={t.primaryDim}>  DRXL Share Price:</Text>
+      <Text color={t.primaryDim}> DRXL Share Price:</Text>
       {CHART.map((line, i) => (
-        <Text key={i} color={i < 6 ? t.error : t.dim}>  {line}</Text>
+        <Text key={i}>
+          <Text color={t.dim}> {line.axis}</Text>
+          {line.crash ? <Text color={t.error}>{line.crash}</Text> : null}
+        </Text>
       ))}
       <Text> </Text>
-      <Text color={t.dim}>  Stats reset to 50% on next launch.</Text>
-      <Text color={t.dim}>  Exiting in 5 seconds...</Text>
+      <Text color={t.dim}> Stats reset to 50% on next launch.</Text>
+      <Text color={t.dim}> Exiting in 5 seconds...</Text>
     </Box>
   );
 }

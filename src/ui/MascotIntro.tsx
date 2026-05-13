@@ -10,11 +10,7 @@ import {
   type PetStats,
 } from "../pet/petState.ts";
 import { STARTUP_TIPS } from "../startupTips.ts";
-import {
-  MascotFrame,
-  MASCOT_WIDTH,
-  type MascotState,
-} from "./MascotFrame.tsx";
+import { MascotFrame, MASCOT_WIDTH, type MascotState } from "./MascotFrame.tsx";
 import { displayWidth, fitDisplayText } from "./graphemes.ts";
 import {
   COMPACT_PET_PANEL_MIN_WIDTH,
@@ -148,10 +144,7 @@ const FRAME_CHROME_WIDTH = 4;
 const GUTTER_WIDTH = 4;
 const SPLIT_DIVIDER_WIDTH = 3;
 const SPLIT_DIVIDER_HEIGHT = 10;
-const SPLIT_DIVIDER_ROWS: number[] = Array.from(
-  { length: SPLIT_DIVIDER_HEIGHT },
-  (_, i) => i,
-);
+const SPLIT_DIVIDER_ROWS: number[] = Array.from({ length: SPLIT_DIVIDER_HEIGHT }, (_, i) => i);
 const BOOT_BAR_WIDTH = MASCOT_WIDTH - 1;
 
 // Width breakpoints (terminal columns).
@@ -258,10 +251,7 @@ export function computeMascotLayout(width: number): MascotLayout {
   );
   const rightInner = Math.max(1, rightColumnWidth - RIGHT_COLUMN_PAD_RIGHT);
   const rightChildWidth = Math.max(1, rightInner - RIGHT_COLUMN_INSET);
-  const copyWidth = Math.max(
-    MIN_COPY_WIDTH,
-    leftPanelWidth - MASCOT_WIDTH - GUTTER_WIDTH - 1,
-  );
+  const copyWidth = Math.max(MIN_COPY_WIDTH, leftPanelWidth - MASCOT_WIDTH - GUTTER_WIDTH - 1);
   return {
     mode: "split",
     available,
@@ -298,10 +288,7 @@ interface MascotDashboardProps {
 }
 
 function introBootBar(frameIdx: number, total: number): string {
-  const active = Math.max(
-    1,
-    Math.ceil(((frameIdx + 1) / total) * BOOT_BAR_WIDTH),
-  );
+  const active = Math.max(1, Math.ceil(((frameIdx + 1) / total) * BOOT_BAR_WIDTH));
   return " " + "▰".repeat(active) + "▱".repeat(BOOT_BAR_WIDTH - active);
 }
 
@@ -311,10 +298,7 @@ function introBootProgress(frameIdx: number, total: number): number {
 
 function gaugeBar(progress: number, width: number): string {
   const safeWidth = Math.max(1, width);
-  const filled = Math.max(
-    0,
-    Math.min(safeWidth, Math.round(progress * safeWidth)),
-  );
+  const filled = Math.max(0, Math.min(safeWidth, Math.round(progress * safeWidth)));
   return `${"█".repeat(filled)}${"░".repeat(safeWidth - filled)}`;
 }
 
@@ -322,11 +306,7 @@ function titledPanelBottom(width: number): string {
   return `╰${"─".repeat(Math.max(0, width - 2))}╯`;
 }
 
-function fixedDisplayRows(
-  input: string,
-  width: number,
-  rowCount: number,
-): string[] {
+function fixedDisplayRows(input: string, width: number, rowCount: number): string[] {
   const safeWidth = Math.max(1, width);
   const rows: string[] = [];
   const words = input.replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
@@ -364,16 +344,12 @@ function fixedDisplayRows(
 type IntroColorPhase = "early" | "middle" | "late";
 
 function introTotalFrames(width: number): number {
-  return width < COMPACT_BREAKPOINT
-    ? COMPACT_INTRO_NOTES.length
-    : INTRO_FRAMES.length;
+  return width < COMPACT_BREAKPOINT ? COMPACT_INTRO_NOTES.length : INTRO_FRAMES.length;
 }
 
 function introFrameDelayMs(frameIdx: number, width: number): number {
   if (width < COMPACT_BREAKPOINT) return COMPACT_INTRO_DELAY_MS;
-  return (
-    INTRO_FRAMES[frameIdx] ?? INTRO_FRAMES[INTRO_FRAMES.length - 1]!
-  ).delayMs;
+  return (INTRO_FRAMES[frameIdx] ?? INTRO_FRAMES[INTRO_FRAMES.length - 1]!).delayMs;
 }
 
 function introColorPhase(frameIdx: number, total: number): IntroColorPhase {
@@ -389,20 +365,17 @@ export function introPhaseColor(
   return phase === "early"
     ? colors.error
     : phase === "middle"
-    ? colors.warning
-    : colors.primaryLight;
+      ? colors.warning
+      : colors.primaryLight;
 }
 
 function introSnapshot(frameIdx: number, width: number) {
   const compact = width < COMPACT_BREAKPOINT;
   const total = introTotalFrames(width);
   const boundedFrameIdx = Math.min(frameIdx, total - 1);
-  const state =
-    INTRO_FRAMES[boundedFrameIdx] ?? INTRO_FRAMES[INTRO_FRAMES.length - 1]!;
+  const state = INTRO_FRAMES[boundedFrameIdx] ?? INTRO_FRAMES[INTRO_FRAMES.length - 1]!;
   const note = compact
-    ? COMPACT_INTRO_NOTES[
-        Math.min(boundedFrameIdx, COMPACT_INTRO_NOTES.length - 1)
-      ]!
+    ? COMPACT_INTRO_NOTES[Math.min(boundedFrameIdx, COMPACT_INTRO_NOTES.length - 1)]!
     : state.note;
   return {
     bar: introBootBar(boundedFrameIdx, total),
@@ -416,11 +389,7 @@ function introSnapshot(frameIdx: number, width: number) {
   };
 }
 
-export function useIntroAnimation(
-  width: number,
-  active: boolean,
-  onComplete?: () => void,
-) {
+export function useIntroAnimation(width: number, active: boolean, onComplete?: () => void) {
   const [frameIdx, setFrameIdx] = useState(0);
 
   useEffect(() => {
@@ -436,9 +405,12 @@ export function useIntroAnimation(
       return () => clearTimeout(handle);
     }
 
-    const handle = setTimeout(() => {
-      setFrameIdx((idx) => Math.min(idx + 1, total - 1));
-    }, introFrameDelayMs(frameIdx, width));
+    const handle = setTimeout(
+      () => {
+        setFrameIdx((idx) => Math.min(idx + 1, total - 1));
+      },
+      introFrameDelayMs(frameIdx, width),
+    );
     return () => clearTimeout(handle);
   }, [active, frameIdx, onComplete, width]);
 
@@ -466,10 +438,11 @@ function TipsPanel({ width }: { width: number }) {
     <Box flexDirection="column" width={textWidth}>
       <Text color={t.primary}>
         {titlePrefix}
-        <Text bold color={t.primaryLight}>{title}</Text>
+        <Text bold color={t.primaryLight}>
+          {title}
+        </Text>
         {titleSuffix}
-        {titleRule}
-        ╮
+        {titleRule}╮
       </Text>
       {STARTUP_TIPS.map((tip, idx) => {
         const label = `${idx + 1}. `;
@@ -641,10 +614,7 @@ const FALLBACK_MOOD_POSTURES: readonly MoodPosture[] = [
 ];
 
 function hashText(input: string): number {
-  return Array.from(input).reduce(
-    (sum, char) => sum + (char.codePointAt(0) ?? 0),
-    0,
-  );
+  return Array.from(input).reduce((sum, char) => sum + (char.codePointAt(0) ?? 0), 0);
 }
 
 function moodPosture(mood: string, seed: number): MoodPosture {
@@ -654,11 +624,7 @@ function moodPosture(mood: string, seed: number): MoodPosture {
 }
 
 function moodToneColor(t: ReturnType<typeof useTheme>, tone: MoodTone): string {
-  return tone === "error"
-    ? t.error
-    : tone === "warning"
-    ? t.warning
-    : t.primaryLight;
+  return tone === "error" ? t.error : tone === "warning" ? t.warning : t.primaryLight;
 }
 
 function bootPostureDetail(progress: number): string {
@@ -693,17 +659,10 @@ function MoodReadout({
     .padStart(3, " ")}%`;
 
   if (width < NARROW_BREAKPOINT) {
-    const tinyText =
-      boundedProgress >= 1
-        ? `${normalizedMood} / ${posture.badge}`
-        : pct;
+    const tinyText = boundedProgress >= 1 ? `${normalizedMood} / ${posture.badge}` : pct;
     return (
       <Box width={Math.max(1, width)}>
-        <Text
-          color={
-            boundedProgress >= 1 ? postureColor : progressColor ?? t.primaryLight
-          }
-        >
+        <Text color={boundedProgress >= 1 ? postureColor : (progressColor ?? t.primaryLight)}>
           {fitDisplayText(tinyText, Math.max(1, width))}
         </Text>
       </Box>
@@ -729,17 +688,13 @@ function MoodReadout({
   const settledSuffix = ` / ${posture.badge}`;
   const compactSettledSuffix = ` / ${fitDisplayText(posture.badge, 8)}`;
   const activeSettledSuffix =
-    displayWidth(moodPrefix) +
-      displayWidth(normalizedMood) +
-      displayWidth(settledSuffix) <=
+    displayWidth(moodPrefix) + displayWidth(normalizedMood) + displayWidth(settledSuffix) <=
     innerWidth
       ? settledSuffix
       : compactSettledSuffix;
   const moodTextWidth = Math.max(
     1,
-    innerWidth -
-      displayWidth(moodPrefix) -
-      (isSettled ? displayWidth(activeSettledSuffix) : 0),
+    innerWidth - displayWidth(moodPrefix) - (isSettled ? displayWidth(activeSettledSuffix) : 0),
   );
   const moodText = fitDisplayText(normalizedMood, moodTextWidth);
   const settledContent = `${moodPrefix}${moodText}${activeSettledSuffix}`;
@@ -760,8 +715,7 @@ function MoodReadout({
           {title}
         </Text>
         {topSuffix}
-        {topRule}
-        ╮
+        {topRule}╮
       </Text>
       {isSettled ? (
         <>
@@ -772,9 +726,7 @@ function MoodReadout({
             </Text>
             <Text color={t.primaryDim}>{activeSettledSuffix}</Text>
             <Text color={t.primaryDim}>
-              {" ".repeat(
-                Math.max(0, innerWidth - displayWidth(settledContent)),
-              )}
+              {" ".repeat(Math.max(0, innerWidth - displayWidth(settledContent)))}
               {" │"}
             </Text>
           </Text>
@@ -851,26 +803,12 @@ function PetSceneReadout({
       <Text bold color={t.primaryLight}>
         {fitDisplayText("Drexler Pet Desk [office]", safeWidth)}
       </Text>
-      <PetScene
-        stats={stats}
-        activity={activity}
-        env={env}
-        isPaused={isPaused}
-        width={safeWidth}
-      />
+      <PetScene stats={stats} activity={activity} env={env} isPaused={isPaused} width={safeWidth} />
     </Box>
   );
 }
 
-function PetStatsBodyLine({
-  text,
-  width,
-  color,
-}: {
-  text: string;
-  width: number;
-  color: string;
-}) {
+function PetStatsBodyLine({ text, width, color }: { text: string; width: number; color: string }) {
   const t = useTheme();
   const innerWidth = Math.max(1, width - 4);
   const content = padDisplayText(text, innerWidth);
@@ -906,32 +844,18 @@ function PetDashboardStatBar({
   const severity = petStatSeverity(value);
   const labelText = padDisplayText(`${label} ${severity}`, Math.min(15, innerWidth));
   const prefixWidth = displayWidth(labelText);
-  const barWidth = Math.max(
-    1,
-    innerWidth - prefixWidth - displayWidth(pct) - 2,
-  );
+  const barWidth = Math.max(1, innerWidth - prefixWidth - displayWidth(pct) - 2);
   const bounded = Math.max(0, Math.min(100, value));
-  const filled = Math.max(
-    0,
-    Math.min(barWidth, Math.round((bounded / 100) * barWidth)),
-  );
+  const filled = Math.max(0, Math.min(barWidth, Math.round((bounded / 100) * barWidth)));
   const empty = Math.max(0, barWidth - filled);
   const bar = `${"█".repeat(filled)}${"░".repeat(empty)}`;
   const used = prefixWidth + 1 + displayWidth(bar) + 1 + displayWidth(pct);
   const isLow = value < 25;
-  const barColor = isLow
-    ? t.warning
-    : label === "deals"
-      ? t.primaryDim
-      : t.primaryLight;
+  const barColor = isLow ? t.warning : label === "deals" ? t.primaryDim : t.primaryLight;
 
   if (innerWidth < 14) {
     return (
-      <PetStatsBodyLine
-        text={`${label} ${pct}`}
-        width={width}
-        color={isLow ? t.warning : t.text}
-      />
+      <PetStatsBodyLine text={`${label} ${pct}`} width={width} color={isLow ? t.warning : t.text} />
     );
   }
 
@@ -941,9 +865,7 @@ function PetDashboardStatBar({
       <Text color={t.dim}>{labelText} </Text>
       <Text color={barColor}>{bar}</Text>
       <Text color={isLow ? t.warning : t.dim}> {pct}</Text>
-      <Text color={t.primary}>
-        {" ".repeat(Math.max(0, innerWidth - used))} │
-      </Text>
+      <Text color={t.primary}>{" ".repeat(Math.max(0, innerWidth - used))} │</Text>
     </Text>
   );
 }
@@ -958,10 +880,7 @@ function PetStatsReadout({
   width: number;
 }) {
   const t = useTheme();
-  const panelWidth = Math.max(
-    1,
-    Math.min(PET_STATS_MAX_WIDTH, Math.floor(width)),
-  );
+  const panelWidth = Math.max(1, Math.min(PET_STATS_MAX_WIDTH, Math.floor(width)));
   const innerWidth = Math.max(1, panelWidth - 4);
   const mood = getPetMood(stats);
   const rank = rankLabel(getPetRank(stats));
@@ -988,12 +907,8 @@ function PetStatsReadout({
         <Text bold color={t.primaryLight}>
           {fitDisplayText("Pet Stats", panelWidth)}
         </Text>
-        <Text color={t.text}>
-          {fitDisplayText(`${name} / ${rank}`, panelWidth)}
-        </Text>
-        <Text color={t.dim}>
-          {fitDisplayText(`${mood} / ${activityLabel}`, panelWidth)}
-        </Text>
+        <Text color={t.text}>{fitDisplayText(`${name} / ${rank}`, panelWidth)}</Text>
+        <Text color={t.dim}>{fitDisplayText(`${mood} / ${activityLabel}`, panelWidth)}</Text>
       </Box>
     );
   }
@@ -1002,16 +917,13 @@ function PetStatsReadout({
     <Box flexDirection="column" width={panelWidth}>
       <Text color={t.primary}>
         {topPrefix}
-        <Text bold color={t.primaryLight}>{title}</Text>
+        <Text bold color={t.primaryLight}>
+          {title}
+        </Text>
         {topSuffix}
-        {topRule}
-        ╮
+        {topRule}╮
       </Text>
-      <PetStatsBodyLine
-        text={`name ${name}`}
-        width={panelWidth}
-        color={t.text}
-      />
+      <PetStatsBodyLine text={`name ${name}`} width={panelWidth} color={t.text} />
       <PetStatsBodyLine
         text={`rank ${rank} · mood ${mood}`}
         width={panelWidth}
@@ -1027,36 +939,12 @@ function PetStatsReadout({
         width={panelWidth}
         color={t.dim}
       />
-      <PetStatsBodyLine
-        text={"─".repeat(innerWidth)}
-        width={panelWidth}
-        color={t.primaryDim}
-      />
-      <PetDashboardStatBar
-        label="happy"
-        value={stats.happiness}
-        width={panelWidth}
-      />
-      <PetDashboardStatBar
-        label="hunger"
-        value={stats.hunger}
-        width={panelWidth}
-      />
-      <PetDashboardStatBar
-        label="energy"
-        value={stats.energy}
-        width={panelWidth}
-      />
-      <PetDashboardStatBar
-        label="deals"
-        value={stats.deals}
-        width={panelWidth}
-      />
-      <PetStatsBodyLine
-        text={memo}
-        width={panelWidth}
-        color={t.dim}
-      />
+      <PetStatsBodyLine text={"─".repeat(innerWidth)} width={panelWidth} color={t.primaryDim} />
+      <PetDashboardStatBar label="happy" value={stats.happiness} width={panelWidth} />
+      <PetDashboardStatBar label="hunger" value={stats.hunger} width={panelWidth} />
+      <PetDashboardStatBar label="energy" value={stats.energy} width={panelWidth} />
+      <PetDashboardStatBar label="deals" value={stats.deals} width={panelWidth} />
+      <PetStatsBodyLine text={memo} width={panelWidth} color={t.dim} />
       <Text color={t.primary}>{titledPanelBottom(panelWidth)}</Text>
     </Box>
   );
@@ -1103,21 +991,18 @@ function PetStatsMiniReadout({
     <Box flexDirection="column" width={panelWidth}>
       <Text color={t.primary}>
         {topPrefix}
-        <Text bold color={t.primaryLight}>{title}</Text>
+        <Text bold color={t.primaryLight}>
+          {title}
+        </Text>
         {topSuffix}
-        {topRule}
-        ╮
+        {topRule}╮
       </Text>
       <PetStatsBodyLine
         text={`rank ${rank} · mood ${mood} · activity ${activityLabel}`}
         width={panelWidth}
         color={t.primaryLight}
       />
-      <PetStatsBodyLine
-        text={statsLine}
-        width={panelWidth}
-        color={t.text}
-      />
+      <PetStatsBodyLine text={statsLine} width={panelWidth} color={t.text} />
       <Text color={t.primary}>{titledPanelBottom(panelWidth)}</Text>
     </Box>
   );
@@ -1143,11 +1028,7 @@ function PetDashboard({
 
   if (layout.mode === "tiny" || layout.mode === "compact") {
     return (
-      <Box
-        marginLeft={layout.leftPanel.inset}
-        width={layout.available}
-        flexDirection="column"
-      >
+      <Box marginLeft={layout.leftPanel.inset} width={layout.available} flexDirection="column">
         <CompactPetPanel
           stats={stats}
           activity={activity}
@@ -1169,10 +1050,7 @@ function PetDashboard({
       )
     : Math.min(PET_STATS_MAX_WIDTH, layout.innerWidth);
   const petSceneWidth = sideBySide
-    ? Math.max(
-        PET_SCENE_FIRST_MIN_WIDTH,
-        layout.innerWidth - SPLIT_DIVIDER_WIDTH - petStatsWidth,
-      )
+    ? Math.max(PET_SCENE_FIRST_MIN_WIDTH, layout.innerWidth - SPLIT_DIVIDER_WIDTH - petStatsWidth)
     : layout.innerWidth;
 
   return (
@@ -1185,11 +1063,7 @@ function PetDashboard({
         flexDirection={sideBySide ? "row" : "column"}
         alignItems={sideBySide ? "flex-start" : "center"}
       >
-        <Box
-          flexDirection="column"
-          width={petSceneWidth}
-          alignItems="center"
-        >
+        <Box flexDirection="column" width={petSceneWidth} alignItems="center">
           <PetSceneReadout
             stats={stats}
             activity={activity}
@@ -1200,22 +1074,14 @@ function PetDashboard({
         </Box>
         {sideBySide ? (
           <>
-            <Box
-              flexDirection="column"
-              width={SPLIT_DIVIDER_WIDTH}
-              flexShrink={0}
-            >
+            <Box flexDirection="column" width={SPLIT_DIVIDER_WIDTH} flexShrink={0}>
               {PET_SPLIT_DIVIDER_ROWS.map((idx) => (
                 <Text key={idx} color={t.primaryDim}>
                   {" │ "}
                 </Text>
               ))}
             </Box>
-            <Box
-              flexDirection="column"
-              width={petStatsWidth}
-              paddingRight={RIGHT_COLUMN_PAD_RIGHT}
-            >
+            <Box flexDirection="column" width={petStatsWidth} paddingRight={RIGHT_COLUMN_PAD_RIGHT}>
               <Box>
                 <PetStatsReadout
                   stats={stats}
@@ -1294,20 +1160,14 @@ export function MascotDashboard({
             width={layout.mood.width}
           />
         </Box>
-        {dealDesk ? (
-          <Box marginTop={1}>{dealDesk(layout.dealDesk.width)}</Box>
-        ) : null}
+        {dealDesk ? <Box marginTop={1}>{dealDesk(layout.dealDesk.width)}</Box> : null}
       </Box>
     );
   }
 
   if (layout.mode === "compact") {
     return (
-      <Box
-        marginLeft={layout.leftPanel.inset}
-        width={layout.available}
-        flexDirection="column"
-      >
+      <Box marginLeft={layout.leftPanel.inset} width={layout.available} flexDirection="column">
         <Text color={resolvedBarColor}>{bar}</Text>
         <Text color={resolvedBarColor}>{mascotStatus}</Text>
         <Text bold color={t.primaryLight}>
@@ -1322,9 +1182,7 @@ export function MascotDashboard({
             width={layout.mood.width}
           />
         </Box>
-        {dealDesk ? (
-          <Box marginTop={1}>{dealDesk(layout.dealDesk.width)}</Box>
-        ) : null}
+        {dealDesk ? <Box marginTop={1}>{dealDesk(layout.dealDesk.width)}</Box> : null}
       </Box>
     );
   }
@@ -1339,10 +1197,7 @@ export function MascotDashboard({
         flexDirection={sideBySide ? "row" : "column"}
         alignItems={sideBySide ? "flex-start" : "center"}
       >
-        <Box
-          flexDirection={sideBySide ? "row" : "column"}
-          width={layout.leftPanel.width}
-        >
+        <Box flexDirection={sideBySide ? "row" : "column"} width={layout.leftPanel.width}>
           <Box
             width={MASCOT_WIDTH}
             flexShrink={0}
@@ -1399,18 +1254,14 @@ export function MascotDashboard({
                 <TipsPanel width={layout.tips.width} />
               </Box>
               {dealDesk ? (
-                <Box marginLeft={layout.dealDesk.inset}>
-                  {dealDesk(layout.dealDesk.width)}
-                </Box>
+                <Box marginLeft={layout.dealDesk.inset}>{dealDesk(layout.dealDesk.width)}</Box>
               ) : null}
             </Box>
           </>
         ) : (
           <Box marginTop={1} width={layout.tips.width} flexDirection="column">
             <TipsPanel width={layout.tips.width} />
-            {dealDesk ? (
-              <Box marginTop={1}>{dealDesk(layout.dealDesk.width)}</Box>
-            ) : null}
+            {dealDesk ? <Box marginTop={1}>{dealDesk(layout.dealDesk.width)}</Box> : null}
           </Box>
         )}
       </Box>

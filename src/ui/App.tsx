@@ -46,18 +46,8 @@ import type { Conversation } from "../conversation.ts";
 import { buildSavedSession, saveSession } from "../conversation/persist.ts";
 import { streamChat, type FetchFn } from "../llm.ts";
 import { pickLayout } from "../renderer.ts";
-import {
-  buildMessagesWithReminder,
-  detectPersonaDrift,
-  pickFallback,
-} from "../repl.ts";
-import {
-  EMPTY_NUDGE,
-  SIGINT_MSG,
-  STREAM_ERROR,
-  THINKING_LINES,
-  WITTICISMS,
-} from "../sayings.ts";
+import { buildMessagesWithReminder, detectPersonaDrift, pickFallback } from "../repl.ts";
+import { EMPTY_NUDGE, SIGINT_MSG, STREAM_ERROR, THINKING_LINES, WITTICISMS } from "../sayings.ts";
 import { type Config } from "../types.ts";
 import { CommandPalette } from "./CommandPalette.tsx";
 import { DealDeskHeader } from "./DealDeskHeader.tsx";
@@ -69,11 +59,7 @@ import {
   insertAtCursor,
 } from "./graphemes.ts";
 import { InputBox } from "./InputBox.tsx";
-import {
-  introPhaseColor,
-  MascotDashboard,
-  useIntroAnimation,
-} from "./MascotIntro.tsx";
+import { introPhaseColor, MascotDashboard, useIntroAnimation } from "./MascotIntro.tsx";
 import { StreamingMessage } from "./Message.tsx";
 import { Spinner } from "./Spinner.tsx";
 import { StatusBar } from "./StatusBar.tsx";
@@ -85,10 +71,7 @@ import {
   type SynergyEventDefinition,
 } from "./SynergyEvent.tsx";
 import { ThemeProvider } from "./ThemeContext.tsx";
-import {
-  estimateTranscriptRows,
-  TranscriptViewport,
-} from "./TranscriptViewport.tsx";
+import { estimateTranscriptRows, TranscriptViewport } from "./TranscriptViewport.tsx";
 import { getActiveTheme } from "./themes.ts";
 
 const TRANSCRIPT_CHROME_ROWS = 12;
@@ -122,9 +105,7 @@ export function nextTranscriptScrollOffset({
   return Math.max(0, current - step);
 }
 
-export function shouldRemoveVisibleAssistantForAction(
-  action: CommandAction,
-): boolean {
+export function shouldRemoveVisibleAssistantForAction(action: CommandAction): boolean {
   return action.type === "regenerate" && action.removedAssistant;
 }
 
@@ -187,12 +168,8 @@ export function historyNavStep(
 ): HistoryNavState {
   if (direction === "up") {
     if (history.length === 0) return state;
-    const snapshot =
-      state.historyIdx === null ? { ...state.draft } : state.historyDraft;
-    const idx =
-      state.historyIdx === null
-        ? history.length - 1
-        : Math.max(0, state.historyIdx - 1);
+    const snapshot = state.historyIdx === null ? { ...state.draft } : state.historyDraft;
+    const idx = state.historyIdx === null ? history.length - 1 : Math.max(0, state.historyIdx - 1);
     const entry = history[idx] ?? "";
     return {
       historyIdx: idx,
@@ -285,22 +262,16 @@ export function App({
     : 0;
   const contentWidth = chromeWidth;
   const contentInputWidth = Math.max(1, contentWidth);
-  const dashboardRowBudget =
-    showFullDashboard
-      ? chromeWidth >= 112
-        ? 14
-        : chromeWidth >= 72
-          ? 26
-          : 6
-      : 0;
+  const dashboardRowBudget = showFullDashboard
+    ? chromeWidth >= 112
+      ? 14
+      : chromeWidth >= 72
+        ? 26
+        : 6
+    : 0;
   const maxTranscriptRows = useMemo(
     () =>
-      Math.max(
-        1,
-        transcriptRowsForTerminalRows(rows) -
-          dashboardRowBudget -
-          fallbackPetRowBudget,
-      ),
+      Math.max(1, transcriptRowsForTerminalRows(rows) - dashboardRowBudget - fallbackPetRowBudget),
     [dashboardRowBudget, fallbackPetRowBudget, rows],
   );
 
@@ -339,11 +310,7 @@ export function App({
   const writePersistNow = useCallback(() => {
     const currentConversation = conversationRef.current;
     void saveSession(
-      buildSavedSession(
-        currentConversation,
-        currentConversation.systemPrompt,
-        modelRef.current,
-      ),
+      buildSavedSession(currentConversation, currentConversation.systemPrompt, modelRef.current),
     ).catch(() => {
       // saveSession already swallows; defensive catch in case the
       // promise rejects before the internal try/catch runs.
@@ -369,8 +336,7 @@ export function App({
             cursor: number;
           }),
     ) => {
-      const resolved =
-        typeof next === "function" ? next(draftRef.current) : next;
+      const resolved = typeof next === "function" ? next(draftRef.current) : next;
       draftRef.current = resolved;
       setDraft(resolved);
     },
@@ -381,9 +347,7 @@ export function App({
   const [streaming, setStreaming] = useState<string | null>(null);
   const [thinking, setThinking] = useState<string | null>(null);
   const [requestInFlight, setRequestInFlight] = useState(false);
-  const [synergyEvent, setSynergyEvent] = useState<ActiveSynergyEvent | null>(
-    null,
-  );
+  const [synergyEvent, setSynergyEvent] = useState<ActiveSynergyEvent | null>(null);
   const [exitMsg, setExitMsg] = useState<string | null>(null);
   const [witticism, setWitticism] = useState<string>(() => pick(WITTICISMS));
   const [apiKey, setApiKey] = useState<string>(config.apiKey);
@@ -397,11 +361,7 @@ export function App({
   const handleIntroComplete = useCallback(() => {
     setIntroDone(true);
   }, []);
-  const intro = useIntroAnimation(
-    chromeWidth,
-    introActive,
-    handleIntroComplete,
-  );
+  const intro = useIntroAnimation(chromeWidth, introActive, handleIntroComplete);
 
   const [petStats, setPetStats] = useState<PetStats>(() => loadPetState());
   const [petActivity, setPetActivity] = useState<PetActivity>("idle");
@@ -414,62 +374,62 @@ export function App({
 
   const petEnv: Environment = "office";
 
-  const PET_MESSAGES = useMemo(() => ({
-    feed: [
-      "Drexler receives deal memo. Hunger: satisfied. Pipeline: expanding.",
-      "Drexler consumes quarterly report. Fortifying.",
-      "Deal deck delivered. Drexler is replenished.",
-      "Nutrition acquired via term sheet. Excellent.",
-      "Drexler ingests synergy bundle. Caloric intake: maximized.",
-      "Pipeline refueled. Drexler gives brief nod of approval.",
-    ],
-    play: [
-      "Drexler engages in corporate synergy games. Morale: elevated.",
-      "Drexler attempts leisure. Unfamiliar but effective.",
-      "Golf simulation initiated. Handicap: nonexistent.",
-      "Corporate retreat protocols engaged. Team building: successful.",
-      "Drexler plays. Competitors watch nervously.",
-      "Recreational time allocated. ROI: unclear but positive.",
-    ],
-    work: [
-      "Drexler retreats to deal desk. Pipeline throughput: increasing.",
-      "Grind mode initiated. Coffee consumed preemptively.",
-      "Drexler is doing the work. Others take note.",
-      "Deal origination in progress. Board is watching.",
-      "Drexler enters flow state. Productivity: exceptional.",
-      "All-nighter commenced. Regrets: minimal.",
-    ],
-    praise: [
-      "Drexler acknowledges commendation. Briefly.",
-      "Praise received. Filed under: expected.",
-      "Drexler nods. One singular nod.",
-      "Affirmation noted. Drexler remains unmoved. Mostly.",
-      "Kind words processed. Ego: appropriately inflated.",
-      "Drexler accepts compliment with characteristic restraint.",
-    ],
-    rest: [
-      "Drexler retires briefly. Strategic recharge in progress.",
-      "Under-desk nap initiated. Do not disturb.",
-      "Drexler powers down. Temporarily.",
-      "Rest mode engaged. Energy recovery: imminent.",
-      "Strategic downtime commenced. Drexler will return stronger.",
-      "Drexler sleeps. Dreams of closed deals.",
-    ],
-  }), []);
-
-  const triggerPetActivity = useCallback(
-    (activity: PetActivity, durationMs: number) => {
-      if (petActivityTimerRef.current !== null) {
-        clearTimeout(petActivityTimerRef.current);
-      }
-      setPetActivity(activity);
-      petActivityTimerRef.current = setTimeout(() => {
-        setPetActivity("idle");
-        petActivityTimerRef.current = null;
-      }, durationMs);
-    },
+  const PET_MESSAGES = useMemo(
+    () => ({
+      feed: [
+        "Drexler receives deal memo. Hunger: satisfied. Pipeline: expanding.",
+        "Drexler consumes quarterly report. Fortifying.",
+        "Deal deck delivered. Drexler is replenished.",
+        "Nutrition acquired via term sheet. Excellent.",
+        "Drexler ingests synergy bundle. Caloric intake: maximized.",
+        "Pipeline refueled. Drexler gives brief nod of approval.",
+      ],
+      play: [
+        "Drexler engages in corporate synergy games. Morale: elevated.",
+        "Drexler attempts leisure. Unfamiliar but effective.",
+        "Golf simulation initiated. Handicap: nonexistent.",
+        "Corporate retreat protocols engaged. Team building: successful.",
+        "Drexler plays. Competitors watch nervously.",
+        "Recreational time allocated. ROI: unclear but positive.",
+      ],
+      work: [
+        "Drexler retreats to deal desk. Pipeline throughput: increasing.",
+        "Grind mode initiated. Coffee consumed preemptively.",
+        "Drexler is doing the work. Others take note.",
+        "Deal origination in progress. Board is watching.",
+        "Drexler enters flow state. Productivity: exceptional.",
+        "All-nighter commenced. Regrets: minimal.",
+      ],
+      praise: [
+        "Drexler acknowledges commendation. Briefly.",
+        "Praise received. Filed under: expected.",
+        "Drexler nods. One singular nod.",
+        "Affirmation noted. Drexler remains unmoved. Mostly.",
+        "Kind words processed. Ego: appropriately inflated.",
+        "Drexler accepts compliment with characteristic restraint.",
+      ],
+      rest: [
+        "Drexler retires briefly. Strategic recharge in progress.",
+        "Under-desk nap initiated. Do not disturb.",
+        "Drexler powers down. Temporarily.",
+        "Rest mode engaged. Energy recovery: imminent.",
+        "Strategic downtime commenced. Drexler will return stronger.",
+        "Drexler sleeps. Dreams of closed deals.",
+      ],
+    }),
     [],
   );
+
+  const triggerPetActivity = useCallback((activity: PetActivity, durationMs: number) => {
+    if (petActivityTimerRef.current !== null) {
+      clearTimeout(petActivityTimerRef.current);
+    }
+    setPetActivity(activity);
+    petActivityTimerRef.current = setTimeout(() => {
+      setPetActivity("idle");
+      petActivityTimerRef.current = null;
+    }, durationMs);
+  }, []);
   const setDashboardPetMode = useCallback((next: boolean) => {
     petModeRef.current = next;
     setPetMode(next);
@@ -559,8 +519,7 @@ export function App({
   useEffect(() => {
     if (isDead || !isPetDead(petStats)) return;
     const reason =
-      petStats.hunger <= 0 ? "hunger" :
-      petStats.happiness <= 0 ? "happiness" : "energy";
+      petStats.hunger <= 0 ? "hunger" : petStats.happiness <= 0 ? "happiness" : "energy";
     setDeathReason(reason);
     setDeathVariant(Math.floor(Math.random() * 5));
     setIsDead(true);
@@ -714,140 +673,143 @@ export function App({
     }, 45);
   }, [addItem]);
 
-  const runLLM = useCallback(async (instruction?: string) => {
-    if (requestInFlightRef.current) return;
-    requestInFlightRef.current = true;
-    setRequestInFlight(true);
-    try {
-      setThinking(pick(THINKING_LINES));
-      setDeskStatus("idle");
-      setDeskNotice(null);
-      streamBufRef.current = "";
-      setStreaming(null);
-      let firstToken = true;
-      abortRef.current = new AbortController();
-      let result: Awaited<ReturnType<typeof streamChat>> | undefined;
-      let caughtErr: unknown = null;
+  const runLLM = useCallback(
+    async (instruction?: string) => {
+      if (requestInFlightRef.current) return;
+      requestInFlightRef.current = true;
+      setRequestInFlight(true);
       try {
-        result = await streamChat({
-          apiKey,
-          model,
-          fallbackModel: pickFallback(model),
-          messages: instruction
-            ? [
-                ...buildMessagesWithReminder(conversation),
-                { role: "system", content: instruction },
-              ]
-            : buildMessagesWithReminder(conversation),
-          onToken: (t) => {
-            if (!mountedRef.current || exitingRef.current) return;
-            const isFirst = firstToken;
-            if (firstToken) {
-              setThinking(null);
-              firstToken = false;
-            }
-            pushTokenToStream(t, isFirst);
-          },
-          signal: abortRef.current.signal,
-          fetchFn,
-        });
-      } catch (err) {
-        caughtErr = err;
-      } finally {
-        if (streamTimerRef.current !== null) {
-          clearTimeout(streamTimerRef.current);
-          streamTimerRef.current = null;
+        setThinking(pick(THINKING_LINES));
+        setDeskStatus("idle");
+        setDeskNotice(null);
+        streamBufRef.current = "";
+        setStreaming(null);
+        let firstToken = true;
+        abortRef.current = new AbortController();
+        let result: Awaited<ReturnType<typeof streamChat>> | undefined;
+        let caughtErr: unknown = null;
+        try {
+          result = await streamChat({
+            apiKey,
+            model,
+            fallbackModel: pickFallback(model),
+            messages: instruction
+              ? [
+                  ...buildMessagesWithReminder(conversation),
+                  { role: "system", content: instruction },
+                ]
+              : buildMessagesWithReminder(conversation),
+            onToken: (t) => {
+              if (!mountedRef.current || exitingRef.current) return;
+              const isFirst = firstToken;
+              if (firstToken) {
+                setThinking(null);
+                firstToken = false;
+              }
+              pushTokenToStream(t, isFirst);
+            },
+            signal: abortRef.current.signal,
+            fetchFn,
+          });
+        } catch (err) {
+          caughtErr = err;
+        } finally {
+          if (streamTimerRef.current !== null) {
+            clearTimeout(streamTimerRef.current);
+            streamTimerRef.current = null;
+          }
+          abortRef.current = null;
         }
-        abortRef.current = null;
-      }
-      if (!mountedRef.current || exitingRef.current) return;
-      if (caughtErr) {
-        const msg = caughtErr instanceof Error ? caughtErr.message : String(caughtErr);
+        if (!mountedRef.current || exitingRef.current) return;
+        if (caughtErr) {
+          const msg = caughtErr instanceof Error ? caughtErr.message : String(caughtErr);
+          setThinking(null);
+          setStreaming(null);
+          addItem("system", `${STREAM_ERROR} [${msg}]`);
+          setDeskStatus("error");
+          setDeskNotice(msg);
+          setMsgCount(conversation.length);
+          return;
+        }
         setThinking(null);
         setStreaming(null);
-        addItem("system", `${STREAM_ERROR} [${msg}]`);
-        setDeskStatus("error");
-        setDeskNotice(msg);
-        setMsgCount(conversation.length);
-        return;
-      }
-      setThinking(null);
-      setStreaming(null);
-      if (cancelledRef.current) {
-        cancelledRef.current = false;
-        if (result?.content) {
+        if (cancelledRef.current) {
+          cancelledRef.current = false;
+          if (result?.content) {
+            conversation.push("assistant", result.content);
+            addItem("assistant", result.content);
+            addItem("system", "(cancelled — Drexler taking lunch)");
+            setDeskNotice("response cancelled");
+          } else if (firstToken && instruction === undefined) {
+            // Aborted before any token arrived. Roll the just-pushed user
+            // turn back so the conversation doesn't accumulate dead user
+            // messages on repeated quick aborts. Skipped for /retry and
+            // /regenerate (instruction !== undefined) — those rerun against
+            // an existing user turn we must not pop.
+            conversation.popLastUser();
+            removeLastUserItem();
+            addItem("system", "(cancelled before Drexler started — message withdrawn)");
+            setDeskNotice("cancelled before response");
+          } else {
+            addItem("system", "(cancelled — Drexler taking lunch)");
+            setDeskNotice("response cancelled");
+          }
+        } else if (result?.ok && typeof result.content === "string") {
           conversation.push("assistant", result.content);
           addItem("assistant", result.content);
-          addItem("system", "(cancelled — Drexler taking lunch)");
-          setDeskNotice("response cancelled");
-        } else if (firstToken && instruction === undefined) {
-          // Aborted before any token arrived. Roll the just-pushed user
-          // turn back so the conversation doesn't accumulate dead user
-          // messages on repeated quick aborts. Skipped for /retry and
-          // /regenerate (instruction !== undefined) — those rerun against
-          // an existing user turn we must not pop.
-          conversation.popLastUser();
-          removeLastUserItem();
-          addItem("system", "(cancelled before Drexler started — message withdrawn)");
-          setDeskNotice("cancelled before response");
+          const notices: string[] = [];
+          if (result.fellBack) {
+            addItem("system", `(fell back to ${result.modelUsed})`);
+            notices.push(`fallback ${result.modelUsed}`);
+          }
+          if (detectPersonaDrift(result.content)) {
+            addItem("system", `(persona drift detected — model used 'I')`);
+            notices.push("persona drift detected");
+          }
+          setDeskNotice(notices.length > 0 ? notices.join(" · ") : null);
+        } else if (result?.interrupted) {
+          // V8: do not append partial assistant text. Surface STREAM_ERROR.
+          const detail = result.error ? ` [${result.error}]` : "";
+          addItem("system", `${STREAM_ERROR}${detail}`);
+          setDeskStatus("error");
+          setDeskNotice("stream interrupted — /retry to re-roll");
+        } else if (result?.authFailure) {
+          addItem(
+            "system",
+            `${result.error ?? "API key rejected by OpenRouter."} Run /auth to enter a new key without restarting.`,
+          );
+          setDeskStatus("error");
+          setDeskNotice("API key rejected — /auth to re-enter");
         } else {
-          addItem("system", "(cancelled — Drexler taking lunch)");
-          setDeskNotice("response cancelled");
+          const detail = result?.error ? ` [${result.error}]` : "";
+          addItem("system", `${STREAM_ERROR}${detail}`);
+          setDeskStatus("error");
+          setDeskNotice(result?.error ?? "stream error");
         }
-      } else if (result?.ok && typeof result.content === "string") {
-        conversation.push("assistant", result.content);
-        addItem("assistant", result.content);
-        const notices: string[] = [];
-        if (result.fellBack) {
-          addItem("system", `(fell back to ${result.modelUsed})`);
-          notices.push(`fallback ${result.modelUsed}`);
+        setMsgCount(conversation.length);
+        setWitticism(pick(WITTICISMS));
+        // Persist after every turn outcome so a crash never costs more
+        // than the last assistant response. Best-effort; failures are
+        // swallowed inside saveSession.
+        persistSession();
+      } finally {
+        requestInFlightRef.current = false;
+        if (mountedRef.current) {
+          setRequestInFlight(false);
         }
-        if (detectPersonaDrift(result.content)) {
-          addItem("system", `(persona drift detected — model used 'I')`);
-          notices.push("persona drift detected");
-        }
-        setDeskNotice(notices.length > 0 ? notices.join(" · ") : null);
-      } else if (result?.interrupted) {
-        // V8: do not append partial assistant text. Surface STREAM_ERROR.
-        const detail = result.error ? ` [${result.error}]` : "";
-        addItem("system", `${STREAM_ERROR}${detail}`);
-        setDeskStatus("error");
-        setDeskNotice("stream interrupted — /retry to re-roll");
-      } else if (result?.authFailure) {
-        addItem(
-          "system",
-          `${result.error ?? "API key rejected by OpenRouter."} Run /auth to enter a new key without restarting.`,
-        );
-        setDeskStatus("error");
-        setDeskNotice("API key rejected — /auth to re-enter");
-      } else {
-        const detail = result?.error ? ` [${result.error}]` : "";
-        addItem("system", `${STREAM_ERROR}${detail}`);
-        setDeskStatus("error");
-        setDeskNotice(result?.error ?? "stream error");
       }
-      setMsgCount(conversation.length);
-      setWitticism(pick(WITTICISMS));
-      // Persist after every turn outcome so a crash never costs more
-      // than the last assistant response. Best-effort; failures are
-      // swallowed inside saveSession.
-      persistSession();
-    } finally {
-      requestInFlightRef.current = false;
-      if (mountedRef.current) {
-        setRequestInFlight(false);
-      }
-    }
-  }, [
-    apiKey,
-    model,
-    fetchFn,
-    addItem,
-    conversation,
-    pushTokenToStream,
-    removeLastUserItem,
-    persistSession,
-  ]);
+    },
+    [
+      apiKey,
+      model,
+      fetchFn,
+      addItem,
+      conversation,
+      pushTokenToStream,
+      removeLastUserItem,
+      persistSession,
+    ],
+  );
 
   const handleSlashWithMutation = useCallback(
     async (line: string): Promise<void> => {
@@ -899,17 +861,26 @@ export function App({
         slashCommand === "/rest" ||
         slashCommand === "/vibe";
       if (isPetCommand && isDead) {
-        addItem("system", "Drexler is in HR. Restructuring paperwork pending — try again after revival.");
+        addItem(
+          "system",
+          "Drexler is in HR. Restructuring paperwork pending — try again after revival.",
+        );
         return;
       }
       const cooldownAction: PetActionKey | null =
-        slashCommand === "/feed" ? "feed"
-        : slashCommand === "/play" ? "play"
-        : slashCommand === "/work" ? "work"
-        : slashCommand === "/praise" ? "praise"
-        : slashCommand === "/rest" ? "rest"
-        : slashCommand === "/vibe" ? "vibe"
-        : null;
+        slashCommand === "/feed"
+          ? "feed"
+          : slashCommand === "/play"
+            ? "play"
+            : slashCommand === "/work"
+              ? "work"
+              : slashCommand === "/praise"
+                ? "praise"
+                : slashCommand === "/rest"
+                  ? "rest"
+                  : slashCommand === "/vibe"
+                    ? "vibe"
+                    : null;
       if (cooldownAction !== null) {
         const cd = actionCooldown(petStatsRef.current, cooldownAction);
         if (!cd.ok) {
@@ -1038,9 +1009,7 @@ export function App({
           ["energy", s.energy],
           ["deals", s.deals],
         ] as const;
-        const dominant = stats.reduce(
-          (best, cur) => (cur[1] > best[1] ? cur : best),
-        );
+        const dominant = stats.reduce((best, cur) => (cur[1] > best[1] ? cur : best));
         const rank = getPetRank(s);
         const lines = [
           "Drexler personnel file:",
@@ -1073,8 +1042,7 @@ export function App({
       if (mutableConfig.model !== model) {
         setModel(mutableConfig.model);
       }
-      const appliedTheme =
-        lower.startsWith("/theme ") && captured.includes("redecorate boardroom");
+      const appliedTheme = lower.startsWith("/theme ") && captured.includes("redecorate boardroom");
       if (appliedTheme || getActiveTheme() !== activeTheme) {
         setActiveThemeSnapshot(getActiveTheme());
         if (mutableConfig.theme) {
@@ -1161,14 +1129,7 @@ export function App({
       setMsgCount(conversation.length);
       await runLLM();
     },
-    [
-      addItem,
-      conversation,
-      handleSlashWithMutation,
-      runLLM,
-      setPaletteIdx,
-      updateDraft,
-    ],
+    [addItem, conversation, handleSlashWithMutation, runLLM, setPaletteIdx, updateDraft],
   );
 
   const reportSubmitError = useCallback(
@@ -1320,9 +1281,7 @@ export function App({
     }
     if (key.upArrow) {
       if (paletteOpen) {
-        setPaletteIdx(
-          (i) => (i - 1 + paletteItems.length) % paletteItems.length,
-        );
+        setPaletteIdx((i) => (i - 1 + paletteItems.length) % paletteItems.length);
         return;
       }
       if (history.length === 0) return;
@@ -1385,11 +1344,7 @@ export function App({
       const filtered = normalized.replace(/[\x00-\x09\x0b-\x1f]/g, "");
       if (filtered.length > 0) {
         updateDraft((prev) =>
-          insertAtCursor(
-            prev.value,
-            clampCursor(prev.value, prev.cursor),
-            filtered,
-          ),
+          insertAtCursor(prev.value, clampCursor(prev.value, prev.cursor), filtered),
         );
       }
     }
@@ -1437,7 +1392,7 @@ export function App({
         messageCount={msgCount}
         status={headerStatus}
         compact={isCompact}
-        notice={!introActive ? deskNotice ?? undefined : undefined}
+        notice={!introActive ? (deskNotice ?? undefined) : undefined}
         maxWidth={Math.max(1, width)}
         marginBottom={marginBottom}
       />

@@ -13,8 +13,9 @@ function streamFromString(s: string): ReadableStream<Uint8Array> {
 }
 
 function makeSSE(tokens: string[]): string {
-  const events = tokens.map((t) =>
-    `data: ${JSON.stringify({ choices: [{ delta: { content: t }, finish_reason: null }] })}\n\n`,
+  const events = tokens.map(
+    (t) =>
+      `data: ${JSON.stringify({ choices: [{ delta: { content: t }, finish_reason: null }] })}\n\n`,
   );
   events.push("data: [DONE]\n\n");
   return events.join("");
@@ -422,9 +423,7 @@ describe("streamChat (V3 fallback)", () => {
       onToken: () => {},
       fetchFn,
     });
-    expect(String(url)).toBe(
-      "https://openrouter.ai/api/v1/chat/completions",
-    );
+    expect(String(url)).toBe("https://openrouter.ai/api/v1/chat/completions");
   });
 
   test("AbortSignal forwarded to fetch (composed with connect timeout)", async () => {
@@ -456,7 +455,9 @@ describe("streamChat (V3 fallback)", () => {
 
   test("401 returns friendly key-rejected message", async () => {
     const fetchFn: import("../src/llm.ts").FetchFn = async () =>
-      new Response(`{"error":{"message":"Missing Authentication header","code":401}}`, { status: 401 });
+      new Response(`{"error":{"message":"Missing Authentication header","code":401}}`, {
+        status: 401,
+      });
     const result = await streamChat({
       apiKey: "k",
       model: MODEL_PRIMARY,

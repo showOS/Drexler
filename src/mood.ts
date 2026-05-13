@@ -1,11 +1,4 @@
-export const MOODS = [
-  "angry",
-  "generous",
-  "paranoid",
-  "victorious",
-  "exhausted",
-  "manic",
-] as const;
+export const MOODS = ["angry", "generous", "paranoid", "victorious", "exhausted", "manic"] as const;
 
 export type Mood = (typeof MOODS)[number];
 

@@ -21,15 +21,11 @@ describe("selectTheme priority", () => {
   });
 
   test("flag wins over env and config", () => {
-    expect(
-      selectTheme({ flag: "plasma", env: "mono", configValue: "apollo" }),
-    ).toBe("plasma");
+    expect(selectTheme({ flag: "plasma", env: "mono", configValue: "apollo" })).toBe("plasma");
   });
 
   test("env wins over config when no flag", () => {
-    expect(selectTheme({ env: "midnight", configValue: "apollo" })).toBe(
-      "midnight",
-    );
+    expect(selectTheme({ env: "midnight", configValue: "apollo" })).toBe("midnight");
   });
 
   test("config used when no flag/env", () => {
@@ -44,27 +40,12 @@ describe("selectTheme priority", () => {
 describe("theme registry", () => {
   test("contains the launch/config theme pack", () => {
     expect(Object.keys(THEMES).sort()).toEqual(
-      [
-        "amber",
-        "apollo",
-        "dealroom",
-        "midnight",
-        "mono",
-        "paper",
-        "plasma",
-        "terminal",
-      ].sort(),
+      ["amber", "apollo", "dealroom", "midnight", "mono", "paper", "plasma", "terminal"].sort(),
     );
   });
 
   test("new premium themes have required color slots", () => {
-    for (const name of [
-      "terminal",
-      "dealroom",
-      "midnight",
-      "paper",
-      "plasma",
-    ] as const) {
+    for (const name of ["terminal", "dealroom", "midnight", "paper", "plasma"] as const) {
       expect(THEMES[name].primary).toBeTruthy();
       expect(THEMES[name].primaryLight).toBeTruthy();
       expect(THEMES[name].primaryDim).toBeTruthy();
@@ -90,9 +71,7 @@ describe("selectTheme NO_COLOR handling", () => {
 
   test("NO_COLOR=1 forces mono regardless of flag", () => {
     process.env.NO_COLOR = "1";
-    expect(
-      selectTheme({ flag: "amber", env: "apollo", configValue: "apollo" }),
-    ).toBe("mono");
+    expect(selectTheme({ flag: "amber", env: "apollo", configValue: "apollo" })).toBe("mono");
   });
 
   test('NO_COLOR="" (empty) does NOT force mono', () => {
@@ -142,15 +121,7 @@ describe("buildChalkColors", () => {
   test("returns object with all 7 keys", () => {
     const colors = buildChalkColors(THEMES.apollo);
     expect(Object.keys(colors).sort()).toEqual(
-      [
-        "apollo",
-        "apolloDim",
-        "apolloLight",
-        "dim",
-        "error",
-        "text",
-        "warning",
-      ].sort(),
+      ["apollo", "apolloDim", "apolloLight", "dim", "error", "text", "warning"].sort(),
     );
   });
 

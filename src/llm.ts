@@ -4,11 +4,7 @@ const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 const MAX_TOKENS = 350;
 const TEMPERATURE = 0.95;
-const STOP_SEQUENCES = [
-  "Meeting adjourned.",
-  "Severance package incoming.",
-  "Not culture-fit.",
-];
+const STOP_SEQUENCES = ["Meeting adjourned.", "Severance package incoming.", "Not culture-fit."];
 const CONNECT_TIMEOUT_MS = 10_000;
 const IDLE_STREAM_TIMEOUT_MS = 30_000;
 const RETRY_DELAYS_MS = [250, 500, 1000] as const;
@@ -27,7 +23,9 @@ function jittered(baseMs: number): number {
 function combineSignals(user: AbortSignal | undefined, ...others: AbortSignal[]): AbortSignal {
   const all = user ? [user, ...others] : others;
   if (all.length === 1) return all[0]!;
-  if (typeof (AbortSignal as { any?: (signals: AbortSignal[]) => AbortSignal }).any === "function") {
+  if (
+    typeof (AbortSignal as { any?: (signals: AbortSignal[]) => AbortSignal }).any === "function"
+  ) {
     return (AbortSignal as { any: (signals: AbortSignal[]) => AbortSignal }).any(all);
   }
   // Manual fallback: combine via a fresh controller that forwards aborts.
@@ -68,10 +66,7 @@ function debugWarn(label: string, detail: string): void {
   }
 }
 
-export type FetchFn = (
-  url: string | URL | Request,
-  init?: RequestInit,
-) => Promise<Response>;
+export type FetchFn = (url: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 export interface StreamOptions {
   apiKey: string;
@@ -116,12 +111,7 @@ export async function streamChat(opts: StreamOptions): Promise<StreamResult> {
   return toResult(third, opts.model, true);
 }
 
-type AttemptStatus =
-  | "ok"
-  | "rate_limit"
-  | "http_error"
-  | "stream_error"
-  | "auth_error";
+type AttemptStatus = "ok" | "rate_limit" | "http_error" | "stream_error" | "auth_error";
 
 interface AttemptOutcome {
   status: AttemptStatus;
@@ -163,7 +153,11 @@ async function attempt(
     });
   } catch (err) {
     const userAborted = opts.signal?.aborted === true;
-    if (!userAborted && err instanceof Error && /timeout|timed out/i.test(err.name + " " + err.message)) {
+    if (
+      !userAborted &&
+      err instanceof Error &&
+      /timeout|timed out/i.test(err.name + " " + err.message)
+    ) {
       return {
         status: "http_error",
         content: "",
@@ -239,19 +233,14 @@ async function attempt(
   return { status: "ok", content: parsed.content };
 }
 
-function toResult(
-  outcome: AttemptOutcome,
-  modelUsed: string,
-  fellBack: boolean,
-): StreamResult {
+function toResult(outcome: AttemptOutcome, modelUsed: string, fellBack: boolean): StreamResult {
   return {
     ok: outcome.status === "ok",
     content: outcome.content,
     modelUsed,
     error: outcome.error,
     fellBack,
-    interrupted:
-      outcome.status === "stream_error" && outcome.content.length > 0,
+    interrupted: outcome.status === "stream_error" && outcome.content.length > 0,
     authFailure: outcome.status === "auth_error",
   };
 }

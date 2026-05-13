@@ -3,12 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import React from "react";
 import { render } from "ink";
-import {
-  ensureApiKey,
-  LaunchConfigError,
-  resolveConfig,
-  validateLaunchConfig,
-} from "./config.ts";
+import { ensureApiKey, LaunchConfigError, resolveConfig, validateLaunchConfig } from "./config.ts";
 import { Conversation } from "./conversation.ts";
 import { moodLine, pickMood } from "./mood.ts";
 import { loadPersona, pickGreeting } from "./persona.ts";
@@ -30,9 +25,7 @@ import { getActiveTheme, selectTheme, setActiveTheme } from "./ui/themes.ts";
 
 function getVersion(): string {
   try {
-    const pkg = JSON.parse(
-      readFileSync(join(import.meta.dir, "..", "package.json"), "utf-8"),
-    );
+    const pkg = JSON.parse(readFileSync(join(import.meta.dir, "..", "package.json"), "utf-8"));
     return typeof pkg.version === "string" ? pkg.version : "0.0.0";
   } catch {
     return "0.0.0";
@@ -102,8 +95,7 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const isInteractive =
-    process.stdout.isTTY === true && process.stdin.isTTY === true;
+  const isInteractive = process.stdout.isTTY === true && process.stdin.isTTY === true;
 
   // 1. Validate non-secret config FIRST so a bogus --model or --persona
   //    fails fast before we ask the user for an API key.
@@ -113,9 +105,7 @@ async function main(): Promise<void> {
     if (e instanceof LaunchConfigError) {
       console.error(error(formatLaunchError(e)));
     } else {
-      console.error(
-        error(`Drexler config tantrum: ${e instanceof Error ? e.message : e}`),
-      );
+      console.error(error(`Drexler config tantrum: ${e instanceof Error ? e.message : e}`));
     }
     process.exit(1);
   }
@@ -134,9 +124,7 @@ async function main(): Promise<void> {
     if (e instanceof LaunchConfigError) {
       console.error(error(formatLaunchError(e)));
     } else {
-      console.error(
-        error(`Drexler config tantrum: ${e instanceof Error ? e.message : e}`),
-      );
+      console.error(error(`Drexler config tantrum: ${e instanceof Error ? e.message : e}`));
     }
     process.exit(1);
   }
@@ -159,19 +147,15 @@ async function main(): Promise<void> {
   const systemPromptWithMood = persona.systemPrompt + moodLine(mood);
   const greeting = pickGreeting(persona.greetings);
 
-  const conversation = new Conversation(
-    systemPromptWithMood,
-    config.maxHistory,
-  );
+  const conversation = new Conversation(systemPromptWithMood, config.maxHistory);
 
   // --resume restores the prior session's user/assistant turns into the
   // freshly-built conversation. System prompt stays current (mood may
   // have changed), so we only rehydrate the body. Best-effort — a
   // missing or corrupt save file is a silent no-op.
   if (argv.includes("--resume")) {
-    const { loadSavedSession, describeSession, formatSessionAge } = await import(
-      "./conversation/persist.ts"
-    );
+    const { loadSavedSession, describeSession, formatSessionAge } =
+      await import("./conversation/persist.ts");
     const saved = loadSavedSession();
     if (saved) {
       for (const m of saved.messages) {
@@ -259,8 +243,7 @@ function formatLaunchError(e: LaunchConfigError): string {
 // path lets Ink's signal-exit hooks run cleanup so the alt-screen restores.
 function installFatalHandlers(): void {
   process.on("unhandledRejection", (reason) => {
-    const msg =
-      reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
+    const msg = reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
     console.error(error("Unhandled rejection:"), msg);
     process.exitCode = 1;
   });

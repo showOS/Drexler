@@ -37,15 +37,11 @@ describe("conversation persist", () => {
 
   test("sessionFilePath honors XDG_STATE_HOME", () => {
     process.env.XDG_STATE_HOME = join(dir, "state");
-    expect(sessionFilePath()).toBe(
-      join(dir, "state", "drexler", "last-session.json"),
-    );
+    expect(sessionFilePath()).toBe(join(dir, "state", "drexler", "last-session.json"));
   });
 
   test("sessionFilePath falls back to ~/.local/state/drexler", () => {
-    expect(sessionFilePath()).toBe(
-      join(dir, ".local", "state", "drexler", "last-session.json"),
-    );
+    expect(sessionFilePath()).toBe(join(dir, ".local", "state", "drexler", "last-session.json"));
   });
 
   test("hasSavedSession returns false on a fresh home", () => {

@@ -70,13 +70,7 @@ function cupForEnergy(energy: number): string {
 }
 
 type SceneLayout = "compact" | "standard" | "wide";
-type SceneState =
-  | "boot"
-  | "idle"
-  | "working"
-  | "success"
-  | "error"
-  | "sleep";
+type SceneState = "boot" | "idle" | "working" | "success" | "error" | "sleep";
 type StyleToken =
   | "background"
   | "primaryLine"
@@ -151,10 +145,7 @@ function officeMetrics(width: number): OfficeMetrics {
   const layout = sceneLayout(width);
   const sidePad = layout === "compact" ? 1 : 2;
   const maxStageWidth = layout === "wide" ? 124 : layout === "standard" ? 96 : width - 2;
-  const stageWidth = Math.max(
-    1,
-    Math.min(maxStageWidth, Math.max(1, width - sidePad * 2)),
-  );
+  const stageWidth = Math.max(1, Math.min(maxStageWidth, Math.max(1, width - sidePad * 2)));
   const stageX = Math.max(0, Math.floor((width - stageWidth) / 2));
   const centerX = stageX + Math.floor(stageWidth / 2);
   const deskWidth = Math.max(
@@ -162,15 +153,14 @@ function officeMetrics(width: number): OfficeMetrics {
     layout === "compact"
       ? stageWidth
       : layout === "standard"
-      ? Math.min(70, stageWidth - 2)
-      : Math.min(84, stageWidth - 10),
+        ? Math.min(70, stageWidth - 2)
+        : Math.min(84, stageWidth - 10),
   );
   const deskX = Math.max(stageX, centerX - Math.floor(deskWidth / 2));
   const windowWidth = layout === "wide" ? 24 : layout === "standard" ? 18 : 0;
   const boardGap = layout === "wide" ? 4 : 3;
-  const boardWidth = layout === "compact"
-    ? stageWidth
-    : Math.max(44, stageWidth - windowWidth - boardGap);
+  const boardWidth =
+    layout === "compact" ? stageWidth : Math.max(44, stageWidth - windowWidth - boardGap);
   const windowX = stageX;
   const boardX = layout === "compact" ? stageX : windowX + windowWidth + boardGap;
 
@@ -477,23 +467,43 @@ function normalizeClockNumber(value: number, modulo: number): number {
 function drawHand(cells: string[][], hourPos: number, isLong: boolean): void {
   const h = Math.floor(hourPos) % 12;
   const glyphs: Record<number, string> = {
-    0: "│", 1: "╱", 2: "╱", 3: "─", 4: "╲", 5: "╲",
-    6: "│", 7: "╱", 8: "╱", 9: "─", 10: "╲", 11: "╲",
+    0: "│",
+    1: "╱",
+    2: "╱",
+    3: "─",
+    4: "╲",
+    5: "╲",
+    6: "│",
+    7: "╱",
+    8: "╱",
+    9: "─",
+    10: "╲",
+    11: "╲",
   };
   const glyph = glyphs[h] || "·";
 
   // Handcrafted offsets for a 21x7 clock. These are stable and aspect-ratio aware.
   const offsets: Record<number, [number, number][]> = {
-    0:  [[0, -1]],
-    1:  [[2, -1]],
-    2:  [[4, -1]],
-    3:  [[1, 0], [2, 0], [3, 0], [4, 0]],
-    4:  [[4, 1]],
-    5:  [[2, 1]],
-    6:  [[0, 1]],
-    7:  [[-2, 1]],
-    8:  [[-4, 1]],
-    9:  [[-1, 0], [-2, 0], [-3, 0], [-4, 0]],
+    0: [[0, -1]],
+    1: [[2, -1]],
+    2: [[4, -1]],
+    3: [
+      [1, 0],
+      [2, 0],
+      [3, 0],
+      [4, 0],
+    ],
+    4: [[4, 1]],
+    5: [[2, 1]],
+    6: [[0, 1]],
+    7: [[-2, 1]],
+    8: [[-4, 1]],
+    9: [
+      [-1, 0],
+      [-2, 0],
+      [-3, 0],
+      [-4, 0],
+    ],
     10: [[-4, -1]],
     11: [[-2, -1]],
   };
@@ -538,7 +548,7 @@ function buildAsciiClockLines(hour: number, minute: number): string[] {
     Array.from({ length: CLOCK_WIDTH }, () => " "),
   );
 
-  const hourPos = (safeHour % 12);
+  const hourPos = safeHour % 12;
   const minutePos = Math.floor(safeMinute / 5);
 
   drawHand(cells, minutePos, true);
@@ -653,6 +663,15 @@ function marketBoardCell(text: string, width: number, align: "left" | "center" |
   return `${fitted}${" ".repeat(padding)}`;
 }
 
+const MARKET_QUOTE_ARROW_COLUMN = 13;
+
+function marketQuote(label: string, change: string): string {
+  const safeLabel = fitDisplayText(label, MARKET_QUOTE_ARROW_COLUMN);
+  return `${safeLabel}${" ".repeat(
+    Math.max(0, MARKET_QUOTE_ARROW_COLUMN - displayWidth(safeLabel)),
+  )}▲ ${change}`;
+}
+
 function marketBoardPanelRow(width: number, left: string, center: string, right: string): string {
   const inner = Math.max(1, width - 2);
   const contentWidth = Math.max(1, inner - 2);
@@ -693,27 +712,26 @@ function marketBoardLines(
     return [
       boxTop(width, "DREXLER MARKETS"),
       marketBoardSplitRow(width, `DEMO ${clockFromFrame(frame)} ${status}`, `FEE ${fee}%`),
-      boxContent(width, ` TAPE${tapeMarker} BTC ▲1.25  ETH ▲0.82`),
+      boxContent(width, ` ${marketQuote(`TAPE${tapeMarker} BTC`, "1.25")}  ETH ▲ 0.82`),
       boxContent(width, " BID .8419   ASK .8423   VOL 24K"),
-      marketBoardRow(width, "BTC 67842 ▲1.25", chartA, "69000"),
-      marketBoardRow(width, "ETH  3241 ▲0.82", chartB, "68000"),
+      marketBoardRow(width, marketQuote("BTC 67842", "1.25"), chartA, "69000"),
+      marketBoardRow(width, marketQuote("ETH 3241", "0.82"), chartB, "68000"),
       boxContent(width, ` OPEN 09:00  ${chartLabel}  PIPE ${pipe}%`),
       boxBottom(width),
     ];
   }
 
-  const headerLeft = "DREX 0.8421 ▲3.17";
+  const headerLeft = marketQuote("DREX 0.8421", "3.17");
   const headerCenter = `DEMO ${clockFromFrame(frame)} ${status}`;
-  const footerCenter = width < 90
-    ? `OPEN 09:00  ${chartLabel}`
-    : `OPEN 09:00  13:00  ${chartLabel}  CLOSE 16:00`;
+  const footerCenter =
+    width < 90 ? `OPEN 09:00  ${chartLabel}` : `OPEN 09:00  13:00  ${chartLabel}  CLOSE 16:00`;
   return [
     boxTop(width, "DREXLER MARKETS"),
     marketBoardPanelRow(width, headerLeft, headerCenter, `FEE ${fee}%`),
-    marketBoardPanelRow(width, `TAPE${tapeMarker} BTC ▲1.25`, "CANDLE", "VOL 24K"),
-    marketBoardPanelRow(width, "BTC 67842  ▲1.25", chartA, "69000"),
-    marketBoardPanelRow(width, "ETH  3241  ▲0.82", chartB, "68000"),
-    marketBoardPanelRow(width, "SOL   157  ▲2.11", chartC, "67000"),
+    marketBoardPanelRow(width, marketQuote(`TAPE${tapeMarker} BTC`, "1.25"), "CANDLE", "VOL 24K"),
+    marketBoardPanelRow(width, marketQuote("BTC 67842", "1.25"), chartA, "69000"),
+    marketBoardPanelRow(width, marketQuote("ETH 3241", "0.82"), chartB, "68000"),
+    marketBoardPanelRow(width, marketQuote("SOL 157", "2.11"), chartC, "67000"),
     marketBoardPanelRow(width, "BID .8419  ASK .8423", footerCenter, `PIPE ${pipe}%`),
     boxBottom(width),
   ];
@@ -740,25 +758,24 @@ function boardTapeLabel(activity: PetActivity, frame: number): string {
 
 function lampLines(activity: PetActivity, frame: number): string[] {
   const rays = activity === "sleeping" ? "    │    " : frame % 6 < 3 ? "   ╲│╱   " : "   ╱│╲   ";
-  return [
-    rays,
-    "  ╭───╮  ",
-    " ╭╯   ╰╮ ",
-    " ╰──┬──╯ ",
-    "    │    ",
-    "   ═╧═   ",
-  ];
+  return [rays, "  ╭───╮  ", " ╭╯   ╰╮ ", " ╰──┬──╯ ", "    │    ", "   ═╧═   "];
 }
 
-function statusCardLines(width: number, activity: PetActivity, frame: number, stats: PetStats): string[] {
+function statusCardLines(
+  width: number,
+  activity: PetActivity,
+  frame: number,
+  stats: PetStats,
+): string[] {
   const status = activityStatusToken(activity, frame);
-  const motto = activity === "working"
-    ? "keys active"
-    : activity === "praised"
-    ? "compound"
-    : activity === "sleeping"
-    ? "quiet desk"
-    : "market watch";
+  const motto =
+    activity === "working"
+      ? "keys active"
+      : activity === "praised"
+        ? "compound"
+        : activity === "sleeping"
+          ? "quiet desk"
+          : "market watch";
   return [
     boxTop(width, "STATUS"),
     boxContent(width, status),
@@ -770,13 +787,7 @@ function statusCardLines(width: number, activity: PetActivity, frame: number, st
 
 function fileCabinetLines(frame: number): string[] {
   const tab = frame % 4 < 2 ? "╞" : "├";
-  return [
-    "╭────────╮",
-    "│ ▤▤▤▤   │",
-    `${tab}────────┤`,
-    "│ ▤▤▤▤   │",
-    "╰────────╯",
-  ];
+  return ["╭────────╮", "│ ▤▤▤▤   │", `${tab}────────┤`, "│ ▤▤▤▤   │", "╰────────╯"];
 }
 
 function wallRailLine(width: number, activity: PetActivity, frame: number): string {
@@ -784,7 +795,13 @@ function wallRailLine(width: number, activity: PetActivity, frame: number): stri
   return centerText("─".repeat(width), trim);
 }
 
-function deskJoinLine(width: number, leftCorner: string, midA: string, midB: string, rightCorner: string): string {
+function deskJoinLine(
+  width: number,
+  leftCorner: string,
+  midA: string,
+  midB: string,
+  rightCorner: string,
+): string {
   const inner = Math.max(1, width - 2);
   const usable = Math.max(1, inner - 2);
   const left = Math.max(4, Math.floor(usable * 0.24));
@@ -815,11 +832,7 @@ function deskFasciaLine(width: number, center: string, right: string): string {
   if (rightX <= centerX + displayWidth(fittedCenter) + 2) {
     return `│${centerText(row, `${center} · ${right}`)}│`;
   }
-  row = place(
-    row,
-    fittedCenter,
-    centerX,
-  );
+  row = place(row, fittedCenter, centerX);
   row = placeRight(row, right, 2);
   return `│${row}│`;
 }
@@ -829,14 +842,9 @@ function deskBaseLines(width: number, stats: PetStats, activity: PetActivity): s
   const covenants = stats.happiness < 30 || stats.energy < 25 ? "WARN" : "OK";
   const close = activity === "praised" ? "COMPOUND" : activity === "working" ? "EXEC" : "WATCH";
   const pipe = Math.round(stats.deals);
-  const fascia = width < 64
-    ? "DREXLER DESK"
-    : width < 84
-    ? "DREXLER DEAL DESK"
-    : "DREXLER DEAL DESK";
-  const readout = width < 64
-    ? `PIPE ${pipe}%`
-    : `PIPE ${pipe}%  COV ${covenants}  ${close}`;
+  const fascia =
+    width < 64 ? "DREXLER DESK" : width < 84 ? "DREXLER DEAL DESK" : "DREXLER DEAL DESK";
+  const readout = width < 64 ? `PIPE ${pipe}%` : `PIPE ${pipe}%  COV ${covenants}  ${close}`;
   return [
     `╭${"─".repeat(inner)}╮`,
     deskContent(width),
@@ -860,50 +868,19 @@ function floorShadowLines(width: number): string[] {
 function coffeeFrames(stats: PetStats): readonly (readonly string[])[] {
   const cup = `${cupForEnergy(stats.energy).slice(0, 1)}[__]`;
   if (stats.energy <= 20) {
-    return [[
-      "       ",
-      "       ",
-      `  ${cup}`,
-    ]];
+    return [["       ", "       ", `  ${cup}`]];
   }
   return [
-    [
-      "  (  ) ",
-      " (    )",
-      `  ${cup}`,
-    ],
-    [
-      " (    )",
-      "  (  ) ",
-      `  ${cup}`,
-    ],
-    [
-      "  )  ( ",
-      " (    )",
-      `  ${cup}`,
-    ],
+    ["  (  ) ", " (    )", `  ${cup}`],
+    [" (    )", "  (  ) ", `  ${cup}`],
+    ["  )  ( ", " (    )", `  ${cup}`],
   ];
 }
 
 function memoFrames(activity: PetActivity): readonly (readonly string[])[] {
-  const idle = [
-    "╭────────╮",
-    "│ memo ╲ │",
-    "│ ────   │",
-    "╰────────╯",
-  ];
-  const working = [
-    "╭────────╮",
-    "│ memo ╱ │",
-    "│ ───    │",
-    "╰────────╯",
-  ];
-  const success = [
-    "╭────────╮",
-    "│ done ✓ │",
-    "│ ───    │",
-    "╰────────╯",
-  ];
+  const idle = ["╭────────╮", "│ memo ╲ │", "│ ────   │", "╰────────╯"];
+  const working = ["╭────────╮", "│ memo ╱ │", "│ ───    │", "╰────────╯"];
+  const success = ["╭────────╮", "│ done ✓ │", "│ ───    │", "╰────────╯"];
 
   if (activity === "praised") return [success];
   if (activity === "working") return [idle, working];
@@ -911,16 +888,8 @@ function memoFrames(activity: PetActivity): readonly (readonly string[])[] {
 }
 
 function keyboardFrames(activity: PetActivity): readonly (readonly string[])[] {
-  const idle = [
-    "┌────────────┐",
-    "│ ▄ ▄ ▄ ▄ ▄ │",
-    "└────────────┘",
-  ];
-  const active = [
-    "┌────────────┐",
-    "│ ▄ ▀ ▄ ▀ ▄ │",
-    "└────────────┘",
-  ];
+  const idle = ["┌────────────┐", "│ ▄ ▄ ▄ ▄ ▄ │", "└────────────┘"];
+  const active = ["┌────────────┐", "│ ▄ ▀ ▄ ▀ ▄ │", "└────────────┘"];
   return activity === "working" ? [idle, active] : [idle];
 }
 
@@ -961,16 +930,20 @@ function buildOfficeScene(
   const memoFrameSet = memoFrames(activity);
   const keyboardFrameSet = keyboardFrames(activity);
 
-  sprites.push(makeSprite("background:title", 0, 0, R_TITLE, [titleLine(width, stats)], "background"));
+  sprites.push(
+    makeSprite("background:title", 0, 0, R_TITLE, [titleLine(width, stats)], "background"),
+  );
   const clock = analogClockLines(frame);
-  sprites.push(makeSprite(
-    "wall:clock",
-    12,
-    Math.max(0, Math.floor((width - displayWidth(clock[0] ?? "")) / 2)),
-    R_CLOCK_TOP,
-    clock,
-    "secondaryLine",
-  ));
+  sprites.push(
+    makeSprite(
+      "wall:clock",
+      12,
+      Math.max(0, Math.floor((width - displayWidth(clock[0] ?? "")) / 2)),
+      R_CLOCK_TOP,
+      clock,
+      "secondaryLine",
+    ),
+  );
 
   if (layout === "compact") {
     sprites.push(
@@ -1004,140 +977,154 @@ function buildOfficeScene(
     );
   }
 
-  sprites.push(makeSprite(
-    "wall:rail",
-    8,
-    metrics.stageX,
-    R_WALL_RAIL,
-    [wallRailLine(metrics.stageWidth, activity, frame)],
-    "secondaryLine",
-  ));
+  sprites.push(
+    makeSprite(
+      "wall:rail",
+      8,
+      metrics.stageX,
+      R_WALL_RAIL,
+      [wallRailLine(metrics.stageWidth, activity, frame)],
+      "secondaryLine",
+    ),
+  );
 
   if (layout !== "compact") {
-    sprites.push(makeAnimatedSprite({
-      id: "lamp:side",
-      zIndex: 30,
-      x: metrics.stageX + 2,
-      y: R_MASCOT_START,
-      frames: [lampLines(activity, frame), lampLines(activity, frame + 3)],
-      frameDuration: 2,
-      styleToken: "lampGlow",
-    }));
+    sprites.push(
+      makeAnimatedSprite({
+        id: "lamp:side",
+        zIndex: 30,
+        x: metrics.stageX + 2,
+        y: R_MASCOT_START,
+        frames: [lampLines(activity, frame), lampLines(activity, frame + 3)],
+        frameDuration: 2,
+        styleToken: "lampGlow",
+      }),
+    );
   }
 
   if (layout === "wide" && width >= 118) {
-    sprites.push(makeSprite(
-      "status:card",
-      30,
-      Math.max(metrics.stageX, metrics.stageX + metrics.stageWidth - 21),
-      R_MASCOT_START + 1,
-      statusCardLines(20, activity, frame, stats),
-      "statusAccent",
-    ));
+    sprites.push(
+      makeSprite(
+        "status:card",
+        30,
+        Math.max(metrics.stageX, metrics.stageX + metrics.stageWidth - 21),
+        R_MASCOT_START + 1,
+        statusCardLines(20, activity, frame, stats),
+        "statusAccent",
+      ),
+    );
   }
 
   if (layout === "wide" && width >= 132) {
-    sprites.push(makeAnimatedSprite({
-      id: "storage:file-cabinet",
-      zIndex: 35,
-      x: Math.max(metrics.stageX, metrics.stageX + metrics.stageWidth - 32),
-      y: R_DESK_LINE - 6,
-      frames: [fileCabinetLines(frame), fileCabinetLines(frame + 2)],
-      frameDuration: 3,
-      styleToken: "secondaryLine",
-    }));
+    sprites.push(
+      makeAnimatedSprite({
+        id: "storage:file-cabinet",
+        zIndex: 35,
+        x: Math.max(metrics.stageX, metrics.stageX + metrics.stageWidth - 32),
+        y: R_DESK_LINE - 6,
+        frames: [fileCabinetLines(frame), fileCabinetLines(frame + 2)],
+        frameDuration: 3,
+        styleToken: "secondaryLine",
+      }),
+    );
   }
 
-  sprites.push(makeAnimatedSprite({
-    id: "drexler:mascot",
-    zIndex: 50,
-    x: mascotX,
-    y: mascotY,
-    frames: [renderMascotLines(mascotStateForActivity(activity, frame))],
-    frameDuration: 3,
-    styleToken: "drexlerOutline",
-  }));
+  sprites.push(
+    makeAnimatedSprite({
+      id: "drexler:mascot",
+      zIndex: 50,
+      x: mascotX,
+      y: mascotY,
+      frames: [renderMascotLines(mascotStateForActivity(activity, frame))],
+      frameDuration: 3,
+      styleToken: "drexlerOutline",
+    }),
+  );
 
-  sprites.push(makeSprite(
-    "desk:foreground",
-    80,
-    deskX,
-    R_DESK_LINE,
-    deskBaseLines(deskWidth, stats, activity),
-    "deskLine",
-    false,
-  ));
+  sprites.push(
+    makeSprite(
+      "desk:foreground",
+      80,
+      deskX,
+      R_DESK_LINE,
+      deskBaseLines(deskWidth, stats, activity),
+      "deskLine",
+      false,
+    ),
+  );
 
-  sprites.push(makeSprite(
-    "drexler:money-panel",
-    95,
-    mascotX + 6,
-    Math.min(mascotY + 5, R_DESK_LINE - 1),
-    [activity === "sleeping" ? "║ ░░ ║" : "║ $$ ║"],
-    activity === "praised" ? "statusAccent" : "drexlerOutline",
-    false,
-  ));
+  sprites.push(
+    makeSprite(
+      "drexler:money-panel",
+      95,
+      mascotX + 6,
+      Math.min(mascotY + 5, R_DESK_LINE - 1),
+      [activity === "sleeping" ? "║ ░░ ║" : "║ $$ ║"],
+      activity === "praised" ? "statusAccent" : "drexlerOutline",
+      false,
+    ),
+  );
 
-  sprites.push(makeAnimatedSprite({
-    id: "desk:coffee",
-    zIndex: 90,
-    x: deskX + 3,
-    y: R_DESK_PROPS,
-    frames: coffeeFrameSet,
-    frameDuration: activity === "sleeping" ? 5 : 2,
-    styleToken: "statusAccent",
-    parentAnchor: "desk:foreground",
-    transparentSpaces: true,
-  }));
+  sprites.push(
+    makeAnimatedSprite({
+      id: "desk:coffee",
+      zIndex: 90,
+      x: deskX + 3,
+      y: R_DESK_PROPS,
+      frames: coffeeFrameSet,
+      frameDuration: activity === "sleeping" ? 5 : 2,
+      styleToken: "statusAccent",
+      parentAnchor: "desk:foreground",
+      transparentSpaces: true,
+    }),
+  );
 
-  sprites.push(makeAnimatedSprite({
-    id: "desk:memo",
-    zIndex: 90,
-    x: Math.max(deskX + 12, metrics.centerX - 7),
-    y: R_DESK_PROPS,
-    frames: memoFrameSet,
-    frameDuration: 2,
-    styleToken: "primaryLine",
-    parentAnchor: "desk:foreground",
-    transparentSpaces: false,
-  }));
+  sprites.push(
+    makeAnimatedSprite({
+      id: "desk:memo",
+      zIndex: 90,
+      x: Math.max(deskX + 12, metrics.centerX - 7),
+      y: R_DESK_PROPS,
+      frames: memoFrameSet,
+      frameDuration: 2,
+      styleToken: "primaryLine",
+      parentAnchor: "desk:foreground",
+      transparentSpaces: false,
+    }),
+  );
 
   const keyboardWidth = displayWidth(keyboardFrameSet[0]?.[0] ?? "");
-  sprites.push(makeAnimatedSprite({
-    id: "desk:keyboard",
-    zIndex: 90,
-    x: Math.min(
-      deskX + deskWidth - 2 - keyboardWidth,
-      metrics.centerX + 13,
-    ),
-    y: R_DESK_PROPS,
-    frames: keyboardFrameSet,
-    frameDuration: activity === "working" ? 1 : 3,
-    styleToken: "primaryLine",
-    parentAnchor: "desk:foreground",
-    transparentSpaces: false,
-  }));
+  sprites.push(
+    makeAnimatedSprite({
+      id: "desk:keyboard",
+      zIndex: 90,
+      x: Math.min(deskX + deskWidth - 2 - keyboardWidth, metrics.centerX + 13),
+      y: R_DESK_PROPS,
+      frames: keyboardFrameSet,
+      frameDuration: activity === "working" ? 1 : 3,
+      styleToken: "primaryLine",
+      parentAnchor: "desk:foreground",
+      transparentSpaces: false,
+    }),
+  );
 
   const accent = activityAccentLines(activity, frame);
   if (accent[0]) {
-    sprites.push(makeSprite(
-      "effect:status",
-      100,
-      Math.min(width - displayWidth(accent[0] ?? ""), mascotX + MASCOT_WIDTH + 2),
-      R_MASCOT_START + 3,
-      accent,
-      "statusAccent",
-    ));
+    sprites.push(
+      makeSprite(
+        "effect:status",
+        100,
+        Math.min(width - displayWidth(accent[0] ?? ""), mascotX + MASCOT_WIDTH + 2),
+        R_MASCOT_START + 3,
+        accent,
+        "statusAccent",
+      ),
+    );
   }
 
-  sprites.push(makeSprite(
-    "floor:shadow",
-    2,
-    0,
-    R_FLOOR_SHADOW,
-    floorShadowLines(width),
-    "background",
-  ));
+  sprites.push(
+    makeSprite("floor:shadow", 2, 0, R_FLOOR_SHADOW, floorShadowLines(width), "background"),
+  );
 
   sprites.sort((a, b) => {
     if (a.zIndex !== b.zIndex) return a.zIndex - b.zIndex;
@@ -1210,35 +1197,157 @@ function statLevel(v: number): MsgLevel {
 }
 
 const MESSAGES: Record<string, readonly string[]> = {
-  "hunger.critical": ["Feed him. Now.","Pipeline empty. Stomach emptier.","Caloric intake: zero.","Deal intake required. Urgent.","No lunch. Board concerned."],
-  "hunger.low":      ["Could use a deal snack.","Peckish. Dangerously so.","Running on fumes and spite.","Lunch was conceptual.","Hunger creeping. Bad sign."],
-  "hunger.ok":       ["Fed. Functional.","Satiated. Marginally.","Nourishment confirmed.","Caloric metrics acceptable.","Pipeline: sufficient."],
-  "hunger.good":     ["Well fed. Projecting strength.","Deal appetite satisfied.","Lunch closed. Board nods.","Caloric position: strong.","Nutritionally sound."],
-  "hunger.great":    ["Fully loaded. Ready to close.","Peak caloric window open.","Briefcase well-stocked.","Drexler has eaten. Fear him.","Maximum deal absorption."],
+  "hunger.critical": [
+    "Feed him. Now.",
+    "Pipeline empty. Stomach emptier.",
+    "Caloric intake: zero.",
+    "Deal intake required. Urgent.",
+    "No lunch. Board concerned.",
+  ],
+  "hunger.low": [
+    "Could use a deal snack.",
+    "Peckish. Dangerously so.",
+    "Running on fumes and spite.",
+    "Lunch was conceptual.",
+    "Hunger creeping. Bad sign.",
+  ],
+  "hunger.ok": [
+    "Fed. Functional.",
+    "Satiated. Marginally.",
+    "Nourishment confirmed.",
+    "Caloric metrics acceptable.",
+    "Pipeline: sufficient.",
+  ],
+  "hunger.good": [
+    "Well fed. Projecting strength.",
+    "Deal appetite satisfied.",
+    "Lunch closed. Board nods.",
+    "Caloric position: strong.",
+    "Nutritionally sound.",
+  ],
+  "hunger.great": [
+    "Fully loaded. Ready to close.",
+    "Peak caloric window open.",
+    "Briefcase well-stocked.",
+    "Drexler has eaten. Fear him.",
+    "Maximum deal absorption.",
+  ],
 
-  "happiness.critical": ["Morale: sub-basement.","Joy metrics: catastrophic.","Drexler deeply dissatisfied.","Considering self-restructure.","Send help. Immediately."],
-  "happiness.low":      ["Confidence is flagging.","Sentiment negative. Act now.","Drexler is not thriving.","Market ungrateful, apparently.","Spirits declining. Alarming."],
-  "happiness.ok":       ["Maintaining composure.","Cautiously optimistic.","Neutral outlook. For now.","Equilibrium: tenuous.","Tolerable. Barely."],
-  "happiness.good":     ["Pipeline robust. Spirits up.","Drexler is in the zone.","Good day in the deal room.","Shareholders pleased. Briefly.","Morale: acceptable."],
-  "happiness.great":    ["Unstoppable. Frankly.","Peak performance window.","Manic energy. Deploy wisely.","Drexler ascendant. Watch out.","Maximum euphoria. Imminent."],
+  "happiness.critical": [
+    "Morale: sub-basement.",
+    "Joy metrics: catastrophic.",
+    "Drexler deeply dissatisfied.",
+    "Considering self-restructure.",
+    "Send help. Immediately.",
+  ],
+  "happiness.low": [
+    "Confidence is flagging.",
+    "Sentiment negative. Act now.",
+    "Drexler is not thriving.",
+    "Market ungrateful, apparently.",
+    "Spirits declining. Alarming.",
+  ],
+  "happiness.ok": [
+    "Maintaining composure.",
+    "Cautiously optimistic.",
+    "Neutral outlook. For now.",
+    "Equilibrium: tenuous.",
+    "Tolerable. Barely.",
+  ],
+  "happiness.good": [
+    "Pipeline robust. Spirits up.",
+    "Drexler is in the zone.",
+    "Good day in the deal room.",
+    "Shareholders pleased. Briefly.",
+    "Morale: acceptable.",
+  ],
+  "happiness.great": [
+    "Unstoppable. Frankly.",
+    "Peak performance window.",
+    "Manic energy. Deploy wisely.",
+    "Drexler ascendant. Watch out.",
+    "Maximum euphoria. Imminent.",
+  ],
 
-  "energy.critical": ["Running on fumes. Critical.","System depleted. Recharge.","Drexler barely upright.","Energy: dangerous lows.","Rest now. Non-negotiable."],
-  "energy.low":      ["Coffee required. Urgently.","Flagging slightly. Or a lot.","Energy deficit detected.","Strategic nap advised.","Reserves low. Efficiency shaky."],
-  "energy.ok":       ["Operational. Barely.","Chugging along.","Energy acceptable. Recheck.","Functional. Not inspired.","Adequate. For now."],
-  "energy.good":     ["Energized. Alert. Ready.","Ready to close deals.","Drexler is firing well.","Full capacity. Mostly.","Energy surplus confirmed."],
-  "energy.great":    ["Fully charged. Dangerous.","Drexler is electrified.","Energy max. Scope unlimited.","Running at 110%. Somehow.","Kinetic. Caffeinated."],
+  "energy.critical": [
+    "Running on fumes. Critical.",
+    "System depleted. Recharge.",
+    "Drexler barely upright.",
+    "Energy: dangerous lows.",
+    "Rest now. Non-negotiable.",
+  ],
+  "energy.low": [
+    "Coffee required. Urgently.",
+    "Flagging slightly. Or a lot.",
+    "Energy deficit detected.",
+    "Strategic nap advised.",
+    "Reserves low. Efficiency shaky.",
+  ],
+  "energy.ok": [
+    "Operational. Barely.",
+    "Chugging along.",
+    "Energy acceptable. Recheck.",
+    "Functional. Not inspired.",
+    "Adequate. For now.",
+  ],
+  "energy.good": [
+    "Energized. Alert. Ready.",
+    "Ready to close deals.",
+    "Drexler is firing well.",
+    "Full capacity. Mostly.",
+    "Energy surplus confirmed.",
+  ],
+  "energy.great": [
+    "Fully charged. Dangerous.",
+    "Drexler is electrified.",
+    "Energy max. Scope unlimited.",
+    "Running at 110%. Somehow.",
+    "Kinetic. Caffeinated.",
+  ],
 
-  "deals.critical": ["Pipeline: bone dry.","No deals. Board is watching.","Zero live mandates. Shameful.","Origination needed. Now.","Empty pipe. Reputation at risk."],
-  "deals.low":      ["Pipeline thin. Worrying.","Deal flow: trickling.","Source aggressively.","Activity light. Drexler restless.","Book thin. Posture defensive."],
-  "deals.ok":       ["Pipeline: moderate.","Deal flow steady. Could improve.","Working the book.","Several irons in the fire.","Deal cadence acceptable."],
-  "deals.good":     ["Pipeline full. Drexler pleased.","Multiple term sheets live.","Deal machine: operational.","The book is healthy.","Deal flow strong. Board nods."],
-  "deals.great":    ["Crushing it, frankly.","Overflowing pipeline. Good problem.","Drexler is the deal machine.","Maximum origination achieved.","Board in awe. Secretly."],
+  "deals.critical": [
+    "Pipeline: bone dry.",
+    "No deals. Board is watching.",
+    "Zero live mandates. Shameful.",
+    "Origination needed. Now.",
+    "Empty pipe. Reputation at risk.",
+  ],
+  "deals.low": [
+    "Pipeline thin. Worrying.",
+    "Deal flow: trickling.",
+    "Source aggressively.",
+    "Activity light. Drexler restless.",
+    "Book thin. Posture defensive.",
+  ],
+  "deals.ok": [
+    "Pipeline: moderate.",
+    "Deal flow steady. Could improve.",
+    "Working the book.",
+    "Several irons in the fire.",
+    "Deal cadence acceptable.",
+  ],
+  "deals.good": [
+    "Pipeline full. Drexler pleased.",
+    "Multiple term sheets live.",
+    "Deal machine: operational.",
+    "The book is healthy.",
+    "Deal flow strong. Board nods.",
+  ],
+  "deals.great": [
+    "Crushing it, frankly.",
+    "Overflowing pipeline. Good problem.",
+    "Drexler is the deal machine.",
+    "Maximum origination achieved.",
+    "Board in awe. Secretly.",
+  ],
 };
 
 function getStatusMsg(stats: PetStats, frame: number): string {
   const entries: [string, number][] = [
-    ["hunger", stats.hunger], ["happiness", stats.happiness],
-    ["energy", stats.energy], ["deals", stats.deals],
+    ["hunger", stats.hunger],
+    ["happiness", stats.happiness],
+    ["energy", stats.energy],
+    ["deals", stats.deals],
   ];
   entries.sort((a, b) => a[1] - b[1]);
   const [worstStat, worstVal] = entries[0] ?? ["happiness", 50];
@@ -1369,17 +1478,10 @@ function pickWorstStat(stats: PetStats): WorstStat {
     { key: "energy", value: stats.energy },
     { key: "deals", value: stats.deals },
   ];
-  return entries.reduce((best, cur) =>
-    cur.value < best.value ? cur : best,
-  );
+  return entries.reduce((best, cur) => (cur.value < best.value ? cur : best));
 }
 
-function CompactPetPanelView({
-  stats,
-  activity,
-  isPaused = false,
-  width,
-}: CompactPetPanelProps) {
+function CompactPetPanelView({ stats, activity, isPaused = false, width }: CompactPetPanelProps) {
   const t = useTheme();
   const safeWidth = Math.max(1, width);
 
@@ -1411,9 +1513,7 @@ function CompactPetPanelView({
     // metric instead of a fixed happy/energy readout.
     const worst = pickWorstStat(stats);
     const worstLevel = statLevel(worst.value);
-    const accent = worstLevel === "critical" || worstLevel === "low"
-      ? t.warning
-      : t.primary;
+    const accent = worstLevel === "critical" || worstLevel === "low" ? t.warning : t.primary;
     return (
       <Box width={safeWidth} flexShrink={1}>
         <Text color={accent}>
@@ -1439,7 +1539,9 @@ function CompactPetPanelView({
       paddingX={1}
     >
       <Box>
-        <Text color={t.primary} bold>{fitDisplayText(header, innerWidth)}</Text>
+        <Text color={t.primary} bold>
+          {fitDisplayText(header, innerWidth)}
+        </Text>
       </Box>
       <Box>
         <Text color={t.text}>{fitDisplayText(statLine, innerWidth)}</Text>

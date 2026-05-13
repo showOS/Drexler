@@ -1,13 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import {
-  chmod,
-  lstat,
-  mkdir,
-  readFile,
-  rename,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import * as readline from "node:readline/promises";
@@ -45,11 +37,7 @@ export function getResolvedConfigPath(): string | null {
 export type ApiKeySource = "env" | "config-file" | "missing";
 
 export class LaunchConfigError extends Error {
-  readonly reason:
-    | "model-alias"
-    | "persona-path"
-    | "config-unreadable"
-    | "api-key-empty";
+  readonly reason: "model-alias" | "persona-path" | "config-unreadable" | "api-key-empty";
   readonly detail: Record<string, unknown>;
   constructor(
     reason: LaunchConfigError["reason"],
@@ -124,10 +112,7 @@ export function defaultPersonaPath(): string {
   return resolve(import.meta.dir, "..", "prompts", "drexler.md");
 }
 
-async function validatePersonaFile(
-  inputPath: unknown,
-  label: string,
-): Promise<string> {
+async function validatePersonaFile(inputPath: unknown, label: string): Promise<string> {
   if (typeof inputPath !== "string" || inputPath.trim().length === 0) {
     throw new LaunchConfigError(
       "persona-path",
@@ -139,11 +124,7 @@ async function validatePersonaFile(
   // lstat (not stat) so symlinks pointing to non-.md targets cannot bypass
   // the extension check via `ln -s /etc/passwd evil.md`.
   const st = await lstat(resolved).catch(() => null);
-  if (
-    !st?.isFile() ||
-    st.isSymbolicLink() ||
-    !resolved.toLowerCase().endsWith(".md")
-  ) {
+  if (!st?.isFile() || st.isSymbolicLink() || !resolved.toLowerCase().endsWith(".md")) {
     throw new LaunchConfigError(
       "persona-path",
       `Invalid ${label}: ${inputPath} (must be a regular .md file; symlinks rejected).`,
@@ -155,7 +136,11 @@ async function validatePersonaFile(
 
 async function readConfigPath(
   path: string,
-): Promise<{ raw: string; missing: false } | { raw: null; missing: true } | { raw: null; missing: false; error: NodeJS.ErrnoException }> {
+): Promise<
+  | { raw: string; missing: false }
+  | { raw: null; missing: true }
+  | { raw: null; missing: false; error: NodeJS.ErrnoException }
+> {
   try {
     return { raw: await readFile(path, "utf-8"), missing: false };
   } catch (err) {
@@ -323,9 +308,7 @@ export interface LaunchStructural {
   fileCfg: Partial<Config>;
 }
 
-export async function validateLaunchConfig(
-  argv: string[],
-): Promise<LaunchStructural> {
+export async function validateLaunchConfig(argv: string[]): Promise<LaunchStructural> {
   const flags = parseFlags(argv);
   const fileCfg = await loadConfigFile();
   const envModel = process.env.DREXLER_MODEL;
@@ -352,11 +335,9 @@ export async function validateLaunchConfig(
       ? fileCfg.maxHistory
       : DEFAULT_MAX_HISTORY;
 
-  const themeCandidate =
-    flags.theme ?? process.env.DREXLER_THEME ?? fileCfg.theme;
+  const themeCandidate = flags.theme ?? process.env.DREXLER_THEME ?? fileCfg.theme;
   const theme =
-    typeof themeCandidate === "string" &&
-    THEME_NAMES.includes(themeCandidate as ThemeName)
+    typeof themeCandidate === "string" && THEME_NAMES.includes(themeCandidate as ThemeName)
       ? (themeCandidate as ThemeName)
       : undefined;
 

@@ -81,7 +81,12 @@ export function tokenizeInline(input: string): InlineToken[] {
       if (next !== undefined && next !== ch && next !== " " && next !== "\t") {
         let end = -1;
         for (let j = i + 1; j < input.length; j++) {
-          if (input[j] === ch && input[j - 1] !== " " && input[j + 1] !== ch && input[j - 1] !== ch) {
+          if (
+            input[j] === ch &&
+            input[j - 1] !== " " &&
+            input[j + 1] !== ch &&
+            input[j - 1] !== ch
+          ) {
             end = j;
             break;
           }
@@ -223,10 +228,7 @@ export function parseBlocks(input: string): Block[] {
   return blocks;
 }
 
-function renderInline(
-  tokens: InlineToken[],
-  colors: { code: string; link: string },
-): ReactNode[] {
+function renderInline(tokens: InlineToken[], colors: { code: string; link: string }): ReactNode[] {
   return tokens.map((tok, idx) => {
     if (tok.code) {
       return (
@@ -334,16 +336,8 @@ function MarkdownBodyInner({
             );
           case "code":
             return (
-              <Box
-                key={idx}
-                paddingLeft={paddingLeft}
-                flexDirection="column"
-              >
-                {block.lang ? (
-                  <Text color={dim}>
-                    [{block.lang.toLowerCase()}]
-                  </Text>
-                ) : null}
+              <Box key={idx} paddingLeft={paddingLeft} flexDirection="column">
+                {block.lang ? <Text color={dim}>[{block.lang.toLowerCase()}]</Text> : null}
                 {block.lines.map((ln, j) => (
                   <Box key={j}>
                     <Text color={code}>{"│ "}</Text>

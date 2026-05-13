@@ -80,9 +80,7 @@ describe("resolveModel", () => {
   });
 
   test("vendor/name:tag passes through", () => {
-    expect(resolveModel("google/gemma-4-31b-it:free")).toBe(
-      "google/gemma-4-31b-it:free",
-    );
+    expect(resolveModel("google/gemma-4-31b-it:free")).toBe("google/gemma-4-31b-it:free");
   });
 
   test("vendor/name without tag passes", () => {
@@ -327,10 +325,7 @@ describe("loadConfigFile / saveConfig", () => {
 
   test("saveConfig file is valid JSON round-trip", async () => {
     await saveConfig({ apiKey: "sk-or-rt-padding1234567890ab", maxHistory: 25 });
-    const raw = await readFile(
-      join(dir, ".config", "drexler", "config.json"),
-      "utf-8",
-    );
+    const raw = await readFile(join(dir, ".config", "drexler", "config.json"), "utf-8");
     const parsed = JSON.parse(raw);
     expect(parsed.apiKey).toBe("sk-or-rt-padding1234567890ab");
     expect(parsed.maxHistory).toBe(25);
@@ -368,8 +363,7 @@ describe("ensureApiKey + resolveConfig (no-prompt paths)", () => {
 
   afterEach(async () => {
     if (origHome !== undefined) process.env.HOME = origHome;
-    if (origEnvKey !== undefined)
-      process.env.OPENROUTER_API_KEY = origEnvKey;
+    if (origEnvKey !== undefined) process.env.OPENROUTER_API_KEY = origEnvKey;
     else delete process.env.OPENROUTER_API_KEY;
     if (origEnvModel !== undefined) process.env.DREXLER_MODEL = origEnvModel;
     else delete process.env.DREXLER_MODEL;
@@ -449,25 +443,21 @@ describe("ensureApiKey + resolveConfig (no-prompt paths)", () => {
 
   test("resolveConfig --persona rejects non-existent file", async () => {
     process.env.OPENROUTER_API_KEY = "sk-or-key-padding1234567890ab";
-    await expect(
-      resolveConfig(["--persona", join(dir, "missing.md")]),
-    ).rejects.toThrow(/Invalid --persona/);
+    await expect(resolveConfig(["--persona", join(dir, "missing.md")])).rejects.toThrow(
+      /Invalid --persona/,
+    );
   });
 
   test("resolveConfig --persona rejects non-.md extension", async () => {
     process.env.OPENROUTER_API_KEY = "sk-or-key-padding1234567890ab";
     const txt = join(dir, "persona.txt");
     await writeFile(txt, "body");
-    await expect(
-      resolveConfig(["--persona", txt]),
-    ).rejects.toThrow(/Invalid --persona/);
+    await expect(resolveConfig(["--persona", txt])).rejects.toThrow(/Invalid --persona/);
   });
 
   test("resolveConfig --persona rejects /etc/passwd-style probes", async () => {
     process.env.OPENROUTER_API_KEY = "sk-or-key-padding1234567890ab";
-    await expect(
-      resolveConfig(["--persona", "/etc/passwd"]),
-    ).rejects.toThrow(/Invalid --persona/);
+    await expect(resolveConfig(["--persona", "/etc/passwd"])).rejects.toThrow(/Invalid --persona/);
   });
 
   test("resolveConfig --persona rejects symlinks pointing to non-.md targets", async () => {
@@ -477,9 +467,7 @@ describe("ensureApiKey + resolveConfig (no-prompt paths)", () => {
     const link = join(dir, "evil.md");
     const { symlink } = await import("node:fs/promises");
     await symlink(target, link);
-    await expect(
-      resolveConfig(["--persona", link]),
-    ).rejects.toThrow(/Invalid --persona/);
+    await expect(resolveConfig(["--persona", link])).rejects.toThrow(/Invalid --persona/);
   });
 
   test("resolveConfig config personaPath accepts a regular markdown file", async () => {
@@ -536,9 +524,7 @@ describe("ensureApiKey + resolveConfig (no-prompt paths)", () => {
 
   test("resolveConfig invalid model alias rejects", async () => {
     process.env.OPENROUTER_API_KEY = "sk-or-key-padding1234567890ab";
-    expect(() => resolveConfig(["--model", "garbage"])).toThrow(
-      /Unknown model/,
-    );
+    expect(() => resolveConfig(["--model", "garbage"])).toThrow(/Unknown model/);
   });
 
   test("resolveConfig --theme flag wins over env DREXLER_THEME", async () => {

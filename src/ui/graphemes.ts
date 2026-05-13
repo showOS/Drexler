@@ -78,10 +78,7 @@ export function displayWidth(input: string): number {
     }
     return w;
   }
-  return splitGraphemes(input).reduce(
-    (sum, grapheme) => sum + graphemeWidth(grapheme),
-    0,
-  );
+  return splitGraphemes(input).reduce((sum, grapheme) => sum + graphemeWidth(grapheme), 0);
 }
 
 const ELLIPSIS_WIDTH = 1;
@@ -118,11 +115,7 @@ export function insertAtCursor(
 ): { value: string; cursor: number } {
   const chars = splitGraphemes(input);
   const safeCursor = Math.max(0, Math.min(cursor, chars.length));
-  const next = [
-    ...chars.slice(0, safeCursor),
-    inserted,
-    ...chars.slice(safeCursor),
-  ].join("");
+  const next = [...chars.slice(0, safeCursor), inserted, ...chars.slice(safeCursor)].join("");
   return {
     value: next,
     cursor: safeCursor + graphemeLength(inserted),
@@ -143,10 +136,7 @@ export function deleteBeforeCursor(
   };
 }
 
-export function deleteAtCursor(
-  input: string,
-  cursor: number,
-): { value: string; cursor: number } {
+export function deleteAtCursor(input: string, cursor: number): { value: string; cursor: number } {
   const chars = splitGraphemes(input);
   const safeCursor = Math.max(0, Math.min(cursor, chars.length));
   if (safeCursor >= chars.length) return { value: input, cursor: safeCursor };

@@ -394,21 +394,31 @@ describe("pet state", () => {
 
   test("petTenureMs measures since createdAt; 0 when missing", () => {
     const now = Date.now();
-    expect(petTenureMs({
-      hunger: 50,
-      happiness: 50,
-      energy: 50,
-      deals: 50,
-      lastSaved: now,
-      createdAt: now - 5_000,
-    }, now)).toBe(5_000);
-    expect(petTenureMs({
-      hunger: 50,
-      happiness: 50,
-      energy: 50,
-      deals: 50,
-      lastSaved: now,
-    }, now)).toBe(0);
+    expect(
+      petTenureMs(
+        {
+          hunger: 50,
+          happiness: 50,
+          energy: 50,
+          deals: 50,
+          lastSaved: now,
+          createdAt: now - 5_000,
+        },
+        now,
+      ),
+    ).toBe(5_000);
+    expect(
+      petTenureMs(
+        {
+          hunger: 50,
+          happiness: 50,
+          energy: 50,
+          deals: 50,
+          lastSaved: now,
+        },
+        now,
+      ),
+    ).toBe(0);
   });
 
   test("formatTenure renders d/h/m bands", () => {

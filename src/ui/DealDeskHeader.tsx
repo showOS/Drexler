@@ -25,13 +25,7 @@ const BOARDROOM_STATUS: Record<DealDeskHeaderStatus, string> = {
   error: "COUNSEL PANIC",
 };
 
-type DealDeskPoolKey =
-  | "fees"
-  | "mandate"
-  | "risk"
-  | "counsel"
-  | "morale"
-  | "synergy";
+type DealDeskPoolKey = "fees" | "mandate" | "risk" | "counsel" | "morale" | "synergy";
 
 const DEFAULT_POOL: Record<DealDeskPoolKey, readonly string[]> = {
   fees: ["accruing", "sacred", "non-refundable", "already billed"],
@@ -42,10 +36,7 @@ const DEFAULT_POOL: Record<DealDeskPoolKey, readonly string[]> = {
   synergy: ["alleged", "unverifiable", "already billed", "pending lawsuit"],
 };
 
-const MOOD_POOLS: Record<
-  string,
-  Partial<Record<DealDeskPoolKey, readonly string[]>>
-> = {
+const MOOD_POOLS: Record<string, Partial<Record<DealDeskPoolKey, readonly string[]>>> = {
   angry: {
     fees: ["weaponized", "escalating", "aggressively earned", "non-refundable"],
     mandate: ["hostile", "loudly implied", "board-threatening", "self-ratified"],
@@ -131,10 +122,7 @@ function tinyLine({
   status: DealDeskHeaderStatus;
   width: number;
 }): string {
-  return clampText(
-    `${BOARDROOM_STATUS[status]} ${memoLabel(messageCount)}`,
-    width,
-  );
+  return clampText(`${BOARDROOM_STATUS[status]} ${memoLabel(messageCount)}`, width);
 }
 
 function pickFromMoodPool({
@@ -161,10 +149,7 @@ function hashDealDesk(input: string): number {
 
 function formatCells(cells: string[], width: number): string {
   const separator = "  │  ";
-  const available = Math.max(
-    1,
-    width - displayWidth(separator) * Math.max(0, cells.length - 1),
-  );
+  const available = Math.max(1, width - displayWidth(separator) * Math.max(0, cells.length - 1));
   const base = Math.max(1, Math.floor(available / cells.length));
   const remainder = Math.max(0, available - base * cells.length);
   return cells
@@ -198,23 +183,13 @@ function buildHeaderLines({
     pickFromMoodPool({ key, mood, salt: baseHash + offset * 7919 });
   const statusLabel = BOARDROOM_STATUS[status];
   const summary = compact
-    ? formatCells(
-        [`● ${statusLabel}`, `mood ${mood}`, `fees ${pick("fees", 1)}`],
-        innerWidth,
-      )
+    ? formatCells([`● ${statusLabel}`, `mood ${mood}`, `fees ${pick("fees", 1)}`], innerWidth)
     : formatCells(
-        [
-          `● ${statusLabel}`,
-          memoLabel(messageCount),
-          `fees ${pick("fees", 1)}`,
-        ],
+        [`● ${statusLabel}`, memoLabel(messageCount), `fees ${pick("fees", 1)}`],
         innerWidth,
       );
   const readout = compact
-    ? formatCells(
-        [`risk ${pick("risk", 2)}`, `counsel ${pick("counsel", 3)}`],
-        innerWidth,
-      )
+    ? formatCells([`risk ${pick("risk", 2)}`, `counsel ${pick("counsel", 3)}`], innerWidth)
     : formatCells(
         [
           `mandate ${pick("mandate", 4)}`,
@@ -227,11 +202,7 @@ function buildHeaderLines({
 
   if (!compact && notice && notice.trim().length > 0) {
     const memo = formatCells(
-        [
-          `memo ${notice.trim()}`,
-          `morale ${pick("morale", 7)}`,
-          `synergy ${pick("synergy", 8)}`,
-        ],
+      [`memo ${notice.trim()}`, `morale ${pick("morale", 7)}`, `synergy ${pick("synergy", 8)}`],
       innerWidth,
     );
     lines.push(bodyLine(memo, width));
@@ -334,15 +305,7 @@ function DealDeskHeaderInner({
         width,
         seed: randomSeed,
       }),
-    [
-      compact,
-      messageCount,
-      mood,
-      notice,
-      randomSeed,
-      status,
-      width,
-    ],
+    [compact, messageCount, mood, notice, randomSeed, status, width],
   );
 
   if (width < FRAMED_MIN_WIDTH) {
@@ -363,11 +326,7 @@ function DealDeskHeaderInner({
         titleColor={t.primaryLight}
         width={width}
       />
-      <FramedBodyText
-        line={lines[0] ?? ""}
-        borderColor={t.primary}
-        contentColor={summaryColor}
-      />
+      <FramedBodyText line={lines[0] ?? ""} borderColor={t.primary} contentColor={summaryColor} />
       {lines.slice(1, -1).map((line, index) => (
         <FramedBodyText
           key={index}
