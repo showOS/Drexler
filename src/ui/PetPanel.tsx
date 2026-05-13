@@ -665,11 +665,11 @@ function marketBoardCell(text: string, width: number, align: "left" | "center" |
 
 const MARKET_QUOTE_ARROW_COLUMN = 13;
 
-function marketQuote(label: string, change: string): string {
+function marketQuote(label: string, change: string, direction: "▲" | "▼" = "▲"): string {
   const safeLabel = fitDisplayText(label, MARKET_QUOTE_ARROW_COLUMN);
   return `${safeLabel}${" ".repeat(
     Math.max(0, MARKET_QUOTE_ARROW_COLUMN - displayWidth(safeLabel)),
-  )}▲ ${change}`;
+  )}${direction} ${change}`;
 }
 
 function marketBoardPanelRow(width: number, left: string, center: string, right: string): string {
@@ -712,10 +712,10 @@ function marketBoardLines(
     return [
       boxTop(width, "DREXLER MARKETS"),
       marketBoardSplitRow(width, `DEMO ${clockFromFrame(frame)} ${status}`, `FEE ${fee}%`),
-      boxContent(width, ` ${marketQuote(`TAPE${tapeMarker} BTC`, "1.25")}  ETH ▲ 0.82`),
+      boxContent(width, ` ${marketQuote(`TAPE${tapeMarker} AAPL`, "1.25")}  MSFT ▼ 0.82`),
       boxContent(width, " BID .8419   ASK .8423   VOL 24K"),
-      marketBoardRow(width, marketQuote("BTC 67842", "1.25"), chartA, "69000"),
-      marketBoardRow(width, marketQuote("ETH 3241", "0.82"), chartB, "68000"),
+      marketBoardRow(width, marketQuote("AAPL 214", "1.25"), chartA, "220"),
+      marketBoardRow(width, marketQuote("MSFT 421", "0.82", "▼"), chartB, "430"),
       boxContent(width, ` OPEN 09:00  ${chartLabel}  PIPE ${pipe}%`),
       boxBottom(width),
     ];
@@ -728,10 +728,10 @@ function marketBoardLines(
   return [
     boxTop(width, "DREXLER MARKETS"),
     marketBoardPanelRow(width, headerLeft, headerCenter, `FEE ${fee}%`),
-    marketBoardPanelRow(width, marketQuote(`TAPE${tapeMarker} BTC`, "1.25"), "CANDLE", "VOL 24K"),
-    marketBoardPanelRow(width, marketQuote("BTC 67842", "1.25"), chartA, "69000"),
-    marketBoardPanelRow(width, marketQuote("ETH 3241", "0.82"), chartB, "68000"),
-    marketBoardPanelRow(width, marketQuote("SOL 157", "2.11"), chartC, "67000"),
+    marketBoardPanelRow(width, marketQuote(`TAPE${tapeMarker} AAPL`, "1.25"), "CANDLE", "VOL 24K"),
+    marketBoardPanelRow(width, marketQuote("AAPL 214", "1.25"), chartA, "220"),
+    marketBoardPanelRow(width, marketQuote("MSFT 421", "0.82", "▼"), chartB, "430"),
+    marketBoardPanelRow(width, marketQuote("NVDA 912", "2.11"), chartC, "900"),
     marketBoardPanelRow(width, "BID .8419  ASK .8423", footerCenter, `PIPE ${pipe}%`),
     boxBottom(width),
   ];

@@ -106,12 +106,12 @@ describe("PetScene", () => {
     expect(rendered).toContain("│        12         │");
     expect(rendered).toContain("│    9  ──·    3    │");
     expect(rendered).toContain("DREXLER MARKETS");
-    expect(rendered).toContain("BTC 67842");
+    expect(rendered).toContain("AAPL 214");
     expect(rendered).toContain("TAPE");
     expect(rendered).toContain("BID");
     expect(rendered).toContain("ASK");
     expect(rendered).toContain("VOL");
-    expect(rendered).toContain("SOL");
+    expect(rendered).toContain("NVDA");
     expect(rendered).toContain("CANDLE");
     expect(rendered).toContain("OPEN 09:00");
     expect(rendered).toContain("PIPE");
@@ -316,17 +316,20 @@ describe("PetScene", () => {
       expect(rendered).toContain("ASK");
       expect(rendered).toContain("VOL");
       expect(rendered).toContain("FEE");
-      expect(rendered).toContain("BTC 67842");
+      expect(rendered).toContain("AAPL 214");
       expect(rendered).toContain("▲ 1.25");
+      expect(rendered).toContain("MSFT");
+      expect(rendered).toContain("▼ 0.82");
+      expect(rendered).not.toContain("MSFT ▲ 0.82");
       expect(rendered).not.toContain("▲1.25");
       expect(rendered).toContain("OPEN 09:00");
       expect(rendered).toContain("▐█▌");
       expect(rendered).toContain("▐░▌");
       if (width >= 96) {
-        expect(rendered).toContain("SOL");
+        expect(rendered).toContain("NVDA");
         expect(rendered).toContain("CANDLE");
-        expect(rendered).toContain("69000");
-        expect(rendered).toContain("68000");
+        expect(rendered).toContain("220");
+        expect(rendered).toContain("430");
       }
       if (width >= 124) {
         expect(rendered).toContain("CLOSE 16:00");
@@ -340,8 +343,8 @@ describe("PetScene", () => {
   );
 
   test.each([
-    [52, ["TAPE> BTC", "BTC 67842", "ETH 3241"]],
-    [124, ["DREX 0.8421", "TAPE> BTC", "BTC 67842", "ETH 3241", "SOL 157"]],
+    [52, ["TAPE> AAPL", "AAPL 214", "MSFT 421"]],
+    [124, ["DREX 0.8421", "TAPE> AAPL", "AAPL 214", "MSFT 421", "NVDA 912"]],
   ] as const)("keeps market quote arrows aligned at %d scene columns", (width, labels) => {
     const rendered = renderScene("working", "office", statsCases[0]!, width);
     const lines = rendered.split("\n");
@@ -349,8 +352,8 @@ describe("PetScene", () => {
       const line = lines.find((candidate) => candidate.includes(label));
 
       expect(line).toBeDefined();
-      expect(line!.includes("▲")).toBe(true);
-      return line!.indexOf("▲");
+      expect(/[▲▼]/.test(line!)).toBe(true);
+      return line!.search(/[▲▼]/);
     });
 
     expect(new Set(arrowColumns).size).toBe(1);

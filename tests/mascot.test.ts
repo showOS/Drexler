@@ -290,7 +290,7 @@ describe("MascotFrame", () => {
     expect(rendered).toContain("BID");
     expect(rendered).toContain("ASK");
     expect(rendered).toContain("VOL");
-    expect(rendered).toContain("SOL");
+    expect(rendered).toContain("NVDA");
     expect(rendered).toContain("CANDLE");
     expect(rendered).toContain("╭──╮");
     expect(rendered).toContain("▐█▌");
