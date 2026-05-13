@@ -17,6 +17,7 @@ import {
   typewriterBanner,
   welcomeBox,
 } from "./renderer.ts";
+import { flushPetSaves } from "./pet/petState.ts";
 import { startRepl } from "./repl.ts";
 import { App } from "./ui/App.tsx";
 import { promptForApiKeyWithInk } from "./ui/SetupPrompt.tsx";
@@ -203,6 +204,11 @@ async function main(): Promise<void> {
       { exitOnCtrlC: false },
     );
     await waitUntilExit();
+    // Belt-and-braces: the unmount effect inside App already kicks off
+    // a flushPetSaves, but if waitUntilExit() resolves before that
+    // microtask settles, the pet queue may still have pending work.
+    // Await an explicit drain (timeout-capped) before main() returns.
+    await flushPetSaves();
     return;
   }
 
@@ -224,6 +230,9 @@ async function main(): Promise<void> {
     config,
     print: (s) => console.log(s),
   });
+  // If startRepl returns normally (stdin EOF, not a process.exit path),
+  // drain any pending pet writes before the process unwinds.
+  await flushPetSaves();
 }
 
 function formatLaunchError(e: LaunchConfigError): string {
@@ -239,6 +248,25 @@ function formatLaunchError(e: LaunchConfigError): string {
   }
 }
 
+// Schedule a pet-save drain before exiting. We can't `await` inside a
+// synchronous signal/exception handler, so we kick off the flush, set a
+// hard cap, and call process.exit when whichever finishes first
+// resolves. The drain is best-effort: a stuck writer should not block
+// teardown longer than `flushPetSaves`'s own 2s timeout.
+function exitWithPetFlush(code: number): void {
+  let exited = false;
+  const done = (): void => {
+    if (exited) return;
+    exited = true;
+    process.exit(code);
+  };
+  // Hard cap matches flushPetSaves's default + small jitter so a hang
+  // in the timeout race itself can't strand the process.
+  const hardCap = setTimeout(done, 2_500);
+  if (typeof hardCap.unref === "function") hardCap.unref();
+  flushPetSaves().then(done, done);
+}
+
 // Fatal handlers are installed only in the non-TTY path; the interactive
 // path lets Ink's signal-exit hooks run cleanup so the alt-screen restores.
 function installFatalHandlers(): void {
@@ -246,14 +274,26 @@ function installFatalHandlers(): void {
     const msg = reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
     console.error(error("Unhandled rejection:"), msg);
     process.exitCode = 1;
+    exitWithPetFlush(1);
   });
   process.on("uncaughtException", (err) => {
     console.error(error("Uncaught exception:"), err.stack ?? err.message);
     process.exitCode = 1;
+    exitWithPetFlush(1);
   });
+  // Non-Ink REPL path: readline's SIGINT handler in repl.ts calls
+  // process.exit(0) synchronously. Front-run it with a process-level
+  // handler so the pet save queue gets a chance to drain. SIGTERM is
+  // covered too — supervisors (systemd, pm2) prefer it for graceful
+  // shutdown.
+  const signalHandler = (): void => {
+    exitWithPetFlush(0);
+  };
+  process.on("SIGINT", signalHandler);
+  process.on("SIGTERM", signalHandler);
 }
 
 main().catch((e) => {
   console.error(error("Fatal:"), e);
-  process.exit(1);
+  exitWithPetFlush(1);
 });

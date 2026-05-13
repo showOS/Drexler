@@ -11,9 +11,10 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-// Serialize concurrent saves so the most recently scheduled call lands
-// last on disk. Without this, parallel rename() races mean a stale
-// payload from an earlier turn can clobber the latest at random.
+// Serialize concurrent saves so the latest scheduled call lands last on
+// disk. Without this, parallel rename() races mean a stale payload from
+// an earlier turn can clobber the most recent at random. Mirrors the
+// queue idiom in `src/conversation/persist.ts`.
 let saveQueue: Promise<void> = Promise.resolve();
 
 export type PetActivity =
@@ -235,17 +236,7 @@ export function loadPetState(): PetStats {
   return defaultStats();
 }
 
-export function savePetState(stats: PetStats): Promise<void> {
-  const write = () => writePetStateGuarded(stats);
-  const next = saveQueue.then(write, write);
-  // Swallow rejections so one failure does not poison subsequent saves
-  // and callers keep the best-effort "never crash UI" contract.
-  const guarded = next.catch(() => undefined);
-  saveQueue = guarded;
-  return guarded;
-}
-
-async function writePetStateGuarded(stats: PetStats): Promise<void> {
+function writePetStateAtomic(stats: PetStats): void {
   try {
     const dir = petDir();
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -288,6 +279,66 @@ async function writePetStateGuarded(stats: PetStats): Promise<void> {
   } catch {
     // best-effort
   }
+}
+
+// Indirection hook so tests can simulate a stuck/slow underlying write
+// without needing to mock node:fs at the module-loader level. Default
+// is the real atomic writer; tests restore the default in afterEach.
+let writeImpl: (stats: PetStats) => void | Promise<void> = writePetStateAtomic;
+
+export function __setPetWriteImpl(
+  impl: ((stats: PetStats) => void | Promise<void>) | null,
+): void {
+  writeImpl = impl ?? writePetStateAtomic;
+}
+
+async function writePetStateQueued(stats: PetStats): Promise<void> {
+  await writeImpl(stats);
+}
+
+// All saves serialize through `saveQueue` (§V33). Returns a settled
+// promise once this write finishes; callers may fire-and-forget. The
+// default writer runs synchronous fs calls inline (so a load right
+// after `savePetState` still sees the new file), but the queue
+// tracks the work so `flushPetSaves()` can drain on exit (§V35).
+export function savePetState(stats: PetStats): Promise<void> {
+  const write = () => writePetStateQueued(stats);
+  const next = saveQueue.then(write, write);
+  const guarded = next.catch(() => undefined);
+  saveQueue = guarded;
+  return guarded;
+}
+
+// Drain the pet save queue with a hard timeout. Used by SIGINT/SIGTERM,
+// uncaughtException, and Ink unmount paths so a parallel
+// `savePetState` chain finishes before the process tears down. If the
+// timeout fires before the queue settles, attempt to unlink a stale
+// `pet.json.lock` so a partial write does not strand future launches.
+export function flushPetSaves(timeoutMs: number = 2000): Promise<void> {
+  const pending = saveQueue;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<"timeout">((resolve) => {
+    timer = setTimeout(() => resolve("timeout"), Math.max(0, timeoutMs));
+    // Don't keep the event loop alive solely for the drain timer; the
+    // pending queue itself is what holds the process open.
+    if (typeof timer.unref === "function") timer.unref();
+  });
+  return Promise.race([pending.then(() => "ok" as const), timeout]).then(
+    (outcome) => {
+      if (timer !== null) clearTimeout(timer);
+      if (outcome === "timeout") {
+        // Abandon the stuck queue head so subsequent saves are not blocked
+        // behind it. Best-effort unlink the lockfile so the next process
+        // startup is not stranded.
+        saveQueue = Promise.resolve();
+        try {
+          unlinkSync(`${petFile()}.lock`);
+        } catch {
+          // expected: lockfile may not exist
+        }
+      }
+    },
+  );
 }
 
 export function applyFeed(stats: PetStats): PetStats {

@@ -337,8 +337,46 @@ function styledCellsToSegments(cells: readonly StyledCell[]): StyledSegment[] {
   return segments;
 }
 
+const DOWN_MARKET_QUOTE_RE = /[A-Z]{1,5}(?:\s+[0-9.]+)?\s+▼\s+[0-9.]+/g;
+
+function highlightDownMarketQuotes(
+  segments: readonly StyledSegment[],
+): StyledSegment[] {
+  const highlighted: StyledSegment[] = [];
+  for (const segment of segments) {
+    if (segment.styleToken !== "chartGrid" || !segment.text.includes("▼")) {
+      highlighted.push(segment);
+      continue;
+    }
+
+    let lastIndex = 0;
+    for (const match of segment.text.matchAll(DOWN_MARKET_QUOTE_RE)) {
+      const matchText = match[0] ?? "";
+      const matchIndex = match.index ?? 0;
+      if (matchIndex > lastIndex) {
+        highlighted.push({
+          text: segment.text.slice(lastIndex, matchIndex),
+          styleToken: segment.styleToken,
+        });
+      }
+      highlighted.push({ text: matchText, styleToken: "negativeCandle" });
+      lastIndex = matchIndex + matchText.length;
+    }
+
+    if (lastIndex < segment.text.length) {
+      highlighted.push({
+        text: segment.text.slice(lastIndex),
+        styleToken: segment.styleToken,
+      });
+    }
+  }
+  return highlighted;
+}
+
 function composeStyledScene(scene: Scene, timeline: AnimationTimeline): StyledSegment[][] {
-  return composeSceneCells(scene, timeline).map(styledCellsToSegments);
+  return composeSceneCells(scene, timeline).map((row) =>
+    highlightDownMarketQuotes(styledCellsToSegments(row)),
+  );
 }
 
 function labeledRule(width: number, label: string): string {

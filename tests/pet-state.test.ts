@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { existsSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  __setPetWriteImpl,
   accrueLifetimeDeals,
   actionCooldown,
   applyDecay,
@@ -13,6 +15,7 @@ import {
   applyRest,
   applyVibe,
   applyWork,
+  flushPetSaves,
   formatCooldownRemaining,
   formatTenure,
   getPetMood,
@@ -610,11 +613,10 @@ describe("pet state", () => {
       deals: 0,
       lastSaved: Date.now(),
     };
-    const writes: Promise<void>[] = [];
     for (let i = 0; i < 20; i++) {
-      writes.push(savePetState({ ...base, deals: i }));
+      savePetState({ ...base, deals: i });
     }
-    await Promise.all(writes);
+    await flushPetSaves();
     const raw = await readFile(join(dir, ".drexler", "pet.json"), "utf-8");
     const parsed = JSON.parse(raw);
     // FIFO queue lands the last scheduled call last on disk.
@@ -625,7 +627,6 @@ describe("pet state", () => {
     const petDirPath = join(dir, ".drexler");
     await mkdir(petDirPath, { recursive: true });
     const target = join(petDirPath, "pet.json");
-    // Pre-existing pet.json from "another process".
     await writeFile(
       target,
       JSON.stringify({
@@ -636,10 +637,8 @@ describe("pet state", () => {
         lastSaved: 1,
       }),
     );
-    // Stale lockfile present.
     await writeFile(`${target}.lock`, "");
 
-    // savePetState must not throw and must not clobber pet.json.
     await savePetState({
       hunger: 99,
       happiness: 99,
@@ -663,7 +662,6 @@ describe("pet state", () => {
       lastSaved: Date.now(),
     });
     const lockPath = join(dir, ".drexler", "pet.json.lock");
-    const { existsSync } = await import("node:fs");
     expect(existsSync(lockPath)).toBe(false);
   });
 
@@ -671,9 +669,6 @@ describe("pet state", () => {
     const { readdirSync } = await import("node:fs");
     const petDirPath = join(dir, ".drexler");
     await mkdir(petDirPath, { recursive: true });
-    // Sabotage rename: make pet.json a non-empty directory so
-    // renameSync(tmp, pet.json) fails. The tmp write succeeds, but
-    // rename throws → finally branch should unlink the tmp file.
     const target = join(petDirPath, "pet.json");
     await mkdir(target, { recursive: true });
     await writeFile(join(target, "sentinel"), "x");
@@ -689,8 +684,59 @@ describe("pet state", () => {
     const entries = readdirSync(petDirPath);
     const tmps = entries.filter((e) => e.includes(".tmp."));
     expect(tmps).toEqual([]);
-    // Lockfile also cleaned up.
     const locks = entries.filter((e) => e.endsWith(".lock"));
     expect(locks).toEqual([]);
+  });
+
+  test("flushPetSaves resolves immediately when the queue is empty", async () => {
+    const started = Date.now();
+    await flushPetSaves(2000);
+    expect(Date.now() - started).toBeLessThan(200);
+  });
+
+  test("flushPetSaves drains 5 parallel savePetState calls before timeout", async () => {
+    const stats: PetStats = {
+      hunger: 60,
+      happiness: 60,
+      energy: 60,
+      deals: 60,
+      lastSaved: Date.now(),
+    };
+    for (let i = 0; i < 5; i++) {
+      savePetState({ ...stats, deals: 60 + i });
+    }
+    const started = Date.now();
+    await flushPetSaves(2000);
+    const elapsed = Date.now() - started;
+    expect(elapsed).toBeLessThan(2000);
+    const raw = await readFile(join(dir, ".drexler", "pet.json"), "utf-8");
+    expect(JSON.parse(raw).deals).toBe(64);
+  });
+
+  test("flushPetSaves times out gracefully and unlinks the lockfile", async () => {
+    const petDir = join(dir, ".drexler");
+    await mkdir(petDir, { recursive: true });
+    const lockPath = join(petDir, "pet.json.lock");
+    writeFileSync(lockPath, "stale", "utf-8");
+    expect(existsSync(lockPath)).toBe(true);
+
+    __setPetWriteImpl(() => new Promise<void>(() => {}));
+    try {
+      savePetState({
+        hunger: 50,
+        happiness: 50,
+        energy: 50,
+        deals: 50,
+        lastSaved: Date.now(),
+      });
+
+      const started = Date.now();
+      await flushPetSaves(50);
+      const elapsed = Date.now() - started;
+      expect(elapsed).toBeLessThan(500);
+      expect(existsSync(lockPath)).toBe(false);
+    } finally {
+      __setPetWriteImpl(null);
+    }
   });
 });

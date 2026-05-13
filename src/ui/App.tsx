@@ -11,6 +11,7 @@ import {
   applyRest,
   applyVibe,
   applyWork,
+  flushPetSaves,
   formatCooldownRemaining,
   formatTenure,
   getPetMood,
@@ -526,7 +527,19 @@ export function App({
     const deadStats = { ...petStats, dead: true };
     petStatsRef.current = deadStats;
     savePetState(deadStats);
-    replaceExitTimer(exitTimerRef, () => exit(), 5000);
+    // Death exit: give the 5s death-screen its full hold time, then
+    // drain any pending pet writes before Ink tears down so the `dead:
+    // true` payload definitely lands on disk.
+    replaceExitTimer(
+      exitTimerRef,
+      () => {
+        flushPetSaves().then(
+          () => exit(),
+          () => exit(),
+        );
+      },
+      5000,
+    );
   }, [petStats, isDead, exit]);
 
   const paletteItems = useMemo(() => filterPaletteByPrefix(input), [input]);
@@ -606,7 +619,22 @@ export function App({
       setRequestInFlight(false);
       setSynergyEvent(null);
       setExitMsg(msg);
-      replaceExitTimer(exitTimerRef, () => exit(), 50);
+      // Drain the pet save queue before Ink unmounts. The 50ms grace
+      // window above was to let the final `setExitMsg` render before
+      // alt-screen tears down; we keep that grace as a hard cap by
+      // racing the flush against a setTimeout inside flushPetSaves
+      // itself (default 2s). On flush completion (or timeout) we then
+      // invoke `exit()` so the Ink alt-screen restore still runs.
+      replaceExitTimer(
+        exitTimerRef,
+        () => {
+          flushPetSaves().then(
+            () => exit(),
+            () => exit(),
+          );
+        },
+        50,
+      );
     },
     [exit, flushPersistSession],
   );
@@ -1368,6 +1396,12 @@ export function App({
           ),
         ).catch(() => {});
       }
+      // Drain the pet save queue on unmount so any in-flight
+      // `savePetState` (from a final stat tick or activity) lands on
+      // disk before the process tears down. Fire-and-forget: React
+      // effect cleanup can't await, and `flushPetSaves` enforces its
+      // own ≤2s timeout.
+      void flushPetSaves().catch(() => {});
       if (streamTimerRef.current !== null) {
         clearTimeout(streamTimerRef.current);
       }
