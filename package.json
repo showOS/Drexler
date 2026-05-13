@@ -39,11 +39,12 @@
     "drexler": "bun run src/index.ts",
     "link": "bun link",
     "test": "bun test",
+    "test:coverage": "bun test --coverage",
     "typecheck": "tsc --noEmit",
     "lint": "bunx eslint src tests --max-warnings=30",
     "format": "bunx prettier --write src tests",
     "format:check": "bunx prettier --check src tests",
-    "prepublishOnly": "bun test && bun run typecheck"
+    "prepublishOnly": "bun test && bun run typecheck && bun run lint && bun run format:check"
   },
   "dependencies": {
     "chalk": "^5.3.0",
