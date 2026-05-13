@@ -58,7 +58,7 @@ const ROLE_LABELS: Record<TranscriptViewportItem["role"], string> = {
 const ROLE_MARKERS: Record<TranscriptViewportItem["role"], string> = {
   user: "›",
   assistant: "│",
-  system: "!",
+  system: "§",
 };
 
 const BODY_SUFFIX = " │";
@@ -140,6 +140,7 @@ const CODE_IDENTIFIER_RE = /^[A-Za-z_$][\w$]*/u;
 function bodyPrefixForRole(role: TranscriptViewportItem["role"]): string {
   if (role === "user") return "│ › ";
   if (role === "assistant") return "│ ◆ ";
+  if (role === "system") return "│ § ";
   return CONTINUATION_PREFIX;
 }
 
@@ -413,7 +414,7 @@ function roleAccentColor(
   role: TranscriptViewportItem["role"],
   theme: ReturnType<typeof useTheme>,
 ): string {
-  if (role === "system") return theme.warning;
+  if (role === "system") return theme.system;
   if (role === "user") return theme.warning;
   return theme.primaryLight;
 }
@@ -422,7 +423,7 @@ function roleBodyColor(
   role: TranscriptViewportItem["role"],
   theme: ReturnType<typeof useTheme>,
 ): string {
-  if (role === "system") return theme.dim;
+  if (role === "system") return theme.systemText;
   return theme.text;
 }
 
@@ -485,7 +486,7 @@ const DefaultTranscriptItem = memo(function DefaultTranscriptItem({
           {fitDisplayText(prefix, cols)}
         </Text>
         {displayWidth(prefix) < cols ? (
-          <Text color={roleBodyColor(item.role, t)} wrap="truncate">
+          <Text color={roleBodyColor(item.role, t)} italic={item.role === "system"} wrap="truncate">
             {fitDisplayText(firstLine, budget)}
           </Text>
         ) : null}
@@ -547,7 +548,10 @@ const DefaultTranscriptItem = memo(function DefaultTranscriptItem({
             {index === 0 ? bodyPrefix : CONTINUATION_PREFIX}
           </Text>
           {line.kind === "code" ? <Text color={DRACULA_CODE.gutter}>{CODE_GUTTER}</Text> : null}
-          <Text color={line.kind === "code" ? DRACULA_CODE.text : roleBodyColor(item.role, t)}>
+          <Text
+            color={line.kind === "code" ? DRACULA_CODE.text : roleBodyColor(item.role, t)}
+            italic={item.role === "system" && line.kind !== "code"}
+          >
             {line.kind === "code"
               ? renderCodeLine(
                   fitDisplayText(line.text, Math.max(1, contentWidth - displayWidth(CODE_GUTTER))),

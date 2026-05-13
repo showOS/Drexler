@@ -53,6 +53,12 @@ describe("theme registry", () => {
       expect(THEMES[name].dim).toBeTruthy();
       expect(THEMES[name].error).toBeTruthy();
       expect(THEMES[name].warning).toBeTruthy();
+      expect(THEMES[name].system).toBeTruthy();
+      expect(THEMES[name].systemText).toBeTruthy();
+      expect(THEMES[name].system).not.toBe(THEMES[name].warning);
+      if (!THEMES[name].ansi) {
+        expect(THEMES[name].systemText).not.toBe(THEMES[name].dim);
+      }
     }
   });
 });
@@ -118,10 +124,20 @@ describe("setActiveTheme + getActiveTheme round-trip", () => {
 });
 
 describe("buildChalkColors", () => {
-  test("returns object with all 7 keys", () => {
+  test("returns object with all theme color keys", () => {
     const colors = buildChalkColors(THEMES.apollo);
     expect(Object.keys(colors).sort()).toEqual(
-      ["apollo", "apolloDim", "apolloLight", "dim", "error", "text", "warning"].sort(),
+      [
+        "apollo",
+        "apolloDim",
+        "apolloLight",
+        "dim",
+        "error",
+        "system",
+        "systemText",
+        "text",
+        "warning",
+      ].sort(),
     );
   });
 

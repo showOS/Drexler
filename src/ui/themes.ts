@@ -9,6 +9,8 @@ export interface Theme {
   dim: string;
   error: string;
   warning: string;
+  system: string;
+  systemText: string;
   ansi: boolean; // true = use named ANSI colors, false = hex
 }
 
@@ -21,6 +23,8 @@ export const THEMES: Record<ThemeName, Theme> = {
     dim: "#6b7280",
     error: "#ef4444",
     warning: "#eab308",
+    system: "#38bdf8",
+    systemText: "#9aa6b2",
     ansi: false,
   },
   amber: {
@@ -31,6 +35,8 @@ export const THEMES: Record<ThemeName, Theme> = {
     dim: "#6b7280",
     error: "#ef4444",
     warning: "#eab308",
+    system: "#38bdf8",
+    systemText: "#9aa6b2",
     ansi: false,
   },
   mono: {
@@ -41,6 +47,8 @@ export const THEMES: Record<ThemeName, Theme> = {
     dim: "gray",
     error: "red",
     warning: "yellow",
+    system: "cyan",
+    systemText: "gray",
     ansi: true,
   },
   terminal: {
@@ -51,6 +59,8 @@ export const THEMES: Record<ThemeName, Theme> = {
     dim: "gray",
     error: "red",
     warning: "yellow",
+    system: "cyan",
+    systemText: "gray",
     ansi: true,
   },
   dealroom: {
@@ -61,6 +71,8 @@ export const THEMES: Record<ThemeName, Theme> = {
     dim: "#94a3b8",
     error: "#f43f5e",
     warning: "#f59e0b",
+    system: "#67e8f9",
+    systemText: "#9aa6b2",
     ansi: false,
   },
   midnight: {
@@ -71,6 +83,8 @@ export const THEMES: Record<ThemeName, Theme> = {
     dim: "#64748b",
     error: "#fb7185",
     warning: "#facc15",
+    system: "#38bdf8",
+    systemText: "#9aa6b2",
     ansi: false,
   },
   paper: {
@@ -81,6 +95,8 @@ export const THEMES: Record<ThemeName, Theme> = {
     dim: "#94a3b8",
     error: "#b91c1c",
     warning: "#b45309",
+    system: "#0ea5e9",
+    systemText: "#9aa6b2",
     ansi: false,
   },
   plasma: {
@@ -91,6 +107,8 @@ export const THEMES: Record<ThemeName, Theme> = {
     dim: "#94a3b8",
     error: "#f43f5e",
     warning: "#f59e0b",
+    system: "#22d3ee",
+    systemText: "#9aa6b2",
     ansi: false,
   },
 };
@@ -158,5 +176,7 @@ export function buildChalkColors(theme: Theme) {
     dim: wrap(theme.dim),
     error: wrap(theme.error),
     warning: wrap(theme.warning),
+    system: wrap(theme.system),
+    systemText: wrap(theme.systemText),
   };
 }

@@ -94,6 +94,28 @@ describe("TranscriptViewport", () => {
     expect(rendered).not.toContain("\nYOU\n");
   });
 
+  test("renders system messages with section marker and normal body alignment", () => {
+    const rendered = renderViewport({
+      items: [{ id: "sys", role: "system", content: "Pet dashboard enabled." }],
+      maxRows: 4,
+      cols: 72,
+    });
+
+    expect(rendered).toContain("╭─ SYSTEM");
+    expect(rendered).toContain("│ § Pet dashboard enabled.");
+  });
+
+  test("renders compact system messages with section marker", () => {
+    const rendered = renderViewport({
+      items: [{ id: "sys", role: "system", content: "Pet dashboard enabled." }],
+      maxRows: 2,
+      cols: 42,
+      compact: true,
+    });
+
+    expect(rendered).toContain("SYSTEM § Pet dashboard enabled.");
+  });
+
   test("wraps default item rendering to narrow columns", () => {
     const width = 22;
     const rendered = renderViewport({
