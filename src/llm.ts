@@ -62,7 +62,9 @@ function debugWarn(label: string, detail: string): void {
   if (process.env.DREXLER_DEBUG && process.env.DREXLER_DEBUG !== "0") {
     try {
       process.stderr.write(`[drexler ${label}] ${detail}\n`);
-    } catch {}
+    } catch {
+      // best-effort debug log; never crash on a closed stderr
+    }
   }
 }
 
@@ -179,7 +181,9 @@ async function attempt(
     let detail = "";
     try {
       detail = await res.text();
-    } catch {}
+    } catch {
+      // best-effort: response body unavailable, surface bare status
+    }
     return {
       status: "auth_error",
       content: "",
@@ -190,7 +194,9 @@ async function attempt(
   if (res.status >= 500 && res.status <= 599 && attemptNumber < MAX_5XX_ATTEMPTS) {
     try {
       await res.text();
-    } catch {}
+    } catch {
+      // best-effort: drain body before retry; ignore read failures
+    }
     // Exponential backoff with jitter — abortable. Delay before the
     // *next* attempt: 250ms before attempt #2, 500ms before attempt #3.
     const delayMs = jittered(RETRY_DELAYS_MS[attemptNumber - 1] ?? 1000);
@@ -210,7 +216,9 @@ async function attempt(
     let detail = "";
     try {
       detail = await res.text();
-    } catch {}
+    } catch {
+      // best-effort: response body unavailable, surface bare status
+    }
     return {
       status: "http_error",
       content: "",
@@ -372,6 +380,8 @@ export async function parseSSEStream(
   } finally {
     try {
       reader.releaseLock();
-    } catch {}
+    } catch {
+      // best-effort: reader may already be released after stream completion
+    }
   }
 }

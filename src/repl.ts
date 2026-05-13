@@ -75,7 +75,7 @@ export function detectPersonaDrift(content: string): boolean {
     // Strip LaTeX-style inline math $...$ and display math $$...$$ so
     // `$I = mc^2$` doesn't trip drift detection.
     .replace(/\$\$[\s\S]*?\$\$/g, "")
-    .replace(/\$[^\$\n]*\$/g, "");
+    .replace(/\$[^$\n]*\$/g, "");
   const folded = noCode.normalize("NFKC").replace(I_CONFUSABLES_RE, "I");
   return /\bI\b|\bI'm\b|\bI'll\b|\bI've\b|\bI'd\b/.test(folded);
 }
@@ -227,7 +227,9 @@ export async function startRepl(deps: ReplDeps): Promise<void> {
     if (msg) console.log("\n" + msg);
     try {
       rl.close();
-    } catch {}
+    } catch {
+      // best-effort: readline may already be closed when SIGINT races exit
+    }
     process.exit(0);
   };
 

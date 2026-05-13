@@ -247,7 +247,7 @@ describe("buildMessagesWithReminder", () => {
 
 describe("drift-reminder injection", () => {
   test("system reminder appended every 5 user turns", async () => {
-    const requestBodies: any[] = [];
+    const requestBodies: Array<{ messages: Array<{ role: string; content: string }> }> = [];
     const fetchFn: FetchFn = async (_url, init) => {
       requestBodies.push(JSON.parse(String(init?.body ?? "{}")));
       return new Response(sseStream(["ok"]), {
@@ -266,7 +266,7 @@ describe("drift-reminder injection", () => {
   });
 
   test("no reminder on turns not divisible by 5", async () => {
-    const requestBodies: any[] = [];
+    const requestBodies: Array<{ messages: Array<{ role: string; content: string }> }> = [];
     const fetchFn: FetchFn = async (_url, init) => {
       requestBodies.push(JSON.parse(String(init?.body ?? "{}")));
       return new Response(sseStream(["ok"]), {

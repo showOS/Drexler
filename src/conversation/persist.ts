@@ -114,7 +114,9 @@ async function writeSessionAtomic(session: SavedSession): Promise<void> {
     } catch (err) {
       try {
         await unlink(tmp);
-      } catch {}
+      } catch {
+        // best-effort cleanup; tmp may already be gone
+      }
       throw err;
     }
   } catch {

@@ -224,7 +224,9 @@ export async function saveConfig(partial: Partial<Config>): Promise<void> {
   }
   try {
     await chmod(target, 0o600);
-  } catch {}
+  } catch {
+    // best-effort: chmod failure on a successfully written config is non-fatal
+  }
   // Drop the cache so subsequent reads see the merged state. Cheaper
   // than rewriting the cache to `merged` because there are usually
   // zero or one reads after a save in a startup pass.
