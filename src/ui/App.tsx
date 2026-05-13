@@ -45,7 +45,7 @@ import {
 import { isValidApiKey, saveConfig } from "../config.ts";
 import type { Conversation } from "../conversation.ts";
 import { buildSavedSession, saveSession } from "../conversation/persist.ts";
-import { streamChat, type FetchFn } from "../llm.ts";
+import { getRecentTelemetry, streamChat, type FetchFn } from "../llm.ts";
 import { pickLayout } from "../renderer.ts";
 import { buildMessagesWithReminder, detectPersonaDrift, pickFallback } from "../repl.ts";
 import { EMPTY_NUDGE, SIGINT_MSG, STREAM_ERROR, THINKING_LINES, WITTICISMS } from "../sayings.ts";
@@ -1093,6 +1093,23 @@ export function App({
           value: action.value,
           cursor: graphemeLength(action.value),
         });
+      }
+      if (action.type === "debug") {
+        const frames = getRecentTelemetry();
+        if (frames.length === 0) {
+          addItem("system", "Drexler telemetry buffer empty. No stream attempts on record.");
+        } else {
+          const lines = ["Drexler stream telemetry (last 5):"];
+          for (const f of frames) {
+            const ts = new Date(f.at).toISOString().slice(11, 19);
+            const verdict = f.ok ? "ok" : "err";
+            const status = f.status ?? "-";
+            const dur = typeof f.durationMs === "number" ? `${f.durationMs}ms` : "-";
+            const err = f.error ? ` ${f.error}` : "";
+            lines.push(`  [${ts}] ${f.model} ${verdict} ${status} ${dur}${err}`);
+          }
+          addItem("system", lines.join("\n"));
+        }
       }
       setMsgCount(conversation.length);
     },

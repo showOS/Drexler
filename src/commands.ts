@@ -17,7 +17,8 @@ export type CommandAction =
   | { type: "continue"; persistConfig?: Partial<Config> }
   | { type: "exit"; message?: string }
   | { type: "regenerate"; instruction?: string; removedAssistant: boolean }
-  | { type: "draft"; value: string };
+  | { type: "draft"; value: string }
+  | { type: "debug" };
 
 export type CommandGroup = "directives" | "themes" | "models" | "startup" | "retry" | "export";
 
@@ -62,7 +63,8 @@ const HELP_TEXT = `New memo to staff! Drexler permit following directives:
   /copy-last     - alias for /copy
   /setup         - show config + API key source
   /update        - show upgrade instructions
-  /auth <key>    - replace the API key in-session (no restart)`;
+  /auth <key>    - replace the API key in-session (no restart)
+  /debug         - dump last 5 stream telemetry frames`;
 
 const WHITESPACE_RE = /\s+/;
 
@@ -106,6 +108,7 @@ export const COMMAND_PALETTE: ReadonlyArray<SlashCommand> = [
   { name: "/setup", description: "Show config + key source", group: "directives" },
   { name: "/update", description: "Show upgrade instructions", group: "directives" },
   { name: "/auth", description: "Replace the API key in-session", group: "directives" },
+  { name: "/debug", description: "Dump last 5 stream telemetry frames", group: "directives" },
 ];
 
 const THEME_PALETTE_COPY: Record<
@@ -464,6 +467,9 @@ export function dispatch(input: string, ctx: CommandContext): CommandAction {
     case "update":
       handleUpdate(ctx);
       return { type: "continue" };
+
+    case "debug":
+      return { type: "debug" };
 
     default:
       ctx.print("Drexler not recognize that corporate directive. Try /help.");

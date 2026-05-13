@@ -34,6 +34,7 @@ export const COMMAND_HINTS: Record<string, string> = {
   "/setup": "show config + key source",
   "/update": "bun update -g drexler --latest",
   "/auth": "/auth sk-or-... (replace in-session)",
+  "/debug": "dump last 5 stream telemetry frames",
   "/pet": "open pet deal desk",
   "/feed": "feed Drexler a deal memo",
   "/play": "corporate synergy game",

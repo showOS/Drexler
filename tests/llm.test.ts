@@ -1,5 +1,11 @@
-import { describe, expect, test } from "bun:test";
-import { parseSSEStream, streamChat } from "../src/llm.ts";
+import { beforeEach, describe, expect, test } from "bun:test";
+import {
+  clearTelemetry,
+  getRecentTelemetry,
+  parseSSEStream,
+  recordTelemetry,
+  streamChat,
+} from "../src/llm.ts";
 import { MODEL_FALLBACK, MODEL_PRIMARY } from "../src/types.ts";
 
 function streamFromString(s: string): ReadableStream<Uint8Array> {
@@ -498,5 +504,73 @@ describe("streamChat (V3 fallback)", () => {
     });
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/aborted/i);
+  });
+});
+
+describe("telemetry ring buffer (§T13, V39)", () => {
+  beforeEach(() => {
+    clearTelemetry();
+  });
+
+  test("recordTelemetry pushes a frame retrievable via getRecentTelemetry", () => {
+    recordTelemetry({
+      at: 1_700_000_000_000,
+      model: MODEL_PRIMARY,
+      ok: true,
+      status: "ok",
+      modelUsed: MODEL_PRIMARY,
+      durationMs: 42,
+    });
+    const frames = getRecentTelemetry();
+    expect(frames).toHaveLength(1);
+    expect(frames[0]).toMatchObject({
+      model: MODEL_PRIMARY,
+      ok: true,
+      status: "ok",
+      durationMs: 42,
+    });
+  });
+
+  test("buffer trims to 5 frames FIFO", () => {
+    for (let i = 0; i < 8; i++) {
+      recordTelemetry({
+        at: i,
+        model: MODEL_PRIMARY,
+        ok: i % 2 === 0,
+        status: `s${i}`,
+      });
+    }
+    const frames = getRecentTelemetry();
+    expect(frames).toHaveLength(5);
+    // Oldest three (at 0,1,2) dropped; remaining is 3..7
+    expect(frames.map((f) => f.at)).toEqual([3, 4, 5, 6, 7]);
+  });
+
+  test("getRecentTelemetry returns a defensive copy", () => {
+    recordTelemetry({ at: 1, model: MODEL_PRIMARY, ok: true });
+    const snap = getRecentTelemetry();
+    snap.push({ at: 999, model: "fake", ok: false });
+    expect(getRecentTelemetry()).toHaveLength(1);
+  });
+
+  test("streamChat records a frame on http_error outcome", async () => {
+    const fetchFn: import("../src/llm.ts").FetchFn = async () => {
+      throw new Error("network down");
+    };
+    await streamChat({
+      apiKey: "k",
+      model: MODEL_PRIMARY,
+      messages: [{ role: "user", content: "hi" }],
+      onToken: () => {},
+      fetchFn,
+    });
+    const frames = getRecentTelemetry();
+    expect(frames.length).toBeGreaterThanOrEqual(1);
+    const last = frames[frames.length - 1]!;
+    expect(last.ok).toBe(false);
+    expect(last.model).toBe(MODEL_PRIMARY);
+    expect(last.status).toBe("http_error");
+    expect(typeof last.durationMs).toBe("number");
+    expect(last.error).toMatch(/network down/);
   });
 });

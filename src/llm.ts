@@ -90,27 +90,75 @@ export interface StreamResult {
   authFailure?: boolean;
 }
 
+// Telemetry: small FIFO ring of the last N stream attempts so `/debug`
+// can dump recent outcomes without keeping the full transcript in memory.
+// Module-scoped, in-memory only — never persisted to disk.
+export interface TelemetryFrame {
+  at: number;
+  model: string;
+  ok: boolean;
+  error?: string;
+  status?: string;
+  modelUsed?: string;
+  durationMs?: number;
+}
+
+const TELEMETRY_BUFFER_SIZE = 5;
+const telemetryBuffer: TelemetryFrame[] = [];
+
+export function recordTelemetry(frame: TelemetryFrame): void {
+  telemetryBuffer.push(frame);
+  if (telemetryBuffer.length > TELEMETRY_BUFFER_SIZE) {
+    telemetryBuffer.splice(0, telemetryBuffer.length - TELEMETRY_BUFFER_SIZE);
+  }
+}
+
+export function getRecentTelemetry(): TelemetryFrame[] {
+  return telemetryBuffer.slice();
+}
+
+export function clearTelemetry(): void {
+  telemetryBuffer.length = 0;
+}
+
 export async function streamChat(opts: StreamOptions): Promise<StreamResult> {
   const fetchFn = opts.fetchFn ?? fetch;
+  const startedAt = Date.now();
+  const finalize = (result: StreamResult, status: string): StreamResult => {
+    recordTelemetry({
+      at: startedAt,
+      model: opts.model,
+      ok: result.ok,
+      error: result.error,
+      status,
+      modelUsed: result.modelUsed,
+      durationMs: Date.now() - startedAt,
+    });
+    return result;
+  };
   const first = await attempt(opts.model, opts, fetchFn);
-  if (first.status !== "rate_limit") return toResult(first, opts.model, false);
+  if (first.status !== "rate_limit") {
+    return finalize(toResult(first, opts.model, false), first.status);
+  }
   if (!opts.fallbackModel || opts.fallbackModel === opts.model) {
-    return toResult(first, opts.model, false);
+    return finalize(toResult(first, opts.model, false), first.status);
   }
   const second = await attempt(opts.fallbackModel, opts, fetchFn);
   if (second.status !== "rate_limit") {
-    return toResult(second, opts.fallbackModel, true);
+    return finalize(toResult(second, opts.fallbackModel, true), second.status);
   }
   // Both 429 — brief pause, then one more shot at the primary so a
   // transient cross-model burst doesn't dead-end the user.
   try {
     await abortableDelay(POST_FALLBACK_429_DELAY_MS, opts.signal);
   } catch {
-    return toResult(second, opts.fallbackModel, true);
+    return finalize(toResult(second, opts.fallbackModel, true), second.status);
   }
   const third = await attempt(opts.model, opts, fetchFn);
-  if (third.status === "ok") return toResult(third, opts.model, false);
-  return toResult(third, opts.model, true);
+  if (third.status === "ok") {
+    return finalize(toResult(third, opts.model, false), third.status);
+  }
+  return finalize(toResult(third, opts.model, true), third.status);
 }
 
 type AttemptStatus = "ok" | "rate_limit" | "http_error" | "stream_error" | "auth_error";

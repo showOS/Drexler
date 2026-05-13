@@ -977,3 +977,30 @@ describe("/model multi-turn switching", () => {
     expect(ctx.config.model).toBe(MODEL_FALLBACK);
   });
 });
+
+describe("/debug (§T13, V39)", () => {
+  test("dispatches to { type: 'debug' } action", () => {
+    const { ctx, out } = makeCtx();
+    const action = dispatch("/debug", ctx);
+    expect(action.type).toBe("debug");
+    // /debug itself prints nothing — the App handler reads telemetry
+    // and renders it; dispatch just returns the action.
+    expect(out).toEqual([]);
+  });
+
+  test("/DEBUG is case-insensitive (V8)", () => {
+    const { ctx } = makeCtx();
+    const action = dispatch("/DEBUG", ctx);
+    expect(action.type).toBe("debug");
+  });
+
+  test("/debug appears in /help text", () => {
+    const { ctx, out } = makeCtx();
+    dispatch("/help", ctx);
+    expect(out.join("\n")).toContain("/debug");
+  });
+
+  test("/debug appears in command palette", () => {
+    expect(COMMAND_PALETTE.some((c) => c.name === "/debug")).toBe(true);
+  });
+});
