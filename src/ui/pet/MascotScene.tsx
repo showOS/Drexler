@@ -424,15 +424,23 @@ function buildOfficeScene(
     ),
   );
 
+  const boardLines = marketBoardLines(metrics.boardWidth, activity, frame, stats);
+  // MSFT is the declining ticker — paint that row with negativeCandle (red)
+  // by overlaying just that row with a second sprite at a higher zIndex.
+  // Narrow layout puts the MSFT row at index 5, wide/standard at index 4.
+  const msftRowIdx = metrics.boardWidth < 58 ? 5 : 4;
+  const msftOverlayLines = boardLines.map((line, i) => (i === msftRowIdx ? line : ""));
+
   if (layout === "compact") {
     sprites.push(
+      makeSprite("market:compact", 20, metrics.boardX, R_WIN_TOP, boardLines, "chartGrid"),
       makeSprite(
-        "market:compact",
-        20,
+        "market:compact:msft",
+        21,
         metrics.boardX,
         R_WIN_TOP,
-        marketBoardLines(metrics.boardWidth, activity, frame, stats),
-        "chartGrid",
+        msftOverlayLines,
+        "negativeCandle",
       ),
     );
   } else {
@@ -445,13 +453,14 @@ function buildOfficeScene(
         cityWindowLines(metrics.windowWidth, frame),
         "secondaryLine",
       ),
+      makeSprite("market:board", 20, metrics.boardX, R_WIN_TOP, boardLines, "chartGrid"),
       makeSprite(
-        "market:board",
-        20,
+        "market:board:msft",
+        21,
         metrics.boardX,
         R_WIN_TOP,
-        marketBoardLines(metrics.boardWidth, activity, frame, stats),
-        "chartGrid",
+        msftOverlayLines,
+        "negativeCandle",
       ),
     );
   }
