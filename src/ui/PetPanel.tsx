@@ -641,22 +641,31 @@ function marketBoardSplitRow(width: number, left: string, right: string): string
   return boxRowFromInner(width, row);
 }
 
-function marketBoardTrioRow(width: number, left: string, center: string, right: string): string {
-  const inner = Math.max(1, width - 2);
-  let row = blankRow(inner);
-  const fittedRight = fitDisplayText(right, Math.max(1, inner - 2));
-  const rightWidth = displayWidth(fittedRight);
-  const rightX = Math.max(0, inner - rightWidth - 1);
-  const centerLimit = Math.max(1, rightX - 3);
-  const fittedCenter = fitDisplayText(center, centerLimit);
-  const centerWidth = displayWidth(fittedCenter);
-  const centeredX = Math.floor((inner - centerWidth) / 2);
-  const centerX = Math.max(1, Math.min(centeredX, Math.max(1, rightX - centerWidth - 2)));
-  const leftLimit = Math.max(1, centerX - 2);
+function marketBoardCell(text: string, width: number, align: "left" | "center" | "right"): string {
+  const safeWidth = Math.max(1, width);
+  const fitted = fitDisplayText(text, safeWidth);
+  const padding = Math.max(0, safeWidth - displayWidth(fitted));
+  if (align === "right") return `${" ".repeat(padding)}${fitted}`;
+  if (align === "center") {
+    const left = Math.floor(padding / 2);
+    return `${" ".repeat(left)}${fitted}${" ".repeat(padding - left)}`;
+  }
+  return `${fitted}${" ".repeat(padding)}`;
+}
 
-  row = place(row, fitDisplayText(left, leftLimit), 1);
-  row = place(row, fittedCenter, centerX);
-  row = place(row, fittedRight, rightX);
+function marketBoardPanelRow(width: number, left: string, center: string, right: string): string {
+  const inner = Math.max(1, width - 2);
+  const contentWidth = Math.max(1, inner - 2);
+  const separator = " │ ";
+  const leftWidth = Math.min(32, Math.max(18, Math.floor(contentWidth * 0.3)));
+  const rightWidth = Math.min(12, Math.max(9, Math.floor(contentWidth * 0.14)));
+  const centerWidth = Math.max(1, contentWidth - leftWidth - rightWidth - separator.length * 2);
+  const content = [
+    marketBoardCell(left, leftWidth, "left"),
+    marketBoardCell(center, centerWidth, "center"),
+    marketBoardCell(right, rightWidth, "right"),
+  ].join(separator);
+  const row = ` ${content} `;
   return boxRowFromInner(width, row);
 }
 
@@ -693,23 +702,19 @@ function marketBoardLines(
     ];
   }
 
-  const standard = width < 88;
-  const headerLeft = standard ? "DREX 0.8421 ▲3.17" : "DREX 0.8421 ▲ 3.17%";
+  const headerLeft = "DREX 0.8421 ▲3.17";
   const headerCenter = `DEMO ${clockFromFrame(frame)} ${status}`;
-  const tape = standard
-    ? `TAPE${tapeMarker} BTC ▲1.25  ETH ▲0.82`
-    : `TAPE${tapeMarker} BTC ▲1.25  ETH ▲0.82  SOL ▲2.11`;
-  const footerCenter = standard
+  const footerCenter = width < 90
     ? `OPEN 09:00  ${chartLabel}`
     : `OPEN 09:00  13:00  ${chartLabel}  CLOSE 16:00`;
   return [
     boxTop(width, "DREXLER MARKETS"),
-    marketBoardTrioRow(width, headerLeft, headerCenter, `FEE ${fee}%`),
-    marketBoardTrioRow(width, tape, "CANDLE", "VOL 24K"),
-    marketBoardTrioRow(width, "BTC 67842  ▲1.25", chartA, "69000"),
-    marketBoardTrioRow(width, "ETH  3241  ▲0.82", chartB, "68000"),
-    marketBoardTrioRow(width, "SOL   157  ▲2.11", chartC, "67000"),
-    marketBoardTrioRow(width, "BID .8419  ASK .8423", footerCenter, `PIPE ${pipe}%`),
+    marketBoardPanelRow(width, headerLeft, headerCenter, `FEE ${fee}%`),
+    marketBoardPanelRow(width, `TAPE${tapeMarker} BTC ▲1.25`, "CANDLE", "VOL 24K"),
+    marketBoardPanelRow(width, "BTC 67842  ▲1.25", chartA, "69000"),
+    marketBoardPanelRow(width, "ETH  3241  ▲0.82", chartB, "68000"),
+    marketBoardPanelRow(width, "SOL   157  ▲2.11", chartC, "67000"),
+    marketBoardPanelRow(width, "BID .8419  ASK .8423", footerCenter, `PIPE ${pipe}%`),
     boxBottom(width),
   ];
 }
