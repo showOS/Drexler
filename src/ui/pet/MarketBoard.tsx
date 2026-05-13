@@ -123,19 +123,19 @@ function sparkSlice(spark: readonly number[], frame: number, width: number): str
 export function boardTapeLabel(activity: PetActivity, frame: number): string {
   switch (activity) {
     case "working":
-      return frame % 2 === 0 ? "term live" : "keys live";
+      return frame % 2 === 0 ? "ORDER FLOW" : "BID TRACK";
     case "praised":
-      return "memo done";
+      return "POSITION WIN";
     case "sleeping":
-      return "desk quiet";
+      return "AFTER HOURS";
     case "eating":
-      return "deal snack";
+      return "LUNCH BID";
     case "playing":
-      return "rally tape";
+      return "MOMO RUN";
     case "vibing":
-      return "lo-fi tape";
+      return "VWAP DRIFT";
     default:
-      return "desk quiet";
+      return "TAPE WATCH";
   }
 }
 
@@ -164,24 +164,29 @@ export function marketBoardLines(
   if (narrow) {
     return [
       boxTop(width, "DREXLER MARKETS"),
-      marketBoardSplitRow(width, `DEMO ${clockFromFrame(frame)} ${status}`, `FEE ${fee}%`),
+      marketBoardSplitRow(width, `RTH ${clockFromFrame(frame)} ${status}`, `FEE ${fee}%`),
       boxContent(width, ` ${marketQuote(`TAPE${tapeMarker} AAPL`, "1.25")}  MSFT ▼ 0.82`),
       boxContent(width, " BID .8419   ASK .8423   VOL 24K"),
       marketBoardRow(width, marketQuote("AAPL 214", "1.25"), chartA, "220"),
       marketBoardRow(width, marketQuote("MSFT 421", "0.82", "▼"), chartB, "430"),
-      boxContent(width, ` OPEN 09:00  ${chartLabel}  PIPE ${pipe}%`),
+      boxContent(width, ` OPEN 09:30  ${chartLabel}  PIPE ${pipe}%`),
       boxBottom(width),
     ];
   }
 
   const headerLeft = marketQuote("DREX 0.8421", "3.17");
-  const headerCenter = `DEMO ${clockFromFrame(frame)} ${status}`;
+  const headerCenter = `RTH ${clockFromFrame(frame)} ${status}`;
   const footerCenter =
-    width < 90 ? `OPEN 09:00  ${chartLabel}` : `OPEN 09:00  13:00  ${chartLabel}  CLOSE 16:00`;
+    width < 90 ? `OPEN 09:30 · ${chartLabel}` : `OPEN 09:30 · ${chartLabel} · CLOSE 16:00`;
   return [
     boxTop(width, "DREXLER MARKETS"),
     marketBoardPanelRow(width, headerLeft, headerCenter, `FEE ${fee}%`),
-    marketBoardPanelRow(width, marketQuote(`TAPE${tapeMarker} AAPL`, "1.25"), "CANDLE", "VOL 24K"),
+    marketBoardPanelRow(
+      width,
+      marketQuote(`TAPE${tapeMarker} AAPL`, "1.25"),
+      "1m CHART",
+      "VOL 24K",
+    ),
     marketBoardPanelRow(width, marketQuote("AAPL 214", "1.25"), chartA, "220"),
     marketBoardPanelRow(width, marketQuote("MSFT 421", "0.82", "▼"), chartB, "430"),
     marketBoardPanelRow(width, marketQuote("NVDA 912", "2.11"), chartC, "900"),

@@ -112,8 +112,8 @@ describe("PetScene", () => {
     expect(rendered).toContain("ASK");
     expect(rendered).toContain("VOL");
     expect(rendered).toContain("NVDA");
-    expect(rendered).toContain("CANDLE");
-    expect(rendered).toContain("OPEN 09:00");
+    expect(rendered).toContain("1m CHART");
+    expect(rendered).toContain("OPEN 09:30");
     expect(rendered).toContain("PIPE");
     expect(rendered).toContain("╭──╮");
     expect(rendered).toMatch(/\d{2}:\d{2}/);
@@ -315,7 +315,7 @@ describe("PetScene", () => {
       const rendered = renderScene("working", "office", statsCases[0]!, width);
 
       expect(rendered).toContain("DREXLER MARKETS");
-      expect(rendered).toContain("DEMO");
+      expect(rendered).toContain("RTH");
       expect(rendered).toContain("TAPE");
       expect(rendered).toContain("BID");
       expect(rendered).toContain("ASK");
@@ -327,11 +327,11 @@ describe("PetScene", () => {
       expect(rendered).toContain("▼ 0.82");
       expect(rendered).not.toContain("MSFT ▲ 0.82");
       expect(rendered).not.toContain("▲1.25");
-      expect(rendered).toContain("OPEN 09:00");
+      expect(rendered).toContain("OPEN 09:30");
       expect(rendered).toMatch(/[▁▂▃▄▅▆▇█]/);
       if (width >= 96) {
         expect(rendered).toContain("NVDA");
-        expect(rendered).toContain("CANDLE");
+        expect(rendered).toContain("1m CHART");
         expect(rendered).toContain("220");
         expect(rendered).toContain("430");
       }

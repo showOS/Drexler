@@ -291,7 +291,7 @@ describe("MascotFrame", () => {
     expect(rendered).toContain("ASK");
     expect(rendered).toContain("VOL");
     expect(rendered).toContain("NVDA");
-    expect(rendered).toContain("CANDLE");
+    expect(rendered).toContain("1m CHART");
     expect(rendered).toContain("╭──╮");
     // Sparkline bars across the three ticker rows.
     expect(rendered).toMatch(/[▁▂▃▄▅▆▇█]/);
@@ -470,7 +470,7 @@ describe("MascotFrame", () => {
       expect(rendered).toContain("BID");
       expect(rendered).toContain("ASK");
       expect(rendered).toContain("VOL");
-      expect(rendered).toContain("CANDLE");
+      expect(rendered).toContain("1m CHART");
       if (width >= 160) {
         expect(rendered).toContain("╭──╮");
       }
