@@ -9,6 +9,7 @@ import { dispatch } from "../src/commands.ts";
 import { Conversation } from "../src/conversation.ts";
 import { loadSavedSession } from "../src/conversation/persist.ts";
 import type { FetchFn } from "../src/llm.ts";
+import { STREAM_ERROR } from "../src/sayings.ts";
 import { App } from "../src/ui/App.tsx";
 import {
   historyNavStep,
@@ -104,6 +105,18 @@ function streamResponse(content: string): Response {
     choices: [{ delta: { content }, finish_reason: null }],
   });
   return new Response(`data: ${chunk}\n\ndata: [DONE]\n\n`, {
+    status: 200,
+    headers: { "content-type": "text/event-stream" },
+  });
+}
+
+function interruptedStreamResponse(content: string): Response {
+  // Emit one content delta, then close without [DONE] ⇒ streamChat returns
+  // { ok: false, interrupted: true, content }.
+  const chunk = JSON.stringify({
+    choices: [{ delta: { content }, finish_reason: null }],
+  });
+  return new Response(`data: ${chunk}\n\n`, {
     status: 200,
     headers: { "content-type": "text/event-stream" },
   });
@@ -275,6 +288,89 @@ describe("App state helpers", () => {
         if (!didUnmount) instance.unmount();
       }
     } finally {
+      if (origHome !== undefined) process.env.HOME = origHome;
+      else delete process.env.HOME;
+      if (origXdg !== undefined) process.env.XDG_STATE_HOME = origXdg;
+      else delete process.env.XDG_STATE_HOME;
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("App drops partial assistant on stream interrupt and surfaces STREAM_ERROR (§V8)", async () => {
+    const origHome = process.env.HOME;
+    const origXdg = process.env.XDG_STATE_HOME;
+    const home = await mkdtemp(join(tmpdir(), "drexler-app-v8-"));
+    const { stdin } = makeInteractiveStreams();
+    const captured: string[] = [];
+    const stdout = new Writable({
+      write(chunk, _encoding, callback) {
+        captured.push(chunk.toString());
+        callback();
+      },
+    }) as Writable & {
+      columns: number;
+      rows: number;
+      isTTY: boolean;
+      cursorTo: () => void;
+      clearLine: () => void;
+      moveCursor: () => void;
+    };
+    stdout.columns = 96;
+    stdout.rows = 30;
+    stdout.isTTY = true;
+    stdout.cursorTo = () => undefined;
+    stdout.clearLine = () => undefined;
+    stdout.moveCursor = () => undefined;
+
+    const ctx = makeCtx();
+    let didUnmount = false;
+    try {
+      process.env.HOME = home;
+      delete process.env.XDG_STATE_HOME;
+
+      const instance = render(
+        React.createElement(App, {
+          conversation: ctx.conversation,
+          config: ctx.config,
+          mood: "ruthless",
+          fetchFn: async () => interruptedStreamResponse("partial..."),
+        }),
+        {
+          stdin: stdin as unknown as NodeJS.ReadStream,
+          stdout: stdout as unknown as NodeJS.WriteStream,
+          exitOnCtrlC: false,
+          interactive: true,
+          patchConsole: false,
+          maxFps: 60,
+        },
+      );
+
+      try {
+        await delay(30);
+        stdin.write("hello");
+        await delay(20);
+        stdin.write("\r");
+        for (let i = 0; i < 40; i++) {
+          await delay(25);
+          if (captured.join("").includes(STREAM_ERROR)) break;
+        }
+
+        const allOutput = captured.join("");
+        expect(allOutput).toContain(STREAM_ERROR);
+        // V8: partial assistant text must not be persisted into history.
+        const messages = ctx.conversation.snapshot();
+        for (const m of messages) {
+          expect(m.role).not.toBe("assistant");
+          expect(m.content).not.toContain("partial...");
+        }
+      } finally {
+        instance.unmount();
+        didUnmount = true;
+      }
+    } finally {
+      if (!didUnmount) {
+        // unmount already handled
+      }
       if (origHome !== undefined) process.env.HOME = origHome;
       else delete process.env.HOME;
       if (origXdg !== undefined) process.env.XDG_STATE_HOME = origXdg;

@@ -794,7 +794,7 @@ export function App({
           addItem("system", "(cancelled — Drexler taking lunch)");
           setDeskNotice("response cancelled");
         }
-      } else if (result?.ok) {
+      } else if (result?.ok && typeof result.content === "string") {
         conversation.push("assistant", result.content);
         addItem("assistant", result.content);
         const notices: string[] = [];
@@ -808,11 +808,11 @@ export function App({
         }
         setDeskNotice(notices.length > 0 ? notices.join(" · ") : null);
       } else if (result?.interrupted) {
-        conversation.push("assistant", result.content);
-        addItem("assistant", result.content);
-        addItem("system", "(stream interrupted — partial response saved)");
+        // V8: do not append partial assistant text. Surface STREAM_ERROR.
+        const detail = result.error ? ` [${result.error}]` : "";
+        addItem("system", `${STREAM_ERROR}${detail}`);
         setDeskStatus("error");
-        setDeskNotice("stream interrupted; partial response saved");
+        setDeskNotice("stream interrupted — /retry to re-roll");
       } else if (result?.authFailure) {
         addItem(
           "system",
