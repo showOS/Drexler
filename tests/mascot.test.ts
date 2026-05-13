@@ -302,8 +302,14 @@ describe("MascotFrame", () => {
     expect(rendered).toContain("activity playing");
     expect(rendered).toContain("activity playing · office");
     expect(rendered).toContain("DREXLER OFFICE");
-    expect(rendered).toContain("│9  ─┼─ 3 │");
+    expect(rendered).toContain("9  ──·    3");
     expect(rendered).toContain("DREXLER MARKETS");
+    expect(rendered).toContain("TAPE");
+    expect(rendered).toContain("BID");
+    expect(rendered).toContain("ASK");
+    expect(rendered).toContain("VOL");
+    expect(rendered).toContain("SOL");
+    expect(rendered).toContain("CANDLE");
     expect(rendered).toContain("╭──╮");
     expect(rendered).toContain("▐█▌");
     expect(rendered).toContain("▐░▌");
@@ -476,8 +482,13 @@ describe("MascotFrame", () => {
       expect(rendered).not.toContain(BRIEFCASE_FINAL[6]);
       expect(rendered).toContain("Drexler Pet Desk [office]");
       expect(rendered).toContain("DREXLER OFFICE");
-      expect(rendered).toContain("│9  ─┼─ 3 │");
+      expect(rendered).toContain("9  ──·    3");
       expect(rendered).toContain("DREXLER MARKETS");
+      expect(rendered).toContain("TAPE");
+      expect(rendered).toContain("BID");
+      expect(rendered).toContain("ASK");
+      expect(rendered).toContain("VOL");
+      expect(rendered).toContain("CANDLE");
       if (width >= 160) {
         expect(rendered).toContain("╭──╮");
       }

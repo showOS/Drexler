@@ -38,7 +38,7 @@ function StreamingMessageInner({ content, width = 80 }: StreamingProps) {
 
   return (
     <Box flexDirection="column" paddingX={1} width={safeWidth} flexShrink={1}>
-      <Box>
+      <Box paddingLeft={1}>
         <Text color={t.primaryLight} bold>
           {ROLE_LABELS.assistant}
         </Text>

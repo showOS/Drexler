@@ -127,7 +127,7 @@ function CommandPaletteInner({ items, selectedIdx, width = 80 }: Props) {
     <Box
       flexDirection="column"
       borderStyle="round"
-      borderColor={t.primaryDim}
+      borderColor={t.primary}
       paddingX={1}
       marginBottom={1}
       width={safeWidth}
