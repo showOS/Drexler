@@ -93,8 +93,42 @@ function makeInteractiveStreams() {
   return { stdin, stdout };
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+// Event-driven wait: poll `predicate` at a fast cadence; resolve on first
+// truthy result, reject on timeout. Used to replace fixed-duration `delay`
+// calls that were really waiting for an observable side-effect (a fetch,
+// a conversation update, a persisted session change).
+function waitFor<T>(
+  predicate: () => T | null | undefined | false,
+  {
+    timeoutMs = 2000,
+    intervalMs = 5,
+    label = "condition",
+  }: { timeoutMs?: number; intervalMs?: number; label?: string } = {},
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+    const tryOnce = () => {
+      let result: T | null | undefined | false;
+      try {
+        result = predicate();
+      } catch (err) {
+        clearInterval(handle);
+        reject(err);
+        return;
+      }
+      if (result) {
+        clearInterval(handle);
+        resolve(result as T);
+        return;
+      }
+      if (Date.now() - start >= timeoutMs) {
+        clearInterval(handle);
+        reject(new Error(`waitFor timeout: ${label}`));
+      }
+    };
+    const handle = setInterval(tryOnce, intervalMs);
+    tryOnce();
+  });
 }
 
 function streamResponse(content: string): Response {
@@ -233,12 +267,24 @@ describe("App state helpers", () => {
       process.env.HOME = home;
       delete process.env.XDG_STATE_HOME;
 
+      // Resolve when the App actually issues the OpenRouter fetch — the
+      // moment we know `hello` has been committed to the conversation
+      // and the stream is about to drain.
+      let fetchCalled!: () => void;
+      const fetchPromise = new Promise<void>((r) => {
+        fetchCalled = r;
+      });
+      const fetchFn: FetchFn = async () => {
+        fetchCalled();
+        return streamResponse("answer");
+      };
+
       const instance = render(
         React.createElement(App, {
           conversation: ctx.conversation,
           config: ctx.config,
           mood: "ruthless",
-          fetchFn: async () => streamResponse("answer"),
+          fetchFn,
         }),
         {
           stdin: stdin as unknown as NodeJS.ReadStream,
@@ -251,29 +297,39 @@ describe("App state helpers", () => {
       );
 
       try {
-        await delay(30);
+        // Type a user turn and submit. Wait for the fetch deferred to fire
+        // (event-driven) rather than polling the conversation length on a
+        // fixed-delay loop. Some Ink builds key off "data" boundaries to
+        // distinguish typed characters from Enter, so we keep the two
+        // writes separate but with no fixed wait between them.
         stdin.write("hello");
-        await delay(20);
+        await instance.waitUntilRenderFlush();
         stdin.write("\r");
-        for (let i = 0; i < 20 && ctx.conversation.length < 2; i++) {
-          await delay(20);
-        }
-        expect(ctx.conversation.length).toBeGreaterThanOrEqual(2);
+        await fetchPromise;
+        // Stream needs a render flush to commit the assistant message and
+        // the conversation length transition (user + assistant).
+        await waitFor(() => ctx.conversation.length >= 2, {
+          timeoutMs: 1000,
+          label: "conversation has user+assistant",
+        });
 
         stdin.write("/model 26b");
-        await delay(20);
+        await instance.waitUntilRenderFlush();
         stdin.write("\r");
-        await delay(80);
+        // Slash-command model switch is synchronous app-state; one render
+        // flush is enough before the unmount tears persistence down.
         await instance.waitUntilRenderFlush();
 
         instance.unmount();
         didUnmount = true;
 
-        let loaded = loadSavedSession();
-        for (let i = 0; i < 20 && loaded?.model !== MODEL_FALLBACK; i++) {
-          await delay(25);
-          loaded = loadSavedSession();
-        }
+        const loaded = await waitFor(
+          () => {
+            const s = loadSavedSession();
+            return s?.model === MODEL_FALLBACK ? s : null;
+          },
+          { timeoutMs: 1000, label: "persisted MODEL_FALLBACK" },
+        );
 
         expect(loaded).not.toBeNull();
         expect(loaded!.model).toBe(MODEL_FALLBACK);
@@ -340,14 +396,20 @@ describe("App state helpers", () => {
       );
 
       try {
-        await delay(30);
+        await waitFor(() => captured.join("").length > 0, {
+          timeoutMs: 1000,
+          label: "initial render",
+        });
         stdin.write("hello");
-        await delay(20);
+        await waitFor(() => captured.join("").includes("hello"), {
+          timeoutMs: 1000,
+          label: "input echoed",
+        });
         stdin.write("\r");
-        for (let i = 0; i < 40; i++) {
-          await delay(25);
-          if (captured.join("").includes(STREAM_ERROR)) break;
-        }
+        await waitFor(() => captured.join("").includes(STREAM_ERROR), {
+          timeoutMs: 3000,
+          label: "STREAM_ERROR rendered",
+        });
 
         const allOutput = captured.join("");
         expect(allOutput).toContain(STREAM_ERROR);
