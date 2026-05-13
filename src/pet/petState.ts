@@ -286,9 +286,7 @@ function writePetStateAtomic(stats: PetStats): void {
 // is the real atomic writer; tests restore the default in afterEach.
 let writeImpl: (stats: PetStats) => void | Promise<void> = writePetStateAtomic;
 
-export function __setPetWriteImpl(
-  impl: ((stats: PetStats) => void | Promise<void>) | null,
-): void {
+export function __setPetWriteImpl(impl: ((stats: PetStats) => void | Promise<void>) | null): void {
   writeImpl = impl ?? writePetStateAtomic;
 }
 
@@ -323,22 +321,20 @@ export function flushPetSaves(timeoutMs: number = 2000): Promise<void> {
     // pending queue itself is what holds the process open.
     if (typeof timer.unref === "function") timer.unref();
   });
-  return Promise.race([pending.then(() => "ok" as const), timeout]).then(
-    (outcome) => {
-      if (timer !== null) clearTimeout(timer);
-      if (outcome === "timeout") {
-        // Abandon the stuck queue head so subsequent saves are not blocked
-        // behind it. Best-effort unlink the lockfile so the next process
-        // startup is not stranded.
-        saveQueue = Promise.resolve();
-        try {
-          unlinkSync(`${petFile()}.lock`);
-        } catch {
-          // expected: lockfile may not exist
-        }
+  return Promise.race([pending.then(() => "ok" as const), timeout]).then((outcome) => {
+    if (timer !== null) clearTimeout(timer);
+    if (outcome === "timeout") {
+      // Abandon the stuck queue head so subsequent saves are not blocked
+      // behind it. Best-effort unlink the lockfile so the next process
+      // startup is not stranded.
+      saveQueue = Promise.resolve();
+      try {
+        unlinkSync(`${petFile()}.lock`);
+      } catch {
+        // expected: lockfile may not exist
       }
-    },
-  );
+    }
+  });
 }
 
 export function applyFeed(stats: PetStats): PetStats {

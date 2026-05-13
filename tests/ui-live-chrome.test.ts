@@ -275,10 +275,7 @@ describe("live chrome width handling", () => {
       await waitFor(
         () => {
           const r = captureRendered(chunks);
-          return (
-            r.includes("synergy complete") &&
-            r.includes("SYNERGY EVENT:")
-          );
+          return r.includes("synergy complete") && r.includes("SYNERGY EVENT:");
         },
         { timeoutMs: 3000, label: "synergy lifecycle complete" },
       );
@@ -336,10 +333,7 @@ describe("live chrome width handling", () => {
     // trip, so the only thing the test needs to wait for is a render that
     // contains the expected marker string. Replace fixed-duration delays
     // with event-driven waits on captured stdout.
-    async function submit(
-      command: string,
-      expectedMarker: string,
-    ): Promise<string> {
+    async function submit(command: string, expectedMarker: string): Promise<string> {
       stdin.write(command);
       await instance.waitUntilRenderFlush();
       const mark = chunks.length;
@@ -358,10 +352,10 @@ describe("live chrome width handling", () => {
     try {
       // Initial render: poll for the intro chrome so we are sure the App
       // has mounted before we start typing slash commands.
-      await waitFor(
-        () => captureRendered(chunks).includes("Drexler Deal Desk"),
-        { timeoutMs: 1500, label: "initial chrome rendered" },
-      );
+      await waitFor(() => captureRendered(chunks).includes("Drexler Deal Desk"), {
+        timeoutMs: 1500,
+        label: "initial chrome rendered",
+      });
 
       const petOn = await submit("/pet", "Drexler Pet Desk");
       expect(petOn).toContain("Drexler Pet Desk");
