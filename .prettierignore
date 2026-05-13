@@ -1,0 +1,8 @@
+node_modules
+bun.lock
+dist
+.eslintcache
+*.md.bak
+*.md.backup
+*.original.md
+CHANGELOG.md
