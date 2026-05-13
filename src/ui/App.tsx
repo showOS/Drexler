@@ -794,7 +794,7 @@ export function App({
           addItem("system", "(cancelled — Drexler taking lunch)");
           setDeskNotice("response cancelled");
         }
-      } else if (result?.ok && result.content) {
+      } else if (result?.ok && typeof result.content === "string") {
         conversation.push("assistant", result.content);
         addItem("assistant", result.content);
         const notices: string[] = [];
