@@ -6,7 +6,7 @@ import { render } from "ink";
 import { ensureApiKey, LaunchConfigError, resolveConfig, validateLaunchConfig } from "./config.ts";
 import { Conversation } from "./conversation.ts";
 import { moodLine, pickMood } from "./mood.ts";
-import { loadPersona, pickGreeting } from "./persona.ts";
+import { loadPersonaLazy, pickGreeting } from "./persona.ts";
 import {
   banner,
   error,
@@ -136,17 +136,23 @@ async function main(): Promise<void> {
   setActiveTheme(themeName);
   resetMarkedTheme(); // ensure markdown picks up the freshly chosen theme
 
-  let persona;
+  // T12: lazy persona. Kick off the disk read immediately so it
+  // overlaps with mood/resume/intro setup, but don't await until the
+  // consumer (Conversation system prompt, greeting) actually needs it.
+  const persona = loadPersonaLazy(config.personaPath);
+  persona.preload();
+
+  const mood = pickMood();
+  let systemPrompt: string;
+  let greetings: string[];
   try {
-    persona = await loadPersona(config.personaPath);
+    [systemPrompt, greetings] = await Promise.all([persona.system(), persona.openers()]);
   } catch (e) {
     console.error(error(e instanceof Error ? e.message : String(e)));
     process.exit(1);
   }
-
-  const mood = pickMood();
-  const systemPromptWithMood = persona.systemPrompt + moodLine(mood);
-  const greeting = pickGreeting(persona.greetings);
+  const systemPromptWithMood = systemPrompt + moodLine(mood);
+  const greeting = pickGreeting(greetings);
 
   const conversation = new Conversation(systemPromptWithMood, config.maxHistory);
 
@@ -183,12 +189,7 @@ async function main(): Promise<void> {
       console.log("");
       await typewriterBanner();
       console.log(tagline());
-      console.log("");
     }
-
-    console.log("");
-    console.log("  " + infoLine());
-    console.log("");
 
     const { waitUntilExit } = render(
       React.createElement(ThemeProvider, {

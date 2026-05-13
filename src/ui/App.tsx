@@ -573,6 +573,9 @@ export function App({
       conversation.approximateTokens() +
       Math.ceil(draft.value.length / 4) +
       Math.ceil((streaming?.length ?? 0) / 4),
+    // msgCount is a tripwire: Conversation is identity-stable but
+    // mutated, so we re-run when its length changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [conversation, msgCount, draft.value.length, streaming],
   );
 
@@ -1110,9 +1113,11 @@ export function App({
     },
     [
       addItem,
-      conversation,
-      config,
       activeTheme,
+      applyPetAction,
+      config,
+      conversation,
+      isDead,
       model,
       PET_MESSAGES,
       removeLastAssistantItem,
@@ -1121,6 +1126,7 @@ export function App({
       setDashboardPetMode,
       triggerExit,
       triggerPetActivity,
+      updateDraft,
       updatePetStats,
     ],
   );
@@ -1369,6 +1375,8 @@ export function App({
       // byte. LF (0x0a) survives so pasted multi-line text renders as
       // multiple lines in the input.
       const normalized = char.replace(/\r\n?/g, "\n");
+      // intentional: strip ANSI/control chars
+      // eslint-disable-next-line no-control-regex
       const filtered = normalized.replace(/[\x00-\x09\x0b-\x1f]/g, "");
       if (filtered.length > 0) {
         updateDraft((prev) =>
@@ -1380,19 +1388,32 @@ export function App({
 
   useEffect(() => {
     mountedRef.current = true;
+    // Capture timer refs themselves (stable across renders); reading
+    // `.current` at cleanup time is intentional — we clear whatever
+    // timer is live at unmount, not a snapshot from mount when refs
+    // were null. Refs are stable so closing over them is safe.
+    const streamTimer = streamTimerRef;
+    const exitTimer = exitTimerRef;
+    const synergyTimer = synergyTimerRef;
+    const requestInFlight = requestInFlightRef;
+    const synergyActive = synergyActiveRef;
+    const mounted = mountedRef;
+    const abort = abortRef;
+    const conversationLatest = conversationRef;
+    const modelLatest = modelRef;
     return () => {
-      mountedRef.current = false;
-      abortRef.current?.abort();
+      mounted.current = false;
+      abort.current?.abort();
       if (persistDebouncer.hasPending()) {
         // Flush any pending debounced write so the next launch sees
         // the latest turn; best-effort, the promise is fire-and-forget.
-        const currentConversation = conversationRef.current;
+        const currentConversation = conversationLatest.current;
         persistDebouncer.cancel();
         void saveSession(
           buildSavedSession(
             currentConversation,
             currentConversation.systemPrompt,
-            modelRef.current,
+            modelLatest.current,
           ),
         ).catch(() => {});
       }
@@ -1402,19 +1423,19 @@ export function App({
       // effect cleanup can't await, and `flushPetSaves` enforces its
       // own ≤2s timeout.
       void flushPetSaves().catch(() => {});
-      if (streamTimerRef.current !== null) {
-        clearTimeout(streamTimerRef.current);
+      if (streamTimer.current !== null) {
+        clearTimeout(streamTimer.current);
       }
-      if (exitTimerRef.current !== null) {
-        clearTimeout(exitTimerRef.current);
+      if (exitTimer.current !== null) {
+        clearTimeout(exitTimer.current);
       }
-      if (synergyTimerRef.current !== null) {
-        clearInterval(synergyTimerRef.current);
+      if (synergyTimer.current !== null) {
+        clearInterval(synergyTimer.current);
       }
-      requestInFlightRef.current = false;
-      synergyActiveRef.current = false;
+      requestInFlight.current = false;
+      synergyActive.current = false;
     };
-  }, []);
+  }, [persistDebouncer]);
 
   const isBusy =
     requestInFlight || streaming !== null || thinking !== null || synergyEvent !== null;
