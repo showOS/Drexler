@@ -432,7 +432,10 @@ function buildOfficeScene(
   const msftRowIdx = metrics.boardWidth < 58 ? 5 : 4;
   const msftOverlayLines = boardLines.map((line, i) => {
     if (i !== msftRowIdx || line.length < 2) return "";
-    return ` ${line.slice(1, -1)} `;
+    // Replace every box-drawing vertical (outer walls + inner cell
+    // separators + chart-art bars) with a space. transparentSpaces
+    // leaves those positions showing the base sprite's chartGrid color.
+    return ` ${line.slice(1, -1).replace(/│/g, " ")} `;
   });
 
   if (layout === "compact") {
