@@ -56,20 +56,68 @@ function marketQuote(label: string, change: string, direction: "▲" | "▼" = "
   )}${direction} ${change}`;
 }
 
-function marketBoardPanelRow(width: number, left: string, center: string, right: string): string {
+// Width budget mirrored from marketBoardPanelRow so chart cells can be
+// generated at the exact width the row will reserve for them — keeps
+// the sparkline from being truncated mid-tick.
+function panelCellWidths(width: number): {
+  leftWidth: number;
+  centerWidth: number;
+  rightWidth: number;
+} {
   const inner = Math.max(1, width - 2);
   const contentWidth = Math.max(1, inner - 2);
-  const separator = " │ ";
+  const separator = 3; // " │ "
   const leftWidth = Math.min(32, Math.max(18, Math.floor(contentWidth * 0.3)));
   const rightWidth = Math.min(12, Math.max(9, Math.floor(contentWidth * 0.14)));
-  const centerWidth = Math.max(1, contentWidth - leftWidth - rightWidth - separator.length * 2);
+  const centerWidth = Math.max(1, contentWidth - leftWidth - rightWidth - separator * 2);
+  return { leftWidth, centerWidth, rightWidth };
+}
+
+function marketBoardPanelRow(width: number, left: string, center: string, right: string): string {
+  const { leftWidth, centerWidth, rightWidth } = panelCellWidths(width);
+  const inner = Math.max(1, width - 2);
+  const separator = " │ ";
   const content = [
     marketBoardCell(left, leftWidth, "left"),
     marketBoardCell(center, centerWidth, "center"),
     marketBoardCell(right, rightWidth, "right"),
   ].join(separator);
+  void inner;
   const row = ` ${content} `;
   return boxRowFromInner(width, row);
+}
+
+// ─── sparklines ───────────────────────────────────────────────────────────────
+
+const BAR_CHARS = " ▁▂▃▄▅▆▇█";
+
+// Per-ticker price ladders (values index BAR_CHARS). Length 32 so the
+// scroll loops every ~25s at 800ms/frame and the visible window covers
+// roughly one full pattern at panel widths around 30.
+//
+// AAPL ↑1.25%  — gentle uptrend with a midday dip.
+// MSFT ↓0.82%  — sustained downtrend, lower lows.
+// NVDA ↑2.11%  — steeper uptrend with a plateau at the highs.
+const AAPL_SPARK = [
+  4, 4, 5, 5, 5, 6, 6, 6, 5, 5, 6, 6, 7, 7, 7, 6, 6, 5, 5, 5, 6, 6, 7, 7, 7, 7, 8, 8, 7, 7, 6, 5,
+] as const;
+const MSFT_SPARK = [
+  7, 7, 7, 6, 6, 6, 5, 5, 6, 6, 5, 5, 4, 4, 4, 5, 4, 4, 3, 3, 3, 4, 3, 3, 2, 2, 2, 3, 2, 2, 1, 1,
+] as const;
+const NVDA_SPARK = [
+  2, 2, 3, 3, 4, 4, 4, 5, 5, 6, 6, 7, 7, 7, 7, 8, 8, 8, 7, 7, 8, 8, 8, 7, 8, 8, 8, 7, 7, 8, 8, 7,
+] as const;
+
+function sparkSlice(spark: readonly number[], frame: number, width: number): string {
+  if (width <= 0 || spark.length === 0) return "";
+  const len = spark.length;
+  const start = ((frame % len) + len) % len;
+  let out = "";
+  for (let i = 0; i < width; i++) {
+    const idx = (start + i) % len;
+    out += BAR_CHARS[spark[idx] ?? 0];
+  }
+  return out;
 }
 
 export function boardTapeLabel(activity: PetActivity, frame: number): string {
@@ -98,18 +146,20 @@ export function marketBoardLines(
   stats: PetStats,
 ): string[] {
   const status = activityStatusToken(activity, frame);
-  const candleA = frame % 4 < 2 ? "▐█▌" : "▐░▌";
-  const candleB = activity === "praised" ? "▐█▌" : frame % 5 < 3 ? "▐░▌" : "▐█▌";
-  const candleC = activity === "working" ? "▐█▌" : "▐░▌";
-  const finalCandle = activity === "praised" ? "▐█▌" : frame % 6 < 3 ? "▐█▌" : "▐░▌";
   const fee = Math.max(40, Math.min(99, Math.round((stats.happiness + stats.deals) / 2)));
   const pipe = Math.round(stats.deals);
   const chartLabel = boardTapeLabel(activity, frame);
   const narrow = width < 58;
   const tapeMarker = frame % 2 === 0 ? ">" : "_";
-  const chartA = `┄┄┄┄ ${candleA} │`;
-  const chartB = `│ ${candleB} │ ${candleC}`;
-  const chartC = `${candleB} │ ${finalCandle} │`;
+
+  // Cell widths for sparkline generation. Wide path uses the exact center
+  // cell width; narrow path uses a smaller fixed slot inside marketBoardRow.
+  const { centerWidth } = panelCellWidths(width);
+  const narrowSparkWidth = Math.max(8, Math.min(20, Math.max(1, width - 2) - 32));
+  const sparkW = narrow ? narrowSparkWidth : centerWidth;
+  const chartA = sparkSlice(AAPL_SPARK, frame, sparkW);
+  const chartB = sparkSlice(MSFT_SPARK, frame, sparkW);
+  const chartC = sparkSlice(NVDA_SPARK, frame, sparkW);
 
   if (narrow) {
     return [

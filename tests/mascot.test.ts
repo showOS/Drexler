@@ -293,8 +293,8 @@ describe("MascotFrame", () => {
     expect(rendered).toContain("NVDA");
     expect(rendered).toContain("CANDLE");
     expect(rendered).toContain("╭──╮");
-    expect(rendered).toContain("▐█▌");
-    expect(rendered).toContain("▐░▌");
+    // Sparkline bars across the three ticker rows.
+    expect(rendered).toMatch(/[▁▂▃▄▅▆▇█]/);
     expect(rendered).toContain("c[__]");
     expect(rendered).toContain("memo");
     expect(rendered).toContain("▄ ▄");
