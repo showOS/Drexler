@@ -161,9 +161,9 @@ Palette opens on `/`. Argument choosers: `/theme`, `/startup`, `/retry`, `/expor
 | id | status | task | cites |
 |---|---|---|---|
 | T1 | x | Resolve in-flight edits: `src/ui/PetPanel.tsx` market-board panel row refactor | V17,V21 |
-| T2 | . | Add ESLint flat config + Prettier + CI step | V34 |
-| T3 | . | Pet save FIFO queue + cross-instance lockfile | V33 |
-| T4 | . | Fix Ink UI §V8 violation; surface STREAM_ERROR in App.tsx | V8 |
+| T2 | x | Add ESLint flat config + Prettier + CI step | V34 |
+| T3 | x | Pet save FIFO queue + cross-instance lockfile | V33 |
+| T4 | x | Fix Ink UI §V8 violation; surface STREAM_ERROR in App.tsx | V8 |
 
 ## §B Bugs
 
