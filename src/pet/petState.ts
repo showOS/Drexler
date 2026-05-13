@@ -149,11 +149,10 @@ function safeTimestamp(value: unknown): number {
 // Decay over (now - stats.lastSaved). Works the same on a 1-minute
 // tick during an active session and on resume after a multi-hour OS
 // suspend — both cases compute the exact delta since the timestamp
-// was last bumped. Callers must always re-stamp lastSaved when
-// committing the new stats so the next call sees the correct elapsed
-// window.
-export function applyDecay(stats: PetStats): PetStats {
-  const elapsed = Math.max(0, (Date.now() - stats.lastSaved) / 3_600_000);
+// was last bumped. `now` is injectable so React state updaters can stay
+// deterministic under StrictMode double-invocation.
+export function applyDecay(stats: PetStats, now: number = Date.now()): PetStats {
+  const elapsed = Math.max(0, (now - stats.lastSaved) / 3_600_000);
   const nextHunger = clamp(stats.hunger - DECAY_PER_HOUR.hunger * elapsed);
   const nextHappiness = clamp(stats.happiness - DECAY_PER_HOUR.happiness * elapsed);
   const nextEnergy = clamp(stats.energy - DECAY_PER_HOUR.energy * elapsed);
@@ -175,7 +174,7 @@ export function applyDecay(stats: PetStats): PetStats {
     happiness: nextHappiness,
     energy: nextEnergy,
     deals: nextDeals,
-    lastSaved: Date.now(),
+    lastSaved: now,
   };
 }
 

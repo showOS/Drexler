@@ -15,9 +15,9 @@ import {
 import { useTheme } from "./ThemeContext.tsx";
 
 export interface TranscriptViewportItem {
-  id?: string | number;
-  role: "user" | "assistant" | "system";
-  content: string;
+  readonly id?: string | number;
+  readonly role: "user" | "assistant" | "system";
+  readonly content: string;
 }
 
 export interface TranscriptViewportProps {
@@ -263,11 +263,34 @@ function displayLinesForItem(item: TranscriptViewportItem): AssistantDisplayLine
 // session of terminal resizes does not grow the per-item cache without
 // limit.
 const MAX_WIDTHS_PER_ITEM = 4;
-const wrapCache = new WeakMap<
-  TranscriptViewportItem,
-  Map<string, WrappedTranscriptLine[]>
->();
-const itemRowsCache = new WeakMap<TranscriptViewportItem, Map<string, number>>();
+interface TranscriptItemCache {
+  role: TranscriptViewportItem["role"];
+  content: string;
+  wraps: Map<string, WrappedTranscriptLine[]>;
+  rows: Map<string, number>;
+}
+
+const itemCache = new WeakMap<TranscriptViewportItem, TranscriptItemCache>();
+
+function cacheForItem(item: TranscriptViewportItem): TranscriptItemCache {
+  const existing = itemCache.get(item);
+  if (
+    existing !== undefined &&
+    existing.role === item.role &&
+    existing.content === item.content
+  ) {
+    return existing;
+  }
+
+  const fresh: TranscriptItemCache = {
+    role: item.role,
+    content: item.content,
+    wraps: new Map(),
+    rows: new Map(),
+  };
+  itemCache.set(item, fresh);
+  return fresh;
+}
 
 function lruGet<V>(map: Map<string, V>, key: string): V | undefined {
   const value = map.get(key);
@@ -312,11 +335,7 @@ export function wrappedTranscriptLines(
   // Including it explicitly avoids any chance of collision if two roles ever
   // happen to produce the same contentWidth for a given cols.
   const innerKey = `${item.role}|${contentWidth}`;
-  let perItem = wrapCache.get(item);
-  if (perItem === undefined) {
-    perItem = new Map();
-    wrapCache.set(item, perItem);
-  }
+  const perItem = cacheForItem(item).wraps;
   const cached = lruGet(perItem, innerKey);
   if (cached !== undefined) return cached;
   const computed = computeWrappedTranscriptLines(item, contentWidth);
@@ -418,11 +437,7 @@ function getCachedItemRows(
   compact: boolean,
   cols: number,
 ): number {
-  let cache = itemRowsCache.get(item);
-  if (!cache) {
-    cache = new Map();
-    itemRowsCache.set(item, cache);
-  }
+  const cache = cacheForItem(item).rows;
 
   const key = `${compact ? "c" : "f"}-${cols}`;
   const cached = lruGet(cache, key);

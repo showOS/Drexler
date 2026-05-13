@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { mkdir, rename, unlink, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Conversation } from "../conversation.ts";
@@ -40,6 +41,11 @@ export function sessionFilePath(): string {
 
 export function hasSavedSession(): boolean {
   return existsSync(sessionFilePath());
+}
+
+function nextTempPath(target: string): string {
+  tempCounter = (tempCounter % Number.MAX_SAFE_INTEGER) + 1;
+  return `${target}.tmp.${process.pid}.${tempCounter}.${randomUUID()}`;
 }
 
 function isMessage(value: unknown): value is Message {
@@ -88,12 +94,13 @@ export function loadSavedSession(): SavedSession | null {
 // All saves go through a FIFO queue so concurrent calls do not race on
 // rename(); the latest scheduled call always lands last on disk.
 export function saveSession(session: SavedSession): Promise<void> {
-  const next = saveQueue.then(() => writeSessionAtomic(session));
-  // Swallow rejections in the queue chain so one failure doesn't
-  // poison subsequent saves. Outer .catch keeps the public promise
-  // shape best-effort-style.
-  saveQueue = next.catch(() => undefined);
-  return next;
+  const write = () => writeSessionAtomic(session);
+  const next = saveQueue.then(write, write);
+  // Swallow rejections so one failure does not poison subsequent saves,
+  // and callers keep the best-effort "never crash chat" contract.
+  const guarded = next.catch(() => undefined);
+  saveQueue = guarded;
+  return guarded;
 }
 
 async function writeSessionAtomic(session: SavedSession): Promise<void> {
@@ -101,8 +108,7 @@ async function writeSessionAtomic(session: SavedSession): Promise<void> {
     const dir = stateDir();
     await mkdir(dir, { recursive: true, mode: 0o700 });
     const target = sessionFilePath();
-    tempCounter = (tempCounter + 1) % Number.MAX_SAFE_INTEGER;
-    const tmp = `${target}.tmp.${process.pid}.${tempCounter}`;
+    const tmp = nextTempPath(target);
     try {
       await writeFile(tmp, JSON.stringify(session, null, 0), {
         encoding: "utf-8",

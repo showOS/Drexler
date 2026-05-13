@@ -235,6 +235,20 @@ describe("buildMessagesWithReminder", () => {
       DRIFT_REMINDER,
     );
   });
+
+  test("keeps reminder cadence after conversation history trims", () => {
+    const conv = new Conversation("SYS", 50);
+    const reminderTurns: number[] = [];
+    for (let i = 1; i <= 30; i++) {
+      conv.push("user", `q${i}`);
+      if (buildMessagesWithReminder(conv).at(-1)?.content === DRIFT_REMINDER) {
+        reminderTurns.push(i);
+      }
+      conv.push("assistant", `a${i}`);
+    }
+
+    expect(reminderTurns).toEqual([5, 10, 15, 20, 25, 30]);
+  });
 });
 
 describe("drift-reminder injection", () => {

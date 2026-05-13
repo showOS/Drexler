@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Text, renderToString } from "ink";
 import React from "react";
 import {
+  estimateTranscriptRows,
   TranscriptViewport,
   wrappedTranscriptLines,
   type TranscriptViewportItem,
@@ -542,5 +543,52 @@ describe("wrappedTranscriptLines cache (P10)", () => {
     // Adding a fifth distinct width must now evict width 11 (next oldest), NOT 10.
     wrappedTranscriptLines(item, 14);
     expect(wrappedTranscriptLines(item, 10)).toBe(w10);
+  });
+
+  test("invalidates wraps when a reused item object changes content", () => {
+    const item: TranscriptViewportItem = {
+      id: "mutated-wrap",
+      role: "assistant",
+      content: "alpha beta",
+    };
+    const first = wrappedTranscriptLines(item, 20);
+
+    (item as { content: string }).content = "omega delta";
+    const second = wrappedTranscriptLines(item, 20);
+
+    expect(second).not.toBe(first);
+    expect(second.map((line) => line.text).join("\n")).toContain("omega");
+    expect(second.map((line) => line.text).join("\n")).not.toContain("alpha");
+  });
+
+  test("invalidates row estimates when a reused item object changes content", () => {
+    const item: TranscriptViewportItem = {
+      id: "mutated-rows",
+      role: "assistant",
+      content: "short",
+    };
+    const first = estimateTranscriptRows([item], false, 60);
+
+    (item as { content: string }).content = "line 1\nline 2\nline 3\nline 4";
+    const second = estimateTranscriptRows([item], false, 60);
+
+    expect(second).toBeGreaterThan(first);
+  });
+
+  test("rendering reflects same-object content mutation instead of stale cache", () => {
+    const item: TranscriptViewportItem = {
+      id: "mutated-render",
+      role: "assistant",
+      content: "first memo",
+    };
+    expect(renderViewport({ items: [item], maxRows: 8, cols: 72 })).toContain(
+      "first memo",
+    );
+
+    (item as { content: string }).content = "second memo";
+    const rendered = renderViewport({ items: [item], maxRows: 8, cols: 72 });
+
+    expect(rendered).toContain("second memo");
+    expect(rendered).not.toContain("first memo");
   });
 });

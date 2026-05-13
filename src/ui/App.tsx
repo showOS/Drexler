@@ -479,10 +479,11 @@ export function App({
   // the effect below; persistence lives in its own save effect. React 19
   // StrictMode runs reducers twice in dev — any side effect here would
   // double-fire (e.g. duplicate disk writes).
-  const updatePetStats = useCallback((updater: (stats: PetStats) => PetStats) => {
+  const updatePetStats = useCallback((updater: (stats: PetStats, now: number) => PetStats) => {
+    const now = Date.now();
     setPetStats((stats) => {
-      const next = updater(stats);
-      return next === stats ? stats : { ...next, lastSaved: Date.now() };
+      const next = updater(stats, now);
+      return next === stats ? stats : { ...next, lastSaved: now };
     });
   }, []);
   const applyPetAction = useCallback(
@@ -492,8 +493,8 @@ export function App({
       // the reducer is the only race-free way to compose with a
       // concurrent decay tick — `() => precomputed` would silently
       // overwrite anything the decay setInterval just committed.
-      updatePetStats((stats) =>
-        accrueLifetimeDeals(stampAction(mutator(stats), action), action),
+      updatePetStats((stats, now) =>
+        accrueLifetimeDeals(stampAction(mutator(stats), action, now), action),
       );
     },
     [updatePetStats],
