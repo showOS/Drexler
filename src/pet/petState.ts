@@ -1,6 +1,8 @@
 import {
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
   readFileSync,
   renameSync,
   unlinkSync,
@@ -8,6 +10,11 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+
+// Serialize concurrent saves so the most recently scheduled call lands
+// last on disk. Without this, parallel rename() races mean a stale
+// payload from an earlier turn can clobber the latest at random.
+let saveQueue: Promise<void> = Promise.resolve();
 
 export type PetActivity =
   | "idle"
@@ -237,25 +244,52 @@ export function loadPetState(): PetStats {
   return defaultStats();
 }
 
-export function savePetState(stats: PetStats): void {
+export function savePetState(stats: PetStats): Promise<void> {
+  const write = () => writePetStateGuarded(stats);
+  const next = saveQueue.then(write, write);
+  // Swallow rejections so one failure does not poison subsequent saves
+  // and callers keep the best-effort "never crash UI" contract.
+  const guarded = next.catch(() => undefined);
+  saveQueue = guarded;
+  return guarded;
+}
+
+async function writePetStateGuarded(stats: PetStats): Promise<void> {
   try {
     const dir = petDir();
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     const target = petFile();
-    // Atomic write: temp + rename so a crash mid-write leaves the prior
-    // pet.json intact rather than a truncated zero-byte file.
-    const tmp = `${target}.tmp.${process.pid}.${Date.now()}`;
+    const lockPath = `${target}.lock`;
+    // Cross-instance guard: exclusive-create lockfile. Another drexler
+    // process holding the lock ⇒ skip silently (best-effort per V29).
+    let lockFd: number;
     try {
-      writeFileSync(
-        tmp,
-        JSON.stringify({ ...stats, lastSaved: Date.now() }, null, 2),
-      );
-      renameSync(tmp, target);
-    } catch (err) {
+      lockFd = openSync(lockPath, "wx", 0o600);
+    } catch {
+      return;
+    }
+    try {
+      // Atomic write: temp + rename so a crash mid-write leaves the prior
+      // pet.json intact rather than a truncated zero-byte file.
+      const tmp = `${target}.tmp.${process.pid}.${Date.now()}`;
       try {
-        unlinkSync(tmp);
+        writeFileSync(
+          tmp,
+          JSON.stringify({ ...stats, lastSaved: Date.now() }, null, 2),
+        );
+        renameSync(tmp, target);
+      } catch {
+        try {
+          unlinkSync(tmp);
+        } catch {}
+      }
+    } finally {
+      try {
+        closeSync(lockFd);
       } catch {}
-      throw err;
+      try {
+        unlinkSync(lockPath);
+      } catch {}
     }
   } catch {
     // best-effort
