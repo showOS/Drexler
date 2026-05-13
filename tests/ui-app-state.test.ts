@@ -435,6 +435,118 @@ describe("App state helpers", () => {
     }
   });
 
+  test("Esc after a partial stream discards assistant content and keeps retryable user turn", async () => {
+    const origHome = process.env.HOME;
+    const origXdg = process.env.XDG_STATE_HOME;
+    const home = await mkdtemp(join(tmpdir(), "drexler-app-cancel-"));
+    const { stdin } = makeInteractiveStreams();
+    const captured: string[] = [];
+    const stdout = new Writable({
+      write(chunk, _encoding, callback) {
+        captured.push(chunk.toString());
+        callback();
+      },
+    }) as Writable & {
+      columns: number;
+      rows: number;
+      isTTY: boolean;
+      cursorTo: () => void;
+      clearLine: () => void;
+      moveCursor: () => void;
+    };
+    stdout.columns = 96;
+    stdout.rows = 30;
+    stdout.isTTY = true;
+    stdout.cursorTo = () => undefined;
+    stdout.clearLine = () => undefined;
+    stdout.moveCursor = () => undefined;
+
+    const ctx = makeCtx();
+    let didUnmount = false;
+    try {
+      process.env.HOME = home;
+      delete process.env.XDG_STATE_HOME;
+
+      const fetchFn: FetchFn = async (_url, init) => {
+        const enc = new TextEncoder();
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              enc.encode(
+                `data: ${JSON.stringify({ choices: [{ delta: { content: "partial..." }, finish_reason: null }] })}\n\n`,
+              ),
+            );
+            init?.signal?.addEventListener(
+              "abort",
+              () => controller.error(new Error("aborted by test")),
+              { once: true },
+            );
+          },
+        });
+        return new Response(stream, {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      };
+
+      const instance = render(
+        React.createElement(App, {
+          conversation: ctx.conversation,
+          config: ctx.config,
+          mood: "ruthless",
+          fetchFn,
+        }),
+        {
+          stdin: stdin as unknown as NodeJS.ReadStream,
+          stdout: stdout as unknown as NodeJS.WriteStream,
+          exitOnCtrlC: false,
+          interactive: true,
+          patchConsole: false,
+          maxFps: 60,
+        },
+      );
+
+      try {
+        await waitFor(() => captured.join("").length > 0, {
+          timeoutMs: 1000,
+          label: "initial render",
+        });
+        stdin.write("hello");
+        await waitFor(() => captured.join("").includes("hello"), {
+          timeoutMs: 1000,
+          label: "input echoed",
+        });
+        stdin.write("\r");
+        await waitFor(() => captured.join("").includes("partial..."), {
+          timeoutMs: 1000,
+          label: "partial stream rendered",
+        });
+        stdin.write("\x1b");
+        await waitFor(() => captured.join("").includes("/retry available"), {
+          timeoutMs: 1000,
+          label: "cancel notice rendered",
+        });
+
+        const messages = ctx.conversation.snapshot();
+        expect(messages.some((m) => m.role === "user" && m.content === "hello")).toBe(true);
+        expect(messages.some((m) => m.role === "assistant")).toBe(false);
+        expect(messages.some((m) => m.content.includes("partial..."))).toBe(false);
+      } finally {
+        instance.unmount();
+        didUnmount = true;
+      }
+    } finally {
+      if (!didUnmount) {
+        // unmount already handled
+      }
+      if (origHome !== undefined) process.env.HOME = origHome;
+      else delete process.env.HOME;
+      if (origXdg !== undefined) process.env.XDG_STATE_HOME = origXdg;
+      else delete process.env.XDG_STATE_HOME;
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   test("App can embed live deal desk chrome in the startup panel", () => {
     const ctx = makeCtx();
     const rendered = renderAppWithStdout(

@@ -82,6 +82,7 @@ describe("drexler CLI fast paths", () => {
     const { stdout, exitCode } = run(["--help"]);
     expect(exitCode).toBe(0);
     expect(stdout).toContain("/setup");
+    expect(stdout).toContain("/debug");
     expect(stdout).toContain("/update");
   });
 });

@@ -1,4 +1,5 @@
 import type { Message, OpenRouterRequestBody, StreamChunk } from "./types.ts";
+import { homedir } from "node:os";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
@@ -104,17 +105,49 @@ export interface TelemetryFrame {
 }
 
 const TELEMETRY_BUFFER_SIZE = 5;
+const MAX_TELEMETRY_ERROR_LEN = 500;
 const telemetryBuffer: TelemetryFrame[] = [];
 
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function sanitizeTelemetryText(input: string): string {
+  let out = input;
+  out = out.replace(/(authorization\s*[:=]\s*)(bearer\s+)?[^\s,}\]]+/gi, "$1[redacted]");
+  out = out.replace(/\bbearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]");
+  out = out.replace(/\bsk-or-[A-Za-z0-9_-]+/g, "sk-or-[redacted]");
+  for (const p of [process.env.HOME, process.env.USERPROFILE, homedir()]) {
+    if (p && p.length > 1) {
+      out = out.replace(new RegExp(escapeRegExp(p), "g"), "~");
+    }
+  }
+  const trimmed = out.trim();
+  if (
+    trimmed.length > 200 &&
+    ((trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+      (trimmed.startsWith("[") && trimmed.endsWith("]")))
+  ) {
+    out = `[redacted JSON body: ${trimmed.length} chars]`;
+  }
+  if (out.length > MAX_TELEMETRY_ERROR_LEN) {
+    out = `${out.slice(0, MAX_TELEMETRY_ERROR_LEN - 3)}...`;
+  }
+  return out;
+}
+
 export function recordTelemetry(frame: TelemetryFrame): void {
-  telemetryBuffer.push(frame);
+  telemetryBuffer.push({
+    ...frame,
+    error: frame.error ? sanitizeTelemetryText(frame.error) : undefined,
+  });
   if (telemetryBuffer.length > TELEMETRY_BUFFER_SIZE) {
     telemetryBuffer.splice(0, telemetryBuffer.length - TELEMETRY_BUFFER_SIZE);
   }
 }
 
 export function getRecentTelemetry(): TelemetryFrame[] {
-  return telemetryBuffer.slice();
+  return telemetryBuffer.map((frame) => ({ ...frame }));
 }
 
 export function clearTelemetry(): void {
@@ -294,7 +327,7 @@ function toResult(outcome: AttemptOutcome, modelUsed: string, fellBack: boolean)
     ok: outcome.status === "ok",
     content: outcome.content,
     modelUsed,
-    error: outcome.error,
+    error: outcome.error ? sanitizeTelemetryText(outcome.error) : undefined,
     fellBack,
     interrupted: outcome.status === "stream_error" && outcome.content.length > 0,
     authFailure: outcome.status === "auth_error",

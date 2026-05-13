@@ -6,12 +6,12 @@
 
 ## Dev loop
 - Clone, then: `bun install`
-- Run: `bun start` (or `./drexler` once globally linked via `bun link`)
+- Run: `bun start` for the local entrypoint. Use `bun link` from the repo when you need the `drexler` command on PATH for local smoke testing.
 - Tests: `bun test`
 - Typecheck: `bun run typecheck`
 - Lint: `bun run lint`
 - Format: `bun run format` (writes) or `bun run format:check` (verify)
-- All gates: `bun run prepublishOnly`
+- All release gates: `bun run prepublishOnly`
 
 ## Project structure
 - `src/index.ts` — entry
@@ -38,4 +38,4 @@
 - Avoid `setTimeout`/polling; prefer event-driven Promise-based waits (see `tests/ui-app-state.test.ts`).
 
 ## Releases
-- Bump `package.json` version, update `CHANGELOG.md`, tag `vX.Y.Z`, push. CI publishes to npm via the `publish` workflow.
+- Run `bun run prepublishOnly`, bump `package.json` version, update `CHANGELOG.md`, tag `vX.Y.Z`, push. CI publishes to npm via the `publish` workflow.

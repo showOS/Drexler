@@ -350,9 +350,8 @@ function coffeeFrames(stats: PetStats): readonly (readonly string[])[] {
     return [["       ", "       ", `  ${cup}`]];
   }
   return [
-    ["  (  ) ", " (    )", `  ${cup}`],
-    [" (    )", "  (  ) ", `  ${cup}`],
-    ["  )  ( ", " (    )", `  ${cup}`],
+    ["   ~ ~ ", "  ~ ~  ", `  ${cup}`],
+    ["  ~ ~  ", "   ~ ~ ", `  ${cup}`],
   ];
 }
 

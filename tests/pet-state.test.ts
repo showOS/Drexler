@@ -623,7 +623,7 @@ describe("pet state", () => {
     expect(parsed.deals).toBe(19);
   });
 
-  test("stale lockfile from another process causes save to skip silently", async () => {
+  test("live foreign lock returns locked and does not unlink or overwrite", async () => {
     const petDirPath = join(dir, ".drexler");
     await mkdir(petDirPath, { recursive: true });
     const target = join(petDirPath, "pet.json");
@@ -637,9 +637,16 @@ describe("pet state", () => {
         lastSaved: 1,
       }),
     );
-    await writeFile(`${target}.lock`, "");
+    const lockPath = `${target}.lock`;
+    const lock = {
+      pid: process.pid,
+      token: "foreign-token",
+      createdAt: Date.now(),
+      hostname: "other-host",
+    };
+    await writeFile(lockPath, JSON.stringify(lock));
 
-    await savePetState({
+    const result = await savePetState({
       hunger: 99,
       happiness: 99,
       energy: 99,
@@ -647,10 +654,39 @@ describe("pet state", () => {
       lastSaved: 2,
     });
 
+    expect(result).toMatchObject({ ok: false, reason: "locked" });
+    expect(existsSync(lockPath)).toBe(true);
     const raw = await readFile(target, "utf-8");
     const parsed = JSON.parse(raw);
     expect(parsed.hunger).toBe(11);
     expect(parsed.deals).toBe(44);
+  });
+
+  test("stale lock is removed and save retries once", async () => {
+    const petDirPath = join(dir, ".drexler");
+    await mkdir(petDirPath, { recursive: true });
+    const target = join(petDirPath, "pet.json");
+    await writeFile(
+      `${target}.lock`,
+      JSON.stringify({
+        pid: process.pid,
+        token: "stale-token",
+        createdAt: Date.now() - 60_000,
+        hostname: "other-host",
+      }),
+    );
+
+    const result = await savePetState({
+      hunger: 77,
+      happiness: 66,
+      energy: 55,
+      deals: 44,
+      lastSaved: 2,
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(existsSync(`${target}.lock`)).toBe(false);
+    expect(JSON.parse(await readFile(target, "utf-8")).hunger).toBe(77);
   });
 
   test("lockfile is cleaned up after a successful save", async () => {
@@ -673,13 +709,14 @@ describe("pet state", () => {
     await mkdir(target, { recursive: true });
     await writeFile(join(target, "sentinel"), "x");
 
-    await savePetState({
+    const result = await savePetState({
       hunger: 70,
       happiness: 70,
       energy: 70,
       deals: 70,
       lastSaved: Date.now(),
     });
+    expect(result).toMatchObject({ ok: false, reason: "write_failed" });
 
     const entries = readdirSync(petDirPath);
     const tmps = entries.filter((e) => e.includes(".tmp."));
@@ -713,11 +750,20 @@ describe("pet state", () => {
     expect(JSON.parse(raw).deals).toBe(64);
   });
 
-  test("flushPetSaves times out gracefully and unlinks the lockfile", async () => {
+  test("flushPetSaves times out gracefully without unlinking a foreign lockfile", async () => {
     const petDir = join(dir, ".drexler");
     await mkdir(petDir, { recursive: true });
     const lockPath = join(petDir, "pet.json.lock");
-    writeFileSync(lockPath, "stale", "utf-8");
+    writeFileSync(
+      lockPath,
+      JSON.stringify({
+        pid: process.pid,
+        token: "foreign-token",
+        createdAt: Date.now(),
+        hostname: "other-host",
+      }),
+      "utf-8",
+    );
     expect(existsSync(lockPath)).toBe(true);
 
     __setPetWriteImpl(() => new Promise<void>(() => {}));
@@ -731,11 +777,46 @@ describe("pet state", () => {
       });
 
       const started = Date.now();
-      await flushPetSaves(50);
+      const result = await flushPetSaves(50);
       const elapsed = Date.now() - started;
       expect(elapsed).toBeLessThan(500);
-      expect(existsSync(lockPath)).toBe(false);
+      expect(result).toMatchObject({ ok: false, reason: "timeout" });
+      expect(existsSync(lockPath)).toBe(true);
     } finally {
+      __setPetWriteImpl(null);
+    }
+  });
+
+  test("late abandoned queue generation cannot block a newer save", async () => {
+    const base: PetStats = {
+      hunger: 50,
+      happiness: 50,
+      energy: 50,
+      deals: 1,
+      lastSaved: Date.now(),
+    };
+    let releaseFirst!: () => void;
+    const firstWrite = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let calls = 0;
+    __setPetWriteImpl(async () => {
+      calls++;
+      if (calls === 1) await firstWrite;
+      return { ok: true };
+    });
+    try {
+      void savePetState({ ...base, deals: 1 });
+      const timeout = await flushPetSaves(20);
+      expect(timeout).toMatchObject({ ok: false, reason: "timeout" });
+      __setPetWriteImpl(null);
+      await savePetState({ ...base, deals: 2 });
+      releaseFirst();
+      await flushPetSaves(500);
+      const raw = await readFile(join(dir, ".drexler", "pet.json"), "utf-8");
+      expect(JSON.parse(raw).deals).toBe(2);
+    } finally {
+      releaseFirst();
       __setPetWriteImpl(null);
     }
   });

@@ -4,6 +4,7 @@ import {
   getRecentTelemetry,
   parseSSEStream,
   recordTelemetry,
+  sanitizeTelemetryText,
   streamChat,
 } from "../src/llm.ts";
 import { MODEL_FALLBACK, MODEL_PRIMARY } from "../src/types.ts";
@@ -550,7 +551,9 @@ describe("telemetry ring buffer (§T13, V39)", () => {
     recordTelemetry({ at: 1, model: MODEL_PRIMARY, ok: true });
     const snap = getRecentTelemetry();
     snap.push({ at: 999, model: "fake", ok: false });
+    snap[0]!.model = "mutated";
     expect(getRecentTelemetry()).toHaveLength(1);
+    expect(getRecentTelemetry()[0]!.model).toBe(MODEL_PRIMARY);
   });
 
   test("streamChat records a frame on http_error outcome", async () => {
@@ -572,5 +575,34 @@ describe("telemetry ring buffer (§T13, V39)", () => {
     expect(last.status).toBe("http_error");
     expect(typeof last.durationMs).toBe("number");
     expect(last.error).toMatch(/network down/);
+  });
+
+  test("sanitizes secrets, home paths, and long JSON bodies", () => {
+    const origHome = process.env.HOME;
+    try {
+      process.env.HOME = "/Users/example";
+      expect(
+        sanitizeTelemetryText(
+          "Authorization: Bearer sk-or-v1-secret bearer abc.def /Users/example/project",
+        ),
+      ).toBe("Authorization: [redacted] Bearer [redacted] ~/project");
+      const body = JSON.stringify({ error: "x".repeat(260) });
+      expect(sanitizeTelemetryText(body)).toMatch(/^\[redacted JSON body:/);
+    } finally {
+      if (origHome !== undefined) process.env.HOME = origHome;
+      else delete process.env.HOME;
+    }
+  });
+
+  test("recordTelemetry stores sanitized errors only", () => {
+    recordTelemetry({
+      at: 1,
+      model: MODEL_PRIMARY,
+      ok: false,
+      error: "Bearer sk-or-v1-secret",
+    });
+    const error = getRecentTelemetry()[0]!.error ?? "";
+    expect(error).toContain("[redacted]");
+    expect(error).not.toContain("sk-or-v1-secret");
   });
 });

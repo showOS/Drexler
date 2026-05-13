@@ -6,11 +6,6 @@ const CLOCK_ROWS = 7;
 const CLOCK_CENTER_X = 10;
 const CLOCK_CENTER_Y = 3;
 
-function normalizeClockNumber(value: number, modulo: number): number {
-  const whole = Math.trunc(Number.isFinite(value) ? value : 0);
-  return ((whole % modulo) + modulo) % modulo;
-}
-
 function drawHand(cells: string[][], hourPos: number, isLong: boolean): void {
   const h = Math.floor(hourPos) % 12;
   const glyphs: Record<number, string> = {
@@ -88,9 +83,11 @@ function stampClockText(cells: string[][], text: string, x: number, y: number): 
   }
 }
 
-function buildAsciiClockLines(hour: number, minute: number): string[] {
-  const safeHour = normalizeClockNumber(hour, 24);
-  const safeMinute = normalizeClockNumber(minute, 60);
+function buildAsciiClockLines(_hour: number, _minute: number): string[] {
+  // Freezing time at 09:00 (boardroom opening time).
+  // The user requested that hands do not move at all from the standard position.
+  const safeHour = 9;
+  const safeMinute = 0;
   const cells = Array.from({ length: CLOCK_ROWS }, () =>
     Array.from({ length: CLOCK_WIDTH }, () => " "),
   );
@@ -111,12 +108,11 @@ function buildAsciiClockLines(hour: number, minute: number): string[] {
   return cells.map((row) => row.join("").padEnd(CLOCK_WIDTH, " ").slice(0, CLOCK_WIDTH));
 }
 
-export function clockTimeFromFrame(frame: number): { hour: number; minute: number } {
-  const startHour = 9; // boardroom opens at 9 AM corporate time.
-  const totalMinutes = startHour * 60 + Math.floor(frame / 5);
+export function clockTimeFromFrame(_frame: number): { hour: number; minute: number } {
+  // Always return 09:00 to keep the clock static.
   return {
-    hour: Math.floor(totalMinutes / 60) % 24,
-    minute: totalMinutes % 60,
+    hour: 9,
+    minute: 0,
   };
 }
 

@@ -218,6 +218,7 @@ interface AppProps {
   greeting?: string;
   showIntroChrome?: boolean;
   introInitiallyDone?: boolean;
+  registerGracefulExitHandler?: (handler: (() => void) | null) => void;
 }
 
 export function App({
@@ -228,6 +229,7 @@ export function App({
   greeting,
   showIntroChrome = false,
   introInitiallyDone = false,
+  registerGracefulExitHandler,
 }: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -289,14 +291,6 @@ export function App({
       return [...prev.slice(0, idx), ...prev.slice(idx + 1)];
     });
   }, []);
-  const removeLastUserItem = useCallback(() => {
-    setItems((prev) => {
-      const idx = prev.findLastIndex((item) => item.role === "user");
-      if (idx === -1) return prev;
-      return [...prev.slice(0, idx), ...prev.slice(idx + 1)];
-    });
-  }, []);
-
   // Persist the current conversation to disk so the next launch can
   // offer a resume. Best-effort: a failed save never blocks chat.
   // Debounced 800ms so a burst of turns (e.g. rapid /retry → /regenerate)
@@ -372,6 +366,8 @@ export function App({
   const petStatsRef = useRef<PetStats>(petStats);
   const petActivityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const petDecayTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const explicitPetSavePendingRef = useRef(false);
+  const lastPetSaveNoticeAtRef = useRef(0);
 
   const petEnv: Environment = "office";
 
@@ -453,6 +449,7 @@ export function App({
       // the reducer is the only race-free way to compose with a
       // concurrent decay tick — `() => precomputed` would silently
       // overwrite anything the decay setInterval just committed.
+      explicitPetSavePendingRef.current = true;
       updatePetStats((stats, now) =>
         accrueLifetimeDeals(stampAction(mutator(stats), action, now), action),
       );
@@ -490,13 +487,31 @@ export function App({
   // identity when no real decay occurred, so the decay setInterval
   // does not re-trigger this effect on every tick.
   const petSaveInitRef = useRef(false);
+  const reportPetSaveFailure = useCallback(
+    (message: string) => {
+      const now = Date.now();
+      if (now - lastPetSaveNoticeAtRef.current < 30_000) return;
+      lastPetSaveNoticeAtRef.current = now;
+      addItem("system", message);
+      setDeskStatus("error");
+      setDeskNotice("pet save failed");
+    },
+    [addItem],
+  );
   useEffect(() => {
     if (!petSaveInitRef.current) {
       petSaveInitRef.current = true;
       return;
     }
-    savePetState(petStats);
-  }, [petStats]);
+    const explicit = explicitPetSavePendingRef.current;
+    explicitPetSavePendingRef.current = false;
+    void savePetState(petStats).then((result) => {
+      if (!explicit || result.ok) return;
+      const detail =
+        result.reason === "locked" ? "another Drexler process is writing" : result.reason;
+      reportPetSaveFailure(`Pet persistence warning: ${detail}. This action may not survive exit.`);
+    });
+  }, [petStats, reportPetSaveFailure]);
 
   // Real-time stat decay matches the offline per-hour decay rate.
   useEffect(() => {
@@ -627,6 +642,14 @@ export function App({
     [exit, flushPersistSession],
   );
 
+  useEffect(() => {
+    if (!registerGracefulExitHandler) return;
+    registerGracefulExitHandler(() => triggerExit(SIGINT_MSG));
+    return () => {
+      registerGracefulExitHandler(null);
+    };
+  }, [registerGracefulExitHandler, triggerExit]);
+
   const pushTokenToStream = useCallback(
     (t: string, immediate = false) => {
       streamBufRef.current += t;
@@ -738,12 +761,18 @@ export function App({
         }
         if (!mountedRef.current || exitingRef.current) return;
         if (caughtErr) {
-          const msg = caughtErr instanceof Error ? caughtErr.message : String(caughtErr);
           setThinking(null);
           setStreaming(null);
-          addItem("system", `${STREAM_ERROR} [${msg}]`);
-          setDeskStatus("error");
-          setDeskNotice(msg);
+          if (cancelledRef.current) {
+            cancelledRef.current = false;
+            addItem("system", "(cancelled response discarded — /retry available)");
+            setDeskNotice("response cancelled");
+          } else {
+            const msg = caughtErr instanceof Error ? caughtErr.message : String(caughtErr);
+            addItem("system", `${STREAM_ERROR} [${msg}]`);
+            setDeskStatus("error");
+            setDeskNotice(msg);
+          }
           setMsgCount(conversation.length);
           return;
         }
@@ -751,25 +780,8 @@ export function App({
         setStreaming(null);
         if (cancelledRef.current) {
           cancelledRef.current = false;
-          if (result?.content) {
-            conversation.push("assistant", result.content);
-            addItem("assistant", result.content);
-            addItem("system", "(cancelled — Drexler taking lunch)");
-            setDeskNotice("response cancelled");
-          } else if (firstToken && instruction === undefined) {
-            // Aborted before any token arrived. Roll the just-pushed user
-            // turn back so the conversation doesn't accumulate dead user
-            // messages on repeated quick aborts. Skipped for /retry and
-            // /regenerate (instruction !== undefined) — those rerun against
-            // an existing user turn we must not pop.
-            conversation.popLastUser();
-            removeLastUserItem();
-            addItem("system", "(cancelled before Drexler started — message withdrawn)");
-            setDeskNotice("cancelled before response");
-          } else {
-            addItem("system", "(cancelled — Drexler taking lunch)");
-            setDeskNotice("response cancelled");
-          }
+          addItem("system", "(cancelled response discarded — /retry available)");
+          setDeskNotice("response cancelled");
         } else if (result?.ok && typeof result.content === "string") {
           conversation.push("assistant", result.content);
           addItem("assistant", result.content);
@@ -815,16 +827,7 @@ export function App({
         }
       }
     },
-    [
-      apiKey,
-      model,
-      fetchFn,
-      addItem,
-      conversation,
-      pushTokenToStream,
-      removeLastUserItem,
-      persistSession,
-    ],
+    [apiKey, model, fetchFn, addItem, conversation, pushTokenToStream, persistSession],
   );
 
   const handleSlashWithMutation = useCallback(
@@ -974,6 +977,7 @@ export function App({
           );
           return;
         }
+        explicitPetSavePendingRef.current = true;
         updatePetStats((s) => applyName(s, cleaned));
         addItem("system", `Pet renamed: "${cleaned}". Memo distributed to all departments.`);
         return;

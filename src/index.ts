@@ -78,10 +78,17 @@ Slash commands inside REPL:
   /copy-last     alias for /copy
   /edit [n]      load a prior user message into the draft
   /setup         show config + API key source
+  /debug         dump last 5 sanitized stream telemetry frames
   /update        show upgrade instructions
   /auth <key>    replace API key in-session (no restart)
 
 Ctrl+C exits gracefully.`;
+
+let appGracefulExitHandler: (() => void) | null = null;
+
+function registerAppGracefulExitHandler(handler: (() => void) | null): void {
+  appGracefulExitHandler = handler;
+}
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
@@ -97,6 +104,7 @@ async function main(): Promise<void> {
   }
 
   const isInteractive = process.stdout.isTTY === true && process.stdin.isTTY === true;
+  installFatalHandlers();
 
   // 1. Validate non-secret config FIRST so a bogus --model or --persona
   //    fails fast before we ask the user for an API key.
@@ -200,6 +208,7 @@ async function main(): Promise<void> {
           mood,
           greeting,
           showIntroChrome: !skipIntro,
+          registerGracefulExitHandler: registerAppGracefulExitHandler,
         }),
       }),
       { exitOnCtrlC: false },
@@ -214,7 +223,6 @@ async function main(): Promise<void> {
   }
 
   // Non-TTY fallback: linear output, readline-based REPL.
-  installFatalHandlers();
   console.log("");
   if (!skipIntro) {
     console.log(banner());
@@ -268,8 +276,6 @@ function exitWithPetFlush(code: number): void {
   flushPetSaves().then(done, done);
 }
 
-// Fatal handlers are installed only in the non-TTY path; the interactive
-// path lets Ink's signal-exit hooks run cleanup so the alt-screen restores.
 function installFatalHandlers(): void {
   process.on("unhandledRejection", (reason) => {
     const msg = reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
@@ -288,6 +294,10 @@ function installFatalHandlers(): void {
   // covered too — supervisors (systemd, pm2) prefer it for graceful
   // shutdown.
   const signalHandler = (): void => {
+    if (appGracefulExitHandler) {
+      appGracefulExitHandler();
+      return;
+    }
     exitWithPetFlush(0);
   };
   process.on("SIGINT", signalHandler);
