@@ -425,11 +425,15 @@ function buildOfficeScene(
   );
 
   const boardLines = marketBoardLines(metrics.boardWidth, activity, frame, stats);
-  // MSFT is the declining ticker — paint that row with negativeCandle (red)
-  // by overlaying just that row with a second sprite at a higher zIndex.
-  // Narrow layout puts the MSFT row at index 5, wide/standard at index 4.
+  // MSFT is the declining ticker — paint that row's content (not the box
+  // walls) with negativeCandle (red) by overlaying just that row. Replace
+  // the outer `│` walls with spaces; transparentSpaces (default true)
+  // leaves them showing the base sprite's chartGrid color.
   const msftRowIdx = metrics.boardWidth < 58 ? 5 : 4;
-  const msftOverlayLines = boardLines.map((line, i) => (i === msftRowIdx ? line : ""));
+  const msftOverlayLines = boardLines.map((line, i) => {
+    if (i !== msftRowIdx || line.length < 2) return "";
+    return ` ${line.slice(1, -1)} `;
+  });
 
   if (layout === "compact") {
     sprites.push(
