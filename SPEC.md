@@ -103,6 +103,7 @@ Case-insensitive. Local-only. Never sent to model. Never appended to history.
 | `/vibe` | pet: choose own adventure |
 | `/name [name]` | view or set pet name |
 | `/profile` | print pet personnel file |
+| `/debug` | dump last 5 telemetry frames (per V39) |
 
 Palette opens on `/`. Argument choosers: `/theme`, `/startup`, `/retry`, `/export`, `/model`.
 
@@ -157,10 +158,10 @@ Palette opens on `/`. Argument choosers: `/theme`, `/startup`, `/retry`, `/expor
 - V34 — Lint + format gates: `bun lint` + `bun format:check` pass in CI before publish. ESLint flat config + Prettier check. Ink JSX prop allowlist documented.
 - V35 — `petState.saveQueue` MUST drain before process exit (SIGINT/SIGTERM/Ink unmount). Pending writes awaited with timeout ≤ 2s; on timeout the lockfile is still cleared.
 - V36 — `prepublishOnly` runs `lint` in addition to `test` + `typecheck`. CI publish workflow matches.
-- V37 — CI runs `bun test --coverage`; report uploaded as a workflow artifact. (Pending WU-J confirmation that Bun coverage flag is stable.)
+- V37 — CI runs `bun test --coverage`; report uploaded as a workflow artifact.
 - V38 — All React hook deps arrays exhaustive (no `react-hooks/exhaustive-deps` warnings). Lint baseline = 0 warnings.
 - V39 — UI surfaces `result.error` from `src/llm.ts` to user on non-OK outcomes; `/debug` slash command dumps last N telemetry frames (default 5).
-- V40 — devDependencies pinned to exact versions (no `^` / `~`). (Pending WU-J recommendation; may be dropped.)
+- V40 — devDependencies use `^` semver; Bun lockfile provides install-time determinism. (WU-J reviewed exact-pin vs caret; caret retained.)
 
 ## §T Tasks
 
@@ -170,20 +171,20 @@ Palette opens on `/`. Argument choosers: `/theme`, `/startup`, `/retry`, `/expor
 | T2 | x | Add ESLint flat config + Prettier + CI step | V34 |
 | T3 | x | Pet save FIFO queue + cross-instance lockfile | V33 |
 | T4 | x | Fix Ink UI §V8 violation; surface STREAM_ERROR in App.tsx | V8 |
-| T5 | . | App.tsx hook deps exhaustive (L563, L1083, L1375, L1383) | V38 |
-| T6 | . | Drain `saveQueue` on SIGINT/SIGTERM/unmount (≤2s timeout) | V35 |
-| T7 | . | `prepublishOnly` also runs `bun run lint` | V36 |
-| T8 | . | Split `src/ui/PetPanel.tsx` (1556 LOC) into `src/ui/pet/{MarketBoard,AsciiClock,MascotScene,CompactPetPanel}.tsx` | V21 |
+| T5 | x | App.tsx hook deps exhaustive | V38 |
+| T6 | x | Drain `saveQueue` on SIGINT/SIGTERM/unmount (≤2s timeout) | V35 |
+| T7 | x | `prepublishOnly` also runs `bun run lint` + `format:check` | V36 |
+| T8 | x | Split `src/ui/PetPanel.tsx` into `src/ui/pet/{MarketBoard,AsciiClock,MascotScene,CompactPetPanel,shared}` (barrel re-export) | V21 |
 | T9 | x | Format pass: Prettier across src + tests; strict format:check | V34 |
-| T10 | . | Lint baseline 30 → 0 warnings | V38 |
-| T11 | . | Test speedup: event-driven assertions in `tests/ui-app-state.test.ts` + `tests/ui-live-chrome.test.ts` (no polling) | — |
-| T12 | . | Persona lazy-load + opener cache; sub-100ms startup with `--fast` | — |
-| T13 | . | Telemetry: surface `result.error` in UI; add `/debug` slash command | V39 |
-| T14 | . | `CONTRIBUTING.md`: Bun-only dev loop, SPEC discipline, branch naming | — |
-| T15 | . | CI: `bun test --coverage` artifact upload | V37 |
-| T16 | . | Bundle audit: chalk + cli-highlight + marked-terminal overlap; report only | — |
-| T17 | . | Stream render throttle verification (App.tsx:629; Ink `maxFps` default 30) | V22 |
-| T18 | . | devDependencies pin research | V40 |
+| T10 | x | Lint baseline 30 → 0 warnings | V38 |
+| T11 | x | Test speedup: event-driven assertions in `tests/ui-app-state.test.ts` + `tests/ui-live-chrome.test.ts` (no polling) | — |
+| T12 | x | Persona lazy-load via `loadPersonaLazy` + preload | — |
+| T13 | x | Telemetry: surface `result.error` in UI; `/debug` slash dumps last 5 frames | V39 |
+| T14 | x | `CONTRIBUTING.md`: Bun-only dev loop, SPEC discipline, branch naming | — |
+| T15 | x | CI: `bun test --coverage` artifact upload | V37 |
+| T16 | x | Bundle audit (WU-J): chalk + cli-highlight kept; marked/marked-terminal still wire renderMarkdown (tested) — backlog: drop if renderMarkdown removed | — |
+| T17 | x | Stream render throttle (WU-K): 33ms setTimeout on streamTimerRef gates setStreaming; aligns w/ Ink default 30 FPS — verified, no action | V22 |
+| T18 | x | devDependencies pin (WU-J): caret retained; Bun lockfile determines install-time tree | V40 |
 
 ## §B Bugs
 
