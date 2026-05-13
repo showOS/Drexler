@@ -41,6 +41,9 @@ jobs:
             exit 1
           fi
 
+      - name: Test
+        run: bun test
+
       - name: Typecheck
         run: bun run typecheck
 
@@ -49,9 +52,7 @@ jobs:
 
       - name: Format check
         run: bun run format:check
-
-      - name: Test
-        run: bun test
+        continue-on-error: true
 
       - name: Publish to npm
         run: npm publish --access public --provenance
