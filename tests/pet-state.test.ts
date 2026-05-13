@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { existsSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  __setPetWriteImpl,
   accrueLifetimeDeals,
   actionCooldown,
   applyDecay,
@@ -13,6 +15,7 @@ import {
   applyRest,
   applyVibe,
   applyWork,
+  flushPetSaves,
   formatCooldownRemaining,
   formatTenure,
   getPetMood,
@@ -579,5 +582,71 @@ describe("pet state", () => {
       lifetimeDeals: 250,
     });
     expect(loadPetState().lifetimeDeals).toBe(250);
+  });
+
+  test("flushPetSaves resolves immediately when the queue is empty", async () => {
+    const started = Date.now();
+    await flushPetSaves(2000);
+    // Empty queue: should drain on the next microtask, well under the
+    // timeout cap. Allow a generous slack for slow CI machines.
+    expect(Date.now() - started).toBeLessThan(200);
+  });
+
+  test("flushPetSaves drains 5 parallel savePetState calls before timeout", async () => {
+    const stats: PetStats = {
+      hunger: 60,
+      happiness: 60,
+      energy: 60,
+      deals: 60,
+      lastSaved: Date.now(),
+    };
+    for (let i = 0; i < 5; i++) {
+      savePetState({ ...stats, deals: 60 + i });
+    }
+    const started = Date.now();
+    await flushPetSaves(2000);
+    const elapsed = Date.now() - started;
+    expect(elapsed).toBeLessThan(2000);
+    // The latest scheduled call (deals=64) lands last on disk.
+    const raw = await readFile(join(dir, ".drexler", "pet.json"), "utf-8");
+    expect(JSON.parse(raw).deals).toBe(64);
+  });
+
+  test("flushPetSaves times out gracefully and unlinks the lockfile", async () => {
+    // Pre-create a stale lockfile that should be cleaned up on timeout.
+    const petDir = join(dir, ".drexler");
+    await mkdir(petDir, { recursive: true });
+    const lockPath = join(petDir, "pet.json.lock");
+    writeFileSync(lockPath, "stale", "utf-8");
+    expect(existsSync(lockPath)).toBe(true);
+
+    // Inject a hanging writer so the saveQueue never settles within the
+    // 50ms drain window. The implementation must time out and still
+    // attempt to unlink the lockfile.
+    __setPetWriteImpl(
+      () => new Promise<void>(() => {
+        // never resolves — simulates a stuck underlying write
+      }),
+    );
+    try {
+      savePetState({
+        hunger: 50,
+        happiness: 50,
+        energy: 50,
+        deals: 50,
+        lastSaved: Date.now(),
+      });
+
+      const started = Date.now();
+      await flushPetSaves(50);
+      const elapsed = Date.now() - started;
+      // Should not hang past the configured timeout. Allow slack for
+      // event-loop scheduling jitter.
+      expect(elapsed).toBeLessThan(500);
+      // Lockfile must be cleaned up so a future launch is not stranded.
+      expect(existsSync(lockPath)).toBe(false);
+    } finally {
+      __setPetWriteImpl(null);
+    }
   });
 });
