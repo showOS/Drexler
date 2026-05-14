@@ -13,10 +13,20 @@ import { randomUUID } from "node:crypto";
 import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 
-// Serialize concurrent saves so the latest scheduled call lands last on
-// disk. Without this, parallel rename() races mean a stale payload from
-// an earlier turn can clobber the most recent at random. Mirrors the
-// queue idiom in `src/conversation/persist.ts`.
+// pet.json persistence intentionally diverges from `withJsonFileLock`
+// (src/pet/fileLock.ts) — V64 documents why both pipelines coexist.
+//
+//   - Achievements + graveyard use `withJsonFileLock`: append-only,
+//     read-modify-write at human cadence, tolerant of a one-shot fail.
+//   - pet.json writes here are HIGH-FREQUENCY (every decay tick, every
+//     action commit) and MUST settle in FIFO order across React's
+//     concurrent rendering. The queue below guarantees the *latest*
+//     scheduled call lands last on disk; `flushPetSaves()` (V35) drains
+//     it on SIGINT / unmount with a hard 2s cap; the owned lockfile
+//     token enables cross-instance contention handling (V33).
+//
+// Both surfaces are atomic temp+rename. New persistent files must pick
+// one of the two paths and not re-implement a third.
 let saveQueue: Promise<PetSaveResult> = Promise.resolve({ ok: true });
 let queueGeneration = 0;
 let heldLockToken: string | null = null;
@@ -102,6 +112,20 @@ export interface PetMinigameRecord {
   lastNegotiateAt?: number;
 }
 
+export interface AchievementProgress {
+  tradeWins: number;
+  auditEventsSurvived: number;
+  synergyIds: string[];
+  pipelineCompletions: number;
+  chartersUsed: number;
+  pitchHits: number;
+  negotiateWins: number;
+  healthySince?: number;
+  respawned?: boolean;
+  seenWorldEvents: string[];
+  survivedWorldEvents: string[];
+}
+
 export interface PetStats {
   hunger: number;
   happiness: number;
@@ -127,6 +151,7 @@ export interface PetStats {
   archetype?: PetArchetype;
   boss?: PetBossRecord;
   minigame?: PetMinigameRecord;
+  achievementProgress?: AchievementProgress;
 }
 
 export interface ReviewCounters {
@@ -270,6 +295,31 @@ const DEFAULT_STATS: PetStats = {
   createdAt: Date.now(),
 };
 
+const DAILY_CHALLENGE_KIND_SET: ReadonlySet<PetDailyChallengeKind> = new Set([
+  "close_deals_2",
+  "win_trade",
+  "survive_2_events",
+  "synergy_1",
+  "pet_action_10",
+]);
+const WORLD_KIND_SET: ReadonlySet<PetWorldEventKind> = new Set([
+  "market_crash",
+  "ipo_mania",
+  "audit_week",
+  "holiday",
+]);
+const BOSS_STEPS: Readonly<Record<string, number>> = { quarterly_earnings: 4 };
+const KNOWN_PERKS = new Set([
+  "slow_decay",
+  "quick_recovery",
+  "big_meals",
+  "trade_eye",
+  "pipeline",
+  "chartered",
+  "iron_liver",
+  "rainmaker",
+]);
+
 function getHome(): string {
   return process.env.HOME ?? process.env.USERPROFILE ?? homedir();
 }
@@ -320,12 +370,12 @@ function parseActionHistory(input: unknown): ActionHistoryEntry[] | undefined {
         out.push({ action, at });
       }
     }
-    if (out.length >= ACTION_HISTORY_LIMIT) break;
   }
+  while (out.length > ACTION_HISTORY_LIMIT) out.shift();
   return out.length > 0 ? out : undefined;
 }
 
-function parseActiveDeals(input: unknown): ActiveDeal[] | undefined {
+function parseActiveDeals(input: unknown, cap = 2): ActiveDeal[] | undefined {
   if (!Array.isArray(input)) return undefined;
   const out: ActiveDeal[] = [];
   for (const item of input) {
@@ -364,7 +414,7 @@ function parseActiveDeals(input: unknown): ActiveDeal[] | undefined {
       reward: Math.max(0, Math.floor(o.reward)),
     });
   }
-  return out.length > 0 ? out : undefined;
+  return out.length > 0 ? out.slice(0, Math.max(0, Math.floor(cap))) : undefined;
 }
 
 function parseTradeSession(input: unknown): TradeSessionRecord | undefined {
@@ -375,18 +425,19 @@ function parseTradeSession(input: unknown): TradeSessionRecord | undefined {
   if (typeof o.used !== "boolean") return undefined;
   const record: TradeSessionRecord = {
     date: o.date,
-    seed: o.seed,
+    seed: o.seed >>> 0,
     used: o.used,
   };
   if (typeof o.bonusAvailable === "boolean") record.bonusAvailable = o.bonusAvailable;
   return record;
 }
 
-function parseStringArray(input: unknown): string[] | undefined {
+function parsePerks(input: unknown): string[] | undefined {
   if (!Array.isArray(input)) return undefined;
   const out: string[] = [];
   for (const item of input) {
-    if (typeof item === "string" && item.length > 0) out.push(item);
+    if (typeof item !== "string" || !KNOWN_PERKS.has(item) || out.includes(item)) continue;
+    out.push(item);
   }
   return out.length > 0 ? out : undefined;
 }
@@ -418,6 +469,7 @@ function parseDailyChallenge(input: unknown): PetStats["dailyChallenge"] | undef
   if (
     typeof o.date !== "string" ||
     typeof o.kind !== "string" ||
+    !DAILY_CHALLENGE_KIND_SET.has(o.kind as PetDailyChallengeKind) ||
     typeof o.target !== "number" ||
     !Number.isFinite(o.target) ||
     typeof o.progress !== "number" ||
@@ -428,7 +480,7 @@ function parseDailyChallenge(input: unknown): PetStats["dailyChallenge"] | undef
   }
   return {
     date: o.date,
-    kind: o.kind as PetStats["dailyChallenge"] extends { kind: infer K } | undefined ? K : never,
+    kind: o.kind as PetDailyChallengeKind,
     target: Math.max(0, Math.floor(o.target)),
     progress: Math.max(0, Math.floor(o.progress)),
     rewarded: o.rewarded,
@@ -439,10 +491,11 @@ function parseWorldEvent(input: unknown): PetStats["worldEvent"] | undefined {
   if (!input || typeof input !== "object") return undefined;
   const o = input as Record<string, unknown>;
   if (typeof o.kind !== "string") return undefined;
+  if (!WORLD_KIND_SET.has(o.kind as PetWorldEventKind)) return undefined;
   if (typeof o.startedAt !== "number" || !Number.isFinite(o.startedAt)) return undefined;
   if (typeof o.expiresAt !== "number" || !Number.isFinite(o.expiresAt)) return undefined;
   return {
-    kind: o.kind as PetStats["worldEvent"] extends { kind: infer K } | undefined ? K : never,
+    kind: o.kind as PetWorldEventKind,
     startedAt: o.startedAt,
     expiresAt: o.expiresAt,
   };
@@ -462,12 +515,69 @@ function parseBoss(input: unknown): PetStats["boss"] | undefined {
   if (typeof o.step !== "number" || !Number.isFinite(o.step)) return undefined;
   if (typeof o.startedAt !== "number" || !Number.isFinite(o.startedAt)) return undefined;
   if (typeof o.deadline !== "number" || !Number.isFinite(o.deadline)) return undefined;
+  const maxStep = BOSS_STEPS[o.id];
+  if (typeof maxStep !== "number") return undefined;
+  const step = Math.floor(o.step);
+  if (step < 0 || step >= maxStep) return undefined;
   return {
     id: o.id,
-    step: Math.max(0, Math.floor(o.step)),
+    step,
     startedAt: o.startedAt,
     deadline: o.deadline,
   };
+}
+
+function parseStringList(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const out: string[] = [];
+  for (const item of input) {
+    if (typeof item === "string" && item.length > 0 && !out.includes(item)) out.push(item);
+  }
+  return out;
+}
+
+export function emptyAchievementProgress(now: number = Date.now()): AchievementProgress {
+  return {
+    tradeWins: 0,
+    auditEventsSurvived: 0,
+    synergyIds: [],
+    pipelineCompletions: 0,
+    chartersUsed: 0,
+    pitchHits: 0,
+    negotiateWins: 0,
+    healthySince: now,
+    respawned: false,
+    seenWorldEvents: [],
+    survivedWorldEvents: [],
+  };
+}
+
+function parseAchievementProgress(input: unknown, now: number): AchievementProgress | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const o = input as Record<string, unknown>;
+  const n = (key: string) =>
+    typeof o[key] === "number" && Number.isFinite(o[key])
+      ? Math.max(0, Math.floor(o[key] as number))
+      : 0;
+  const progress: AchievementProgress = {
+    tradeWins: n("tradeWins"),
+    auditEventsSurvived: n("auditEventsSurvived"),
+    synergyIds: parseStringList(o.synergyIds),
+    pipelineCompletions: n("pipelineCompletions"),
+    chartersUsed: n("chartersUsed"),
+    pitchHits: n("pitchHits"),
+    negotiateWins: n("negotiateWins"),
+    healthySince:
+      typeof o.healthySince === "number" && Number.isFinite(o.healthySince) ? o.healthySince : now,
+    respawned: o.respawned === true,
+    seenWorldEvents: parseStringList(o.seenWorldEvents),
+    survivedWorldEvents: parseStringList(o.survivedWorldEvents),
+  };
+  return progress;
+}
+
+function effectiveDealCap(stats: Pick<PetStats, "perks">): number {
+  return stats.perks?.includes("pipeline") ? 3 : 2;
 }
 
 function parseMinigame(input: unknown): PetStats["minigame"] | undefined {
@@ -516,6 +626,80 @@ export function sessionDecayMultiplier(stats: PetStats, now: number = Date.now()
   const elapsed = now - lastAt;
   if (elapsed < 0) return SESSION_ACTIVE_DECAY_MULTIPLIER;
   return elapsed <= SESSION_ACTIVE_WINDOW_MS ? SESSION_ACTIVE_DECAY_MULTIPLIER : 1;
+}
+
+export function achievementProgressOf(
+  stats: PetStats,
+  now: number = Date.now(),
+): AchievementProgress {
+  return stats.achievementProgress ?? emptyAchievementProgress(now);
+}
+
+export function withAchievementProgress(
+  stats: PetStats,
+  update: (progress: AchievementProgress) => AchievementProgress,
+  now: number = Date.now(),
+): PetStats {
+  return { ...stats, achievementProgress: update(achievementProgressOf(stats, now)) };
+}
+
+export function recordHealthyProgress(stats: PetStats, now: number = Date.now()): PetStats {
+  const healthy = stats.hunger >= 30 && stats.happiness >= 30 && stats.energy >= 30;
+  const progress = achievementProgressOf(stats, now);
+  const healthySince = healthy ? (progress.healthySince ?? now) : undefined;
+  if (stats.achievementProgress && progress.healthySince === healthySince) return stats;
+  return { ...stats, achievementProgress: { ...progress, healthySince } };
+}
+
+export function recordWorldSeen(
+  stats: PetStats,
+  kind: PetWorldEventKind,
+  now: number = Date.now(),
+): PetStats {
+  return withAchievementProgress(
+    stats,
+    (progress) => ({
+      ...progress,
+      seenWorldEvents: progress.seenWorldEvents.includes(kind)
+        ? progress.seenWorldEvents
+        : [...progress.seenWorldEvents, kind],
+    }),
+    now,
+  );
+}
+
+export function recordWorldSurvived(
+  stats: PetStats,
+  kind: PetWorldEventKind,
+  now: number = Date.now(),
+): PetStats {
+  return withAchievementProgress(
+    stats,
+    (progress) => ({
+      ...progress,
+      survivedWorldEvents: progress.survivedWorldEvents.includes(kind)
+        ? progress.survivedWorldEvents
+        : [...progress.survivedWorldEvents, kind],
+    }),
+    now,
+  );
+}
+
+export function recordSynergyProgress(
+  stats: PetStats,
+  id: string,
+  now: number = Date.now(),
+): PetStats {
+  return withAchievementProgress(
+    stats,
+    (progress) => ({
+      ...progress,
+      synergyIds: progress.synergyIds.includes(id)
+        ? progress.synergyIds
+        : [...progress.synergyIds, id],
+    }),
+    now,
+  );
 }
 
 // Decay over (now - stats.lastSaved). Works the same on a 1-minute
@@ -591,6 +775,12 @@ export function loadPetState(): PetStats {
           // tied to the rank ladder which gets halved on death, so re-earning
           // perk points starts fresh.
           archetype: parseArchetypeField(parsed.archetype),
+          achievementProgress: {
+            ...(parseAchievementProgress(parsed.achievementProgress, now) ??
+              emptyAchievementProgress(now)),
+            respawned: true,
+            healthySince: now,
+          },
         };
         savePetState(revived);
         return revived;
@@ -605,6 +795,7 @@ export function loadPetState(): PetStats {
           }
         }
       }
+      const parsedPerks = parsePerks(parsed.perks);
       const stats: PetStats = {
         hunger: clamp(parsed.hunger, DEFAULT_STATS.hunger),
         happiness: clamp(parsed.happiness, DEFAULT_STATS.happiness),
@@ -626,7 +817,7 @@ export function loadPetState(): PetStats {
           parsed.lifetimeDeals >= 0
             ? parsed.lifetimeDeals
             : undefined,
-        activeDeals: parseActiveDeals(parsed.activeDeals),
+        activeDeals: parseActiveDeals(parsed.activeDeals, effectiveDealCap({ perks: parsedPerks })),
         actionHistory: parseActionHistory(parsed.actionHistory),
         inventory: parsed.inventory ? normalizeInventory(parsed.inventory) : undefined,
         tradeSession: parseTradeSession(parsed.tradeSession),
@@ -635,7 +826,7 @@ export function loadPetState(): PetStats {
             ? parsed.lastReviewAt
             : undefined,
         reviewCounters: parseReviewCounters(parsed.reviewCounters),
-        perks: parseStringArray(parsed.perks),
+        perks: parsedPerks,
         perkPoints:
           typeof parsed.perkPoints === "number" && Number.isFinite(parsed.perkPoints)
             ? Math.max(0, Math.floor(parsed.perkPoints))
@@ -646,6 +837,7 @@ export function loadPetState(): PetStats {
         archetype: parseArchetypeField(parsed.archetype),
         boss: parseBoss(parsed.boss),
         minigame: parseMinigame(parsed.minigame),
+        achievementProgress: parseAchievementProgress(parsed.achievementProgress, now),
       };
       return applyDecay(stats, now);
     }

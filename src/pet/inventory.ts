@@ -7,6 +7,8 @@ import {
   type PetInventory,
   type PetStats,
 } from "./petState.ts";
+import { localDateStamp } from "./trade.ts";
+import { perkCoffeeBonus, perkFeedMultiplier } from "./perks.ts";
 
 function clampStat(value: number): number {
   if (value < 0) return 0;
@@ -60,7 +62,7 @@ export type UseOutcome =
     }
   | { ok: false; reason: "empty" | "invalid_item"; message: string };
 
-export function useItem(stats: PetStats, item: InventoryKey): UseOutcome {
+export function useItem(stats: PetStats, item: InventoryKey, now: number = Date.now()): UseOutcome {
   if (!INVENTORY_KEYS.includes(item)) {
     return {
       ok: false,
@@ -80,7 +82,7 @@ export function useItem(stats: PetStats, item: InventoryKey): UseOutcome {
   if (item === "coffee") {
     const next: PetStats = {
       ...stats,
-      energy: clampStat(stats.energy + 30),
+      energy: clampStat(stats.energy + 30 * perkCoffeeBonus(stats)),
       inventory: decremented,
     };
     return {
@@ -93,7 +95,7 @@ export function useItem(stats: PetStats, item: InventoryKey): UseOutcome {
   if (item === "pastry") {
     const next: PetStats = {
       ...stats,
-      hunger: clampStat(stats.hunger + 30),
+      hunger: clampStat(stats.hunger + 30 * perkFeedMultiplier(stats)),
       inventory: decremented,
     };
     return {
@@ -104,9 +106,11 @@ export function useItem(stats: PetStats, item: InventoryKey): UseOutcome {
     };
   }
   // charter
-  const session = stats.tradeSession
-    ? { ...stats.tradeSession, bonusAvailable: true }
-    : stats.tradeSession;
+  const today = localDateStamp(now);
+  const session =
+    stats.tradeSession?.date === today
+      ? { ...stats.tradeSession, bonusAvailable: true }
+      : { date: today, seed: 0, used: false, bonusAvailable: true };
   const next: PetStats = {
     ...stats,
     inventory: decremented,

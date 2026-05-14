@@ -111,4 +111,25 @@ describe("daily review", () => {
     const next = markReviewShown(stats, 42);
     expect(next.lastReviewAt).toBe(42);
   });
+
+  test("buildReviewSnapshot honours injected rng (V66)", () => {
+    const stats = ensureReviewCounters(baseStats(), noon(2026, 5, 13));
+    const oneLinerA = buildReviewSnapshot({
+      stats,
+      now: noon(2026, 5, 13),
+      rng: () => 0,
+    }).oneLiner;
+    const oneLinerB = buildReviewSnapshot({
+      stats,
+      now: noon(2026, 5, 13),
+      rng: () => 0.99,
+    }).oneLiner;
+    expect(oneLinerA).not.toEqual(oneLinerB);
+    const repeated = buildReviewSnapshot({
+      stats,
+      now: noon(2026, 5, 13),
+      rng: () => 0,
+    }).oneLiner;
+    expect(repeated).toEqual(oneLinerA);
+  });
 });

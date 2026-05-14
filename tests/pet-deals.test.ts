@@ -61,6 +61,28 @@ describe("active deals", () => {
     expect(next.activeDeals?.length).toBe(MAX_ACTIVE_DEALS);
   });
 
+  test("maybeOfferDeal honors explicit pipeline cap of 3", () => {
+    const scheduler = { ...defaultDealScheduler(fixedRng([0])), shouldSpawn: () => true };
+    const filler: ActiveDeal[] = Array.from({ length: 2 }, (_, i) => ({
+      id: `pre_${i}`,
+      name: "filler",
+      requirements: [{ action: "work", count: 1 }],
+      deadline: Date.now() + 60_000,
+      started: 0,
+      progress: {},
+      reward: 10,
+    }));
+    const { stats: next, offered } = maybeOfferDeal(
+      baseStats({ activeDeals: filler }),
+      1_000,
+      scheduler,
+      3,
+    );
+    expect(offered).not.toBeNull();
+    expect(next.activeDeals?.length).toBe(3);
+    expect(maybeOfferDeal(next, 2_000, scheduler, 3).offered).toBeNull();
+  });
+
   test("maybeOfferDeal skips when shouldSpawn returns false", () => {
     const scheduler = { ...defaultDealScheduler(), shouldSpawn: () => false };
     const stats = baseStats();
@@ -125,6 +147,22 @@ describe("active deals", () => {
     };
     const stats = baseStats({ activeDeals: [deal], lifetimeDeals: 100 });
     const result = tickDeals(stats, null, 100);
+    expect(result.stats.lifetimeDeals).toBe(100);
+  });
+
+  test("tickDeals fails expired deal before same-tick completion", () => {
+    const deal: ActiveDeal = {
+      id: "d1",
+      name: "Late close",
+      requirements: [{ action: "work", count: 1 }],
+      deadline: 50,
+      started: 0,
+      progress: {},
+      reward: 30,
+    };
+    const result = tickDeals(baseStats({ activeDeals: [deal] }), "work", 50);
+    expect(result.expired).toHaveLength(1);
+    expect(result.completed).toHaveLength(0);
     expect(result.stats.lifetimeDeals).toBe(100);
   });
 

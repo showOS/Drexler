@@ -1,18 +1,9 @@
-import {
-  closeSync,
-  existsSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  renameSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { randomUUID } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { formatTenure, getPetRank, petTenureMs, rankLabel, type PetStats } from "./petState.ts";
+import { withJsonFileLock } from "./fileLock.ts";
 
 export const GRAVEYARD_CAP = 50;
 export const GRAVEYARD_FILENAME = "graveyard.json";
@@ -72,31 +63,6 @@ export function loadGraveyard(): GraveyardEntry[] {
   }
 }
 
-function writeGraveyardAtomic(entries: GraveyardEntry[]): boolean {
-  try {
-    const dir = graveyardDir();
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    const target = graveyardPath();
-    const tmp = `${target}.tmp.${process.pid}.${randomUUID()}`;
-    try {
-      const fd = openSync(tmp, "w", 0o600);
-      writeFileSync(fd, JSON.stringify(entries, null, 2));
-      closeSync(fd);
-      renameSync(tmp, target);
-      return true;
-    } catch {
-      try {
-        unlinkSync(tmp);
-      } catch {
-        // best-effort
-      }
-      return false;
-    }
-  } catch {
-    return false;
-  }
-}
-
 export function buildGraveyardEntry(
   stats: PetStats,
   cause: string,
@@ -113,10 +79,33 @@ export function buildGraveyardEntry(
 }
 
 export function appendGraveyardEntry(entry: GraveyardEntry): boolean {
-  const current = loadGraveyard();
-  const next = [...current, entry];
-  while (next.length > GRAVEYARD_CAP) next.shift();
-  return writeGraveyardAtomic(next);
+  return withJsonFileLock<unknown[]>(graveyardPath(), [], (current) => {
+    const parsed = Array.isArray(current) ? current : [];
+    const out: GraveyardEntry[] = [];
+    for (const item of parsed) {
+      if (!item || typeof item !== "object") continue;
+      const o = item as Record<string, unknown>;
+      if (
+        typeof o.name === "string" &&
+        typeof o.rank === "string" &&
+        typeof o.tenure === "string" &&
+        typeof o.cause === "string" &&
+        typeof o.diedAt === "number"
+      ) {
+        out.push({
+          name: o.name,
+          rank: o.rank,
+          tenure: o.tenure,
+          cause: o.cause,
+          diedAt: o.diedAt,
+          lifetimeDeals: typeof o.lifetimeDeals === "number" ? o.lifetimeDeals : 0,
+        });
+      }
+    }
+    const next = [...out, entry];
+    while (next.length > GRAVEYARD_CAP) next.shift();
+    return next;
+  });
 }
 
 export function formatGraveyardEntry(entry: GraveyardEntry): string {

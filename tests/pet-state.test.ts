@@ -26,6 +26,7 @@ import {
   PET_COOLDOWN_MS,
   petTenureMs,
   rankLabel,
+  recordHealthyProgress,
   sanitizePetName,
   savePetState,
   stampAction,
@@ -75,6 +76,64 @@ describe("pet state", () => {
     expect(parsed.deals).toBe(40);
   });
 
+  test("achievementProgress persists across save/load", async () => {
+    await savePetState({
+      hunger: 70,
+      happiness: 70,
+      energy: 70,
+      deals: 40,
+      lastSaved: Date.now(),
+      achievementProgress: {
+        tradeWins: 4,
+        auditEventsSurvived: 2,
+        synergyIds: ["feed_work_rest"],
+        pipelineCompletions: 9,
+        chartersUsed: 1,
+        pitchHits: 3,
+        negotiateWins: 2,
+        healthySince: 123,
+        respawned: true,
+        seenWorldEvents: ["holiday"],
+        survivedWorldEvents: ["market_crash"],
+      },
+    });
+    const stats = loadPetState();
+    expect(stats.achievementProgress?.tradeWins).toBe(4);
+    expect(stats.achievementProgress?.synergyIds).toEqual(["feed_work_rest"]);
+    expect(stats.achievementProgress?.respawned).toBe(true);
+    expect(stats.achievementProgress?.survivedWorldEvents).toEqual(["market_crash"]);
+  });
+
+  test("recordHealthyProgress starts clock only while all core stats are healthy", () => {
+    const low = recordHealthyProgress(
+      {
+        hunger: 20,
+        happiness: 70,
+        energy: 70,
+        deals: 40,
+        lastSaved: 0,
+        achievementProgress: {
+          tradeWins: 0,
+          auditEventsSurvived: 0,
+          synergyIds: [],
+          pipelineCompletions: 0,
+          chartersUsed: 0,
+          pitchHits: 0,
+          negotiateWins: 0,
+          healthySince: 100,
+          respawned: false,
+          seenWorldEvents: [],
+          survivedWorldEvents: [],
+        },
+      },
+      200,
+    );
+    expect(low.achievementProgress?.healthySince).toBeUndefined();
+    const recovered = recordHealthyProgress({ ...low, hunger: 30 }, 300);
+    expect(recovered.achievementProgress?.healthySince).toBe(300);
+    expect(recordHealthyProgress(recovered, 400)).toBe(recovered);
+  });
+
   test("loadPetState sanitizes malformed persisted values", async () => {
     const petDir = join(dir, ".drexler");
     await mkdir(petDir, { recursive: true });
@@ -95,6 +154,87 @@ describe("pet state", () => {
     expect(stats.energy).toBe(85);
     expect(stats.deals).toBe(0);
     expect(Number.isFinite(stats.lastSaved)).toBe(true);
+  });
+
+  test("loadPetState hardens pet-mode extension records", async () => {
+    const petDir = join(dir, ".drexler");
+    await mkdir(petDir, { recursive: true });
+    await writeFile(
+      join(petDir, "pet.json"),
+      JSON.stringify({
+        hunger: 80,
+        happiness: 75,
+        energy: 85,
+        deals: 30,
+        lastSaved: Date.now(),
+        actionHistory: [
+          { action: "feed", at: 1 },
+          { action: "play", at: 2 },
+          { action: "bogus", at: 3 },
+          { action: "work", at: 4 },
+          { action: "rest", at: 5 },
+          { action: "vibe", at: 6 },
+        ],
+        dailyChallenge: {
+          date: "2026-05-13",
+          kind: "bogus",
+          target: 1,
+          progress: 0,
+          rewarded: false,
+        },
+        worldEvent: { kind: "bogus", startedAt: 1, expiresAt: 2 },
+        boss: { id: "bogus", step: 99, startedAt: 1, deadline: 2 },
+        tradeSession: { date: "2026-05-13", seed: -1, used: false },
+        perks: ["pipeline", "pipeline", "bogus"],
+        activeDeals: [
+          {
+            id: "1",
+            name: "A",
+            requirements: [{ action: "work", count: 1 }],
+            deadline: 10,
+            started: 0,
+            progress: {},
+            reward: 1,
+          },
+          {
+            id: "2",
+            name: "B",
+            requirements: [{ action: "work", count: 1 }],
+            deadline: 10,
+            started: 0,
+            progress: {},
+            reward: 1,
+          },
+          {
+            id: "3",
+            name: "C",
+            requirements: [{ action: "work", count: 1 }],
+            deadline: 10,
+            started: 0,
+            progress: {},
+            reward: 1,
+          },
+          {
+            id: "4",
+            name: "D",
+            requirements: [{ action: "work", count: 1 }],
+            deadline: 10,
+            started: 0,
+            progress: {},
+            reward: 1,
+          },
+        ],
+      }),
+    );
+
+    const stats = loadPetState();
+    expect(stats.actionHistory?.map((h) => h.action)).toEqual(["play", "work", "rest", "vibe"]);
+    expect(stats.dailyChallenge).toBeUndefined();
+    expect(stats.worldEvent).toBeUndefined();
+    expect(stats.boss).toBeUndefined();
+    expect(stats.tradeSession?.seed).toBe(0xffffffff);
+    expect(stats.perks).toEqual(["pipeline"]);
+    expect(stats.activeDeals).toHaveLength(3);
   });
 
   test("future timestamps do not increase stats through negative decay", async () => {

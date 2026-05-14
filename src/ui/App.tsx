@@ -12,6 +12,7 @@ import {
   applyVibe,
   applyWork,
   appendActionHistory,
+  achievementProgressOf,
   flushPetSaves,
   formatCooldownRemaining,
   formatTenure,
@@ -21,6 +22,10 @@ import {
   loadPetState,
   petTenureMs,
   rankLabel,
+  recordHealthyProgress,
+  recordSynergyProgress,
+  recordWorldSeen,
+  recordWorldSurvived,
   sanitizePetName,
   savePetState,
   stampAction,
@@ -41,7 +46,6 @@ import {
 import {
   defaultDealScheduler,
   formatDeal,
-  listDeals,
   maybeOfferDeal,
   tickDeals,
   type DealScheduler,
@@ -49,7 +53,7 @@ import {
 import { detectSynergy } from "../pet/synergy.ts";
 import { attemptTrade, parseSide, parseTicker, type Ticker } from "../pet/trade.ts";
 import { buyItem, parseInventoryItem, useItem as consumeInventoryItem } from "../pet/inventory.ts";
-import { appendGraveyardEntry, buildGraveyardEntry, renderGraveyard } from "../pet/graveyard.ts";
+import { appendGraveyardEntry, buildGraveyardEntry } from "../pet/graveyard.ts";
 import {
   bumpDealsClosed,
   bumpEventsSurvived,
@@ -60,10 +64,9 @@ import {
   markReviewShown,
 } from "../pet/review.ts";
 import { buildPetSummary, injectPetSummary } from "../pet/personaSummary.ts";
-import { appendNotification, formatNotificationLog } from "../pet/notificationLog.ts";
+import { appendNotification, clearNotifications } from "../pet/notificationLog.ts";
 import {
   isAchievementUnlocked,
-  renderAchievements,
   unlockAchievement,
   type AchievementId,
 } from "../pet/achievements.ts";
@@ -72,26 +75,15 @@ import {
   parsePerkId,
   perkCooldownReductionMs,
   perkDecayMultiplier,
+  perkFeedMultiplier,
+  perkChartered,
+  perkTradeEye,
   perkPipelineCap,
   perkSynergyMultiplier,
-  renderPerks,
   spendPerkPoint,
 } from "../pet/perks.ts";
-import {
-  ARCHETYPE_DEFS,
-  archetypeMultipliers,
-  chooseArchetype,
-  parseArchetype,
-  renderArchetypes,
-} from "../pet/archetype.ts";
-import {
-  applyChallengeReward,
-  bumpDailyChallenge,
-  bumpStreakForAction,
-  ensureDailyChallenge,
-  renderChallenge,
-  renderStreak,
-} from "../pet/streaks.ts";
+import { archetypeMultipliers, chooseArchetype, renderArchetypes } from "../pet/archetype.ts";
+import { bumpDailyChallenge, bumpStreakForAction, ensureDailyChallenge } from "../pet/streaks.ts";
 import {
   defaultWorldScheduler,
   expireWorldEvent,
@@ -110,6 +102,24 @@ import {
   type NegotiateScenario,
 } from "../pet/minigames.ts";
 import { BOSS_QUARTERLY, advanceBoss, startBoss } from "../pet/boss.ts";
+import { defaultRng, pickInt } from "../pet/rng.ts";
+import { handlePetViewSlash } from "./pet/petViewCommands.ts";
+
+// V60/T43 — single helper that composes the four sources that scale
+// stat decay so both the action-commit path and the 60s tick use the
+// same math + ordering (V58: base × perk × archetype × world). Cheap
+// to call (constant-time over the stats record); not worth wrapping
+// in useMemo because the function is invoked from event handlers and
+// timer callbacks that read `petStatsRef.current` directly.
+function composeDecayMultiplier(stats: PetStats, now: number): number {
+  return Math.min(
+    1,
+    sessionDecayMultiplier(stats, now) *
+      perkDecayMultiplier(stats) *
+      worldDecayMultiplier(stats, now) *
+      archetypeMultipliers(stats).decay,
+  );
+}
 import { sessionDecayMultiplier } from "../pet/petState.ts";
 import { DeathScreen } from "./DeathScreen.tsx";
 import {
@@ -276,11 +286,15 @@ export function historyNavStep(
   };
 }
 
-function pick<T>(arr: readonly T[]): T {
+// Local pick helper — accepts an optional RNG (V66) so tests can stub
+// the choice. The default-parameter slot is the only place inline
+// Math.random is permitted at a use site.
+function pick<T>(arr: readonly T[], rng: () => number = Math.random): T {
   if (arr.length === 0) {
     throw new Error("pick called on empty array");
   }
-  return arr[Math.floor(Math.random() * arr.length)] as T;
+  const idx = Math.min(arr.length - 1, Math.floor(rng() * arr.length));
+  return arr[idx] as T;
 }
 
 interface ChatItem {
@@ -475,8 +489,9 @@ export function App({
   });
   const itemIdRef = useRef(items.length);
   const addItem = useCallback((role: ChatItem["role"], content: string) => {
-    itemIdRef.current += 1;
-    setItems((prev) => [...prev, { id: itemIdRef.current, role, content }]);
+    const id = itemIdRef.current + 1;
+    itemIdRef.current = id;
+    setItems((prev) => [...prev, { id, role, content }]);
   }, []);
   const removeLastAssistantItem = useCallback(() => {
     setItems((prev) => {
@@ -564,6 +579,7 @@ export function App({
   const [deathReason, setDeathReason] = useState("energy");
   const [deathVariant, setDeathVariant] = useState(0);
   const [activeEvent, setActiveEvent] = useState<PetEvent | null>(null);
+  const [eventScheduleNonce, setEventScheduleNonce] = useState(0);
   const petStatsRef = useRef<PetStats>(petStats);
   const petActivityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const petDecayTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -571,21 +587,20 @@ export function App({
   const lastPetSaveNoticeAtRef = useRef(0);
   const eventSpawnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const eventExpireTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastEventEndedAtRef = useRef(0);
+  const nextEventDueAtRef = useRef<number | null>(null);
   const dealSchedulerRef = useRef<DealScheduler>(defaultDealScheduler());
   const eventSchedulerRef = useRef<EventScheduler>(defaultEventScheduler());
   const worldSchedulerRef = useRef<WorldScheduler>(defaultWorldScheduler());
   const activeEventRef = useRef<PetEvent | null>(null);
   const dailyReviewShownThisLaunchRef = useRef(false);
-  const tradeWinCounterRef = useRef(0);
-  const auditSurvivedRef = useRef(0);
-  const synergyTriggeredRef = useRef<Set<string>>(new Set());
-  const charterUsedRef = useRef(0);
-  const pitchHitsRef = useRef(0);
-  const negotiateWinsRef = useRef(0);
-  const pipelineCompletedRef = useRef(0);
-  const activeNegotiateRef = useRef<NegotiateScenario | null>(null);
-  const [activeNegotiate, setActiveNegotiate] = useState<NegotiateScenario | null>(null);
+  const activeNegotiateRef = useRef<{ scenario: NegotiateScenario; startedAt: number } | null>(
+    null,
+  );
+  const negotiateExpireTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [activeNegotiate, setActiveNegotiate] = useState<{
+    scenario: NegotiateScenario;
+    startedAt: number;
+  } | null>(null);
   const pitchStartedAtRef = useRef<number | null>(null);
   const [pitchActive, setPitchActive] = useState(false);
   const [pitchFrame, setPitchFrame] = useState(0);
@@ -649,6 +664,80 @@ export function App({
       petActivityTimerRef.current = null;
     }, durationMs);
   }, []);
+  const unlockBadge = useCallback(
+    (id: AchievementId, narrationBuffer: string[], now: number, silent = false) => {
+      const r = unlockAchievement(id, now);
+      if (!r.ok) return;
+      const msg = `Badge unlocked: ${r.def.title} — ${r.def.description}`;
+      appendNotification("badge", msg, now);
+      if (silent) return;
+      narrationBuffer.push(msg);
+      addItem("system", msg);
+    },
+    [addItem],
+  );
+  const eventGapFrom = useCallback((stats: PetStats, now: number) => {
+    const effective = Math.round(
+      eventSchedulerRef.current.pickGap() * worldEventGapMultiplier(stats, now),
+    );
+    return Math.max(6 * 60_000, effective);
+  }, []);
+  const scheduleNextEventFrom = useCallback(
+    (endedAt: number, stats: PetStats = petStatsRef.current) => {
+      nextEventDueAtRef.current = endedAt + eventGapFrom(stats, endedAt);
+    },
+    [eventGapFrom],
+  );
+  const evaluateProgressBadges = useCallback(
+    (stats: PetStats, narration: string[], now: number) => {
+      const progress = achievementProgressOf(stats, now);
+      if (progress.pipelineCompletions >= 25 && !isAchievementUnlocked("pipeline_pro")) {
+        unlockBadge("pipeline_pro", narration, now);
+      }
+      if (progress.synergyIds.length >= 3 && !isAchievementUnlocked("synergy_3")) {
+        unlockBadge("synergy_3", narration, now);
+      }
+      if (progress.tradeWins >= 10 && !isAchievementUnlocked("trade_winner_10")) {
+        unlockBadge("trade_winner_10", narration, now);
+      }
+      if (progress.auditEventsSurvived >= 5 && !isAchievementUnlocked("audit_survivor_5")) {
+        unlockBadge("audit_survivor_5", narration, now);
+      }
+      if (progress.chartersUsed >= 3 && !isAchievementUnlocked("chartered_3")) {
+        unlockBadge("chartered_3", narration, now);
+      }
+      if (progress.pitchHits >= 5 && !isAchievementUnlocked("pitch_perfect")) {
+        unlockBadge("pitch_perfect", narration, now);
+      }
+      if (progress.negotiateWins >= 5 && !isAchievementUnlocked("negotiator")) {
+        unlockBadge("negotiator", narration, now);
+      }
+      if (
+        progress.healthySince !== undefined &&
+        now - progress.healthySince >= 24 * 60 * 60_000 &&
+        !isAchievementUnlocked("iron_will")
+      ) {
+        unlockBadge("iron_will", narration, now);
+      }
+      if (
+        progress.respawned &&
+        getPetRank(stats) === "vp" &&
+        !isAchievementUnlocked("comeback_kid")
+      ) {
+        unlockBadge("comeback_kid", narration, now);
+      }
+      if (
+        progress.survivedWorldEvents.includes("market_crash") &&
+        !isAchievementUnlocked("world_survivor")
+      ) {
+        unlockBadge("world_survivor", narration, now);
+      }
+      if (progress.seenWorldEvents.includes("holiday") && !isAchievementUnlocked("world_party")) {
+        unlockBadge("world_party", narration, now);
+      }
+    },
+    [unlockBadge],
+  );
   const setDashboardPetMode = useCallback(
     (next: boolean) => {
       petModeRef.current = next;
@@ -667,9 +756,14 @@ export function App({
       const world = maybeSpawnWorldEvent(nextStats, now, worldSchedulerRef.current);
       nextStats = world.stats;
       if (world.spawned) {
+        nextStats = recordWorldSeen(nextStats, world.spawned.kind, now);
         const msg = `${world.spawned.title} — ${world.spawned.description}`;
         appendNotification("world", msg, now);
         addItem("system", msg);
+        evaluateProgressBadges(nextStats, [], now);
+      }
+      if (nextEventDueAtRef.current === null) {
+        scheduleNextEventFrom(now, nextStats);
       }
       if (nextStats !== petStatsRef.current) {
         explicitPetSavePendingRef.current = true;
@@ -678,7 +772,7 @@ export function App({
         setPetStats(() => stamped);
       }
     },
-    [addItem],
+    [addItem, evaluateProgressBadges, scheduleNextEventFrom],
   );
   // Reducer must stay pure: no IO, no ref writes. Ref mirror lives in
   // the effect below; persistence lives in its own save effect. React 19
@@ -691,19 +785,6 @@ export function App({
       return next === stats ? stats : { ...next, lastSaved: now };
     });
   }, []);
-  const unlockBadge = useCallback(
-    (id: AchievementId, narrationBuffer: string[], now: number, silent = false) => {
-      const r = unlockAchievement(id, now);
-      if (!r.ok) return;
-      const msg = `Badge unlocked: ${r.def.title} — ${r.def.description}`;
-      appendNotification("badge", msg, now);
-      if (silent) return;
-      narrationBuffer.push(msg);
-      addItem("system", msg);
-    },
-    [addItem],
-  );
-
   const applyPetAction = useCallback(
     (action: PetActionKey, mutator: (stats: PetStats) => PetStats) => {
       // Precompute the next state from the latest committed stats (mirror'd
@@ -712,15 +793,23 @@ export function App({
       // boss advance, and achievement checks in a single deterministic pass.
       const now = Date.now();
       const archetype = archetypeMultipliers(petStatsRef.current);
-      const decayMult = Math.min(
-        1,
-        sessionDecayMultiplier(petStatsRef.current, now) *
-          perkDecayMultiplier(petStatsRef.current) *
-          worldDecayMultiplier(petStatsRef.current, now) *
-          archetype.decay,
-      );
+      const decayMult = composeDecayMultiplier(petStatsRef.current, now);
       const decayed = applyDecay(petStatsRef.current, now, decayMult);
       let next: PetStats = mutator(decayed);
+      if (action === "feed") {
+        const mealMult = perkFeedMultiplier(decayed);
+        if (mealMult > 1) {
+          next = {
+            ...next,
+            hunger: Math.min(100, decayed.hunger + (next.hunger - decayed.hunger) * mealMult),
+            happiness: Math.min(
+              100,
+              decayed.happiness + (next.happiness - decayed.happiness) * mealMult,
+            ),
+            deals: Math.min(100, decayed.deals + (next.deals - decayed.deals) * mealMult),
+          };
+        }
+      }
       // Archetype reducer multipliers (after base reducer math, before clamp).
       const archetypeKey =
         action === "work" ? "work" : action === "play" ? "play" : action === "rest" ? "rest" : null;
@@ -743,7 +832,7 @@ export function App({
       const narration: string[] = [];
       const offerCap = perkPipelineCap(next, 2);
       if (action === "work" && (next.activeDeals?.length ?? 0) < offerCap) {
-        const offer = maybeOfferDeal(next, now, dealSchedulerRef.current);
+        const offer = maybeOfferDeal(next, now, dealSchedulerRef.current, offerCap);
         next = offer.stats;
         if (offer.offered) {
           const msg = `New deal logged: ${formatDeal(offer.offered, now)}.`;
@@ -766,12 +855,19 @@ export function App({
         }
         narration.push(synergy.message);
         appendNotification("synergy", synergy.message, now);
-        synergyTriggeredRef.current.add(synergy.matched.id);
+        next = recordSynergyProgress(next, synergy.matched.id, now);
         next = bumpDailyChallenge(next, "synergy_1", 1, now).stats;
       }
       if (tick.completed.length > 0) {
         next = bumpDealsClosed(next, tick.completed.length);
-        pipelineCompletedRef.current += tick.completed.length;
+        next = {
+          ...next,
+          achievementProgress: {
+            ...achievementProgressOf(next, now),
+            pipelineCompletions:
+              achievementProgressOf(next, now).pipelineCompletions + tick.completed.length,
+          },
+        };
         next = bumpDailyChallenge(next, "close_deals_2", tick.completed.length, now).stats;
       }
       for (const d of tick.completed) {
@@ -801,7 +897,6 @@ export function App({
       const challengeBump = bumpDailyChallenge(next, "pet_action", 1, now);
       next = challengeBump.stats;
       if (challengeBump.completedNow) {
-        next = applyChallengeReward(next);
         const msg = "Daily challenge complete. +25 deals + 1 charter.";
         narration.push(msg);
         appendNotification("challenge", msg, now);
@@ -820,6 +915,8 @@ export function App({
         }
         next = bossRes.stats;
       }
+      next = recordHealthyProgress(next, now);
+      evaluateProgressBadges(next, narration, now);
 
       explicitPetSavePendingRef.current = true;
       petStatsRef.current = { ...next, lastSaved: now };
@@ -831,12 +928,6 @@ export function App({
       if (!isAchievementUnlocked("first_blood")) {
         unlockBadge("first_blood", [], now, /*silent*/ false);
       }
-      if (pipelineCompletedRef.current >= 25 && !isAchievementUnlocked("pipeline_pro")) {
-        unlockBadge("pipeline_pro", [], now, false);
-      }
-      if (synergyTriggeredRef.current.size >= 3 && !isAchievementUnlocked("synergy_3")) {
-        unlockBadge("synergy_3", [], now, false);
-      }
       const streakCount = next.streak?.bestCount ?? 0;
       if (streakCount >= 7 && !isAchievementUnlocked("streak_7")) {
         unlockBadge("streak_7", [], now, false);
@@ -846,7 +937,7 @@ export function App({
         unlockBadge("perk_collector", [], now, false);
       }
     },
-    [addItem, unlockBadge],
+    [addItem, evaluateProgressBadges, unlockBadge],
   );
 
   // Surface rank promotions as a system memo. Driven off committed
@@ -949,27 +1040,43 @@ export function App({
     });
   }, [petStats, reportPetSaveFailure]);
 
-  // Real-time stat decay matches the offline per-hour decay rate.
+  // Real-time stat decay matches the offline per-hour decay rate. V63
+  // requires the setState updater to be pure — so we precompute the
+  // next state from `petStatsRef.current` and dispatch a fixed value.
+  // Narration + badge evaluation fire AFTER dispatch so StrictMode dev
+  // double-invokes of any setState reducer cannot double-fire them.
   useEffect(() => {
     petDecayTimerRef.current = setInterval(() => {
-      updatePetStats((stats, now) => {
-        const mult = Math.min(
-          1,
-          sessionDecayMultiplier(stats, now) *
-            perkDecayMultiplier(stats) *
-            worldDecayMultiplier(stats, now) *
-            archetypeMultipliers(stats).decay,
-        );
-        const decayed = applyDecay(stats, now, mult);
-        // Also tick world-event expiration on the same cadence.
-        const { stats: afterWorld, expired } = expireWorldEvent(decayed, now);
-        if (expired) {
-          const msg = `${expired.title} window closed. Modifiers reverting.`;
-          appendNotification("world", msg, now);
-          addItem("system", msg);
-        }
-        return afterWorld;
-      });
+      const now = Date.now();
+      const stats = petStatsRef.current;
+      const mult = composeDecayMultiplier(stats, now);
+      const decayed = applyDecay(stats, now, mult);
+      const dealTick = tickDeals(decayed, null, now);
+      let next = dealTick.stats;
+      const { stats: afterWorldRaw, expired } = expireWorldEvent(next, now);
+      next = afterWorldRaw;
+      let worldMsg: string | null = null;
+      if (expired) {
+        next = recordWorldSurvived(next, expired.kind, now);
+        worldMsg = `${expired.title} window closed. Modifiers reverting.`;
+      }
+      next = recordHealthyProgress(next, now);
+      const noChange =
+        next === stats && dealTick.expired.length === 0 && expired === null && worldMsg === null;
+      if (noChange) return;
+      const stamped = { ...next, lastSaved: now };
+      petStatsRef.current = stamped;
+      setPetStats(() => stamped);
+      for (const d of dealTick.expired) {
+        const msg = `Deal expired: ${d.name}. Pipeline scrubbed.`;
+        appendNotification("deal", msg, now);
+        addItem("system", msg);
+      }
+      if (worldMsg !== null) {
+        appendNotification("world", worldMsg, now);
+        addItem("system", worldMsg);
+      }
+      evaluateProgressBadges(stamped, [], now);
     }, 60_000);
     return () => {
       if (petDecayTimerRef.current !== null) {
@@ -982,7 +1089,7 @@ export function App({
       }
       savePetState(petStatsRef.current);
     };
-  }, [updatePetStats, addItem]);
+  }, [addItem, evaluateProgressBadges]);
 
   // Event scheduler — schedules a random-gap spawn while pet mode is on
   // and no event is active. Only spawns when the user isn't streaming or
@@ -995,21 +1102,22 @@ export function App({
     }
     if (!petMode || isDead || activeEvent !== null) return;
     const now = Date.now();
-    // audit_week halves the gap (V58).
-    const gap = Math.round(
-      eventSchedulerRef.current.pickGap() * worldEventGapMultiplier(petStatsRef.current, now),
-    );
-    const earliest = lastEventEndedAtRef.current + gap;
-    const delay = Math.max(15_000, earliest - now);
+    if (nextEventDueAtRef.current === null) {
+      scheduleNextEventFrom(now, petStatsRef.current);
+    }
+    const dueAt = nextEventDueAtRef.current ?? now + 6 * 60_000;
+    const delay = Math.max(0, dueAt - now);
     const handle = setTimeout(() => {
       eventSpawnTimerRef.current = null;
       if (!petModeRef.current) return;
       if (requestInFlightRef.current || synergyActiveRef.current) {
-        // Defer one minute and try again on the next render.
-        lastEventEndedAtRef.current = Date.now() - gap + 60_000;
+        nextEventDueAtRef.current = Date.now() + 60_000;
+        setDeskNotice("event deferred");
+        setEventScheduleNonce((n) => n + 1);
         return;
       }
       const event = spawnEvent(Date.now(), eventSchedulerRef.current);
+      nextEventDueAtRef.current = null;
       activeEventRef.current = event;
       setActiveEvent(event);
       addItem(
@@ -1024,7 +1132,7 @@ export function App({
       clearTimeout(handle);
       if (eventSpawnTimerRef.current === handle) eventSpawnTimerRef.current = null;
     };
-  }, [petMode, isDead, activeEvent, addItem]);
+  }, [petMode, isDead, activeEvent, eventScheduleNonce, addItem, scheduleNextEventFrom]);
 
   // Event expiration — fires when the 30s window passes without a
   // /respond. Applies the neutral expire outcome per V42.
@@ -1044,14 +1152,14 @@ export function App({
       addItem("system", message);
       activeEventRef.current = null;
       setActiveEvent(null);
-      lastEventEndedAtRef.current = Date.now();
+      scheduleNextEventFrom(Date.now(), next);
     }, ms);
     eventExpireTimerRef.current = handle;
     return () => {
       clearTimeout(handle);
       if (eventExpireTimerRef.current === handle) eventExpireTimerRef.current = null;
     };
-  }, [activeEvent, addItem]);
+  }, [activeEvent, addItem, scheduleNextEventFrom]);
 
   // Daily review — runs once per local-calendar day on first eligible
   // render after `/pet on` (or boot if already on). Skipped when there's
@@ -1084,7 +1192,7 @@ export function App({
     const reason =
       petStats.hunger <= 0 ? "hunger" : petStats.happiness <= 0 ? "happiness" : "energy";
     setDeathReason(reason);
-    setDeathVariant(Math.floor(Math.random() * 5));
+    setDeathVariant(pickInt(defaultRng, 5));
     setIsDead(true);
     // Record this life in the graveyard BEFORE the respawn reset writes
     // over `name` + lifetimeDeals on next load (V47).
@@ -1518,7 +1626,7 @@ export function App({
         // stats while the committed stats reflect post-decay+vibe. Cost
         // of a fully race-free message is a non-pure reducer, which is
         // not worth it for a satirical chat affordance.
-        const roll = Math.random();
+        const roll = defaultRng();
         const { message: vibeMessage } = applyVibe(petStatsRef.current, roll);
         applyPetAction("vibe", (stats) => applyVibe(stats, roll).stats);
         triggerPetActivity("vibing", 3500);
@@ -1634,21 +1742,22 @@ export function App({
         let reviewBumped = bumpEventsSurvived(result.stats);
         // Audit survival tracking + audit_survivor_5 badge.
         if (event.kind === "audit") {
-          auditSurvivedRef.current += 1;
+          reviewBumped = {
+            ...reviewBumped,
+            achievementProgress: {
+              ...achievementProgressOf(reviewBumped, now),
+              auditEventsSurvived: achievementProgressOf(reviewBumped, now).auditEventsSurvived + 1,
+            },
+          };
           // Boss step trigger.
           const bossRes = advanceBoss(reviewBumped, "audit_response", now);
           reviewBumped = bossRes.stats;
           if (bossRes.message) addItem("system", bossRes.message);
-          if (auditSurvivedRef.current >= 5 && !isAchievementUnlocked("audit_survivor_5")) {
-            const a = unlockAchievement("audit_survivor_5", now);
-            if (a.ok) addItem("system", `Badge unlocked: ${a.def.title}.`);
-          }
         }
         // Daily challenge: survive_2_events tally.
         const dcBump = bumpDailyChallenge(reviewBumped, "survive_2_events", 1, now);
         reviewBumped = dcBump.stats;
         if (dcBump.completedNow) {
-          reviewBumped = applyChallengeReward(reviewBumped);
           addItem("system", "Daily challenge complete. +25 deals + 1 charter.");
         }
         explicitPetSavePendingRef.current = true;
@@ -1656,22 +1765,14 @@ export function App({
         setPetStats(() => ({ ...reviewBumped, lastSaved: now }));
         addItem("system", result.message);
         appendNotification("event", result.message, now);
+        evaluateProgressBadges(reviewBumped, [], now);
         if (eventExpireTimerRef.current !== null) {
           clearTimeout(eventExpireTimerRef.current);
           eventExpireTimerRef.current = null;
         }
         activeEventRef.current = null;
         setActiveEvent(null);
-        lastEventEndedAtRef.current = now;
-        return;
-      }
-      if (slashCommand === "/deals") {
-        const lines = listDeals(petStatsRef.current);
-        if (lines.length === 0) {
-          addItem("system", "Drexler's pipeline is empty. Run /work to seed a deal.");
-          return;
-        }
-        addItem("system", ["Active deals:", ...lines.map((l) => `  ${l}`)].join("\n"));
+        scheduleNextEventFrom(now, reviewBumped);
         return;
       }
       if (slashCommand === "/trade") {
@@ -1687,7 +1788,11 @@ export function App({
           return;
         }
         const now = Date.now();
-        const outcome = attemptTrade(petStatsRef.current, ticker as Ticker, side, { now });
+        const outcome = attemptTrade(petStatsRef.current, ticker as Ticker, side, {
+          now,
+          chartered: perkChartered(petStatsRef.current),
+          tradeEye: perkTradeEye(petStatsRef.current),
+        });
         if (!outcome.ok) {
           addItem("system", outcome.message);
           return;
@@ -1713,21 +1818,25 @@ export function App({
         addItem("system", outcome.message);
         appendNotification("event", outcome.message, now);
         if (outcome.result === "win") {
-          tradeWinCounterRef.current += 1;
+          stats = {
+            ...petStatsRef.current,
+            achievementProgress: {
+              ...achievementProgressOf(petStatsRef.current, now),
+              tradeWins: achievementProgressOf(petStatsRef.current, now).tradeWins + 1,
+            },
+          };
+          petStatsRef.current = { ...stats, lastSaved: now };
+          setPetStats(() => ({ ...stats, lastSaved: now }));
           const bumped = bumpDailyChallenge(petStatsRef.current, "win_trade", 1, now);
           if (bumped.completedNow) {
-            const after = applyChallengeReward(bumped.stats);
-            petStatsRef.current = { ...after, lastSaved: now };
-            setPetStats(() => ({ ...after, lastSaved: now }));
+            petStatsRef.current = { ...bumped.stats, lastSaved: now };
+            setPetStats(() => ({ ...bumped.stats, lastSaved: now }));
             addItem("system", "Daily challenge complete. +25 deals + 1 charter.");
           } else if (bumped.stats !== petStatsRef.current) {
             petStatsRef.current = { ...bumped.stats, lastSaved: now };
             setPetStats(() => ({ ...bumped.stats, lastSaved: now }));
           }
-          if (tradeWinCounterRef.current >= 10 && !isAchievementUnlocked("trade_winner_10")) {
-            const a = unlockAchievement("trade_winner_10", now);
-            if (a.ok) addItem("system", `Badge unlocked: ${a.def.title}.`);
-          }
+          evaluateProgressBadges(petStatsRef.current, [], now);
           // Boss step trigger.
           const bossRes = advanceBoss(petStatsRef.current, "trade_win", now);
           if (bossRes.message) addItem("system", bossRes.message);
@@ -1763,7 +1872,8 @@ export function App({
           addItem("system", "Usage: /use <coffee|pastry|charter>");
           return;
         }
-        const r = consumeInventoryItem(petStatsRef.current, item);
+        const now = Date.now();
+        const r = consumeInventoryItem(petStatsRef.current, item, now);
         addItem("system", r.message);
         if (r.ok) {
           let next: PetStats = r.stats;
@@ -1777,36 +1887,33 @@ export function App({
             };
           }
           explicitPetSavePendingRef.current = true;
-          const now = Date.now();
           const stamped = { ...next, lastSaved: now };
           petStatsRef.current = stamped;
           setPetStats(() => stamped);
           if (item === "charter") {
-            charterUsedRef.current += 1;
-            if (charterUsedRef.current >= 3 && !isAchievementUnlocked("chartered_3")) {
-              const a = unlockAchievement("chartered_3", now);
-              if (a.ok) addItem("system", `Badge unlocked: ${a.def.title}.`);
-            }
+            const progress = achievementProgressOf(stamped, now);
+            const withProgress: PetStats = {
+              ...stamped,
+              achievementProgress: { ...progress, chartersUsed: progress.chartersUsed + 1 },
+            };
+            petStatsRef.current = withProgress;
+            setPetStats(() => withProgress);
+            evaluateProgressBadges(withProgress, [], now);
           }
         }
         return;
       }
-      if (slashCommand === "/graveyard") {
-        addItem("system", renderGraveyard());
-        return;
-      }
-      if (slashCommand === "/review") {
-        const now = Date.now();
-        const snap = buildReviewSnapshot({ stats: petStatsRef.current, now });
-        addItem("system", formatReview(snap));
-        return;
-      }
-      if (slashCommand === "/achievements") {
-        addItem("system", renderAchievements());
-        return;
-      }
-      if (slashCommand === "/perks") {
-        addItem("system", renderPerks(petStatsRef.current));
+      // View-only handlers (V67) — single dispatch via the extracted
+      // module. Stateful pet handlers (/perk, /trade, /buy, /use,
+      // /respond, /pitch, /negotiate, /archetype) stay inline because
+      // they mutate state via setPetStats + side-effect timers.
+      if (
+        handlePetViewSlash(slashCommand, {
+          stats: petStatsRef.current,
+          now: Date.now(),
+          addItem,
+        })
+      ) {
         return;
       }
       if (slashCommand === "/perk") {
@@ -1828,18 +1935,6 @@ export function App({
           setPetStats(() => stamped);
           appendNotification("perk", `Perk: ${r.def.title}`, Date.now());
         }
-        return;
-      }
-      if (slashCommand === "/streak") {
-        addItem("system", renderStreak(petStatsRef.current));
-        return;
-      }
-      if (slashCommand === "/challenge") {
-        addItem("system", renderChallenge(petStatsRef.current));
-        return;
-      }
-      if (slashCommand === "/log") {
-        addItem("system", formatNotificationLog());
         return;
       }
       if (slashCommand === "/archetype") {
@@ -1872,9 +1967,6 @@ export function App({
           }
           appendNotification("archetype", `Archetype: ${r.def.id}`, Date.now());
         }
-        // Reference parseArchetype to keep import live; used by chooseArchetype.
-        void parseArchetype;
-        void ARCHETYPE_DEFS;
         return;
       }
       if (slashCommand === "/pitch") {
@@ -1908,8 +2000,20 @@ export function App({
           addItem("system", r.message);
           return;
         }
-        activeNegotiateRef.current = r.scenario!;
-        setActiveNegotiate(r.scenario!);
+        const startedAt = Date.now();
+        const state = { scenario: r.scenario!, startedAt };
+        activeNegotiateRef.current = state;
+        setActiveNegotiate(state);
+        if (negotiateExpireTimerRef.current !== null) clearTimeout(negotiateExpireTimerRef.current);
+        negotiateExpireTimerRef.current = setTimeout(() => {
+          negotiateExpireTimerRef.current = null;
+          if (activeNegotiateRef.current?.startedAt !== startedAt) return;
+          activeNegotiateRef.current = null;
+          setActiveNegotiate(null);
+          const msg = "Negotiation window expired. Drexler tables the matter.";
+          appendNotification("minigame", msg, Date.now());
+          addItem("system", msg);
+        }, 30_000);
         const lines = [
           `NEGOTIATE: ${r.scenario!.prompt}`,
           ...r.scenario!.choices.map((c) => {
@@ -2003,6 +2107,7 @@ export function App({
       applyPetAction,
       config,
       conversation,
+      evaluateProgressBadges,
       isDead,
       model,
       PET_MESSAGES,
@@ -2011,6 +2116,7 @@ export function App({
       runLLM,
       runSynergyEvent,
       setDashboardPetMode,
+      scheduleNextEventFrom,
       triggerExit,
       triggerPetActivity,
       updateDraft,
@@ -2095,17 +2201,21 @@ export function App({
         const now = Date.now();
         const r = resolvePitch(petStatsRef.current, startedAt, now);
         explicitPetSavePendingRef.current = true;
-        const stamped = { ...r.stats, lastSaved: now };
+        let resolvedStats = r.stats;
+        if (r.hit) {
+          const progress = achievementProgressOf(resolvedStats, now);
+          resolvedStats = {
+            ...resolvedStats,
+            achievementProgress: { ...progress, pitchHits: progress.pitchHits + 1 },
+          };
+        }
+        const stamped = { ...resolvedStats, lastSaved: now };
         petStatsRef.current = stamped;
         setPetStats(() => stamped);
         addItem("system", r.message);
         appendNotification("minigame", r.message, now);
         if (r.hit) {
-          pitchHitsRef.current += 1;
-          if (pitchHitsRef.current >= 5 && !isAchievementUnlocked("pitch_perfect")) {
-            const a = unlockAchievement("pitch_perfect", now);
-            if (a.ok) addItem("system", `Badge unlocked: ${a.def.title}.`);
-          }
+          evaluateProgressBadges(resolvedStats, [], now);
         }
         if (pitchTimerRef.current !== null) {
           clearInterval(pitchTimerRef.current);
@@ -2129,8 +2239,13 @@ export function App({
     }
     // Negotiate mini-game: 1/2/3 picks, ESC aborts (V57).
     if (activeNegotiateRef.current) {
-      const scenario = activeNegotiateRef.current;
+      const negotiateState = activeNegotiateRef.current;
+      const scenario = negotiateState.scenario;
       if (key.escape) {
+        if (negotiateExpireTimerRef.current !== null) {
+          clearTimeout(negotiateExpireTimerRef.current);
+          negotiateExpireTimerRef.current = null;
+        }
         activeNegotiateRef.current = null;
         setActiveNegotiate(null);
         addItem("system", "Negotiation abandoned.");
@@ -2138,20 +2253,41 @@ export function App({
       }
       if (!key.ctrl && !key.meta && (char === "1" || char === "2" || char === "3")) {
         const now = Date.now();
+        if (now - negotiateState.startedAt > 30_000) {
+          if (negotiateExpireTimerRef.current !== null) {
+            clearTimeout(negotiateExpireTimerRef.current);
+            negotiateExpireTimerRef.current = null;
+          }
+          activeNegotiateRef.current = null;
+          setActiveNegotiate(null);
+          addItem("system", "Negotiation window expired. Choice ignored.");
+          return;
+        }
         const r = resolveNegotiate(petStatsRef.current, scenario, char, now);
         if (r) {
           explicitPetSavePendingRef.current = true;
-          const stamped = { ...r.stats, lastSaved: now };
+          let resolvedStats = r.stats;
+          if (r.stats.minigame?.lastNegotiateAt === now) {
+            const progress = achievementProgressOf(resolvedStats, now);
+            resolvedStats = {
+              ...resolvedStats,
+              achievementProgress: {
+                ...progress,
+                negotiateWins: progress.negotiateWins + 1,
+              },
+            };
+          }
+          const stamped = { ...resolvedStats, lastSaved: now };
           petStatsRef.current = stamped;
           setPetStats(() => stamped);
           addItem("system", r.message);
           appendNotification("minigame", r.message, now);
-          if (r.stats.minigame?.lastNegotiateAt === now) {
+          if (resolvedStats.minigame?.lastNegotiateAt === now) {
             // counted as a successful resolution
-            negotiateWinsRef.current += 1;
-            if (negotiateWinsRef.current >= 5 && !isAchievementUnlocked("negotiator")) {
-              const a = unlockAchievement("negotiator", now);
-              if (a.ok) addItem("system", `Badge unlocked: ${a.def.title}.`);
+            evaluateProgressBadges(resolvedStats, [], now);
+            if (negotiateExpireTimerRef.current !== null) {
+              clearTimeout(negotiateExpireTimerRef.current);
+              negotiateExpireTimerRef.current = null;
             }
             activeNegotiateRef.current = null;
             setActiveNegotiate(null);
@@ -2180,7 +2316,7 @@ export function App({
         }
         activeEventRef.current = null;
         setActiveEvent(null);
-        lastEventEndedAtRef.current = now;
+        scheduleNextEventFrom(now, next);
         void event;
         return;
       }
@@ -2191,19 +2327,21 @@ export function App({
         if (result) {
           let reviewBumped = bumpEventsSurvived(result.stats);
           if (event.kind === "audit") {
-            auditSurvivedRef.current += 1;
+            reviewBumped = {
+              ...reviewBumped,
+              achievementProgress: {
+                ...achievementProgressOf(reviewBumped, now),
+                auditEventsSurvived:
+                  achievementProgressOf(reviewBumped, now).auditEventsSurvived + 1,
+              },
+            };
             const bossRes = advanceBoss(reviewBumped, "audit_response", now);
             reviewBumped = bossRes.stats;
             if (bossRes.message) addItem("system", bossRes.message);
-            if (auditSurvivedRef.current >= 5 && !isAchievementUnlocked("audit_survivor_5")) {
-              const a = unlockAchievement("audit_survivor_5", now);
-              if (a.ok) addItem("system", `Badge unlocked: ${a.def.title}.`);
-            }
           }
           const dcBump = bumpDailyChallenge(reviewBumped, "survive_2_events", 1, now);
           reviewBumped = dcBump.stats;
           if (dcBump.completedNow) {
-            reviewBumped = applyChallengeReward(reviewBumped);
             addItem("system", "Daily challenge complete. +25 deals + 1 charter.");
           }
           explicitPetSavePendingRef.current = true;
@@ -2212,13 +2350,14 @@ export function App({
           setPetStats(() => stamped);
           addItem("system", result.message);
           appendNotification("event", result.message, now);
+          evaluateProgressBadges(reviewBumped, [], now);
           if (eventExpireTimerRef.current !== null) {
             clearTimeout(eventExpireTimerRef.current);
             eventExpireTimerRef.current = null;
           }
           activeEventRef.current = null;
           setActiveEvent(null);
-          lastEventEndedAtRef.current = now;
+          scheduleNextEventFrom(now, reviewBumped);
         }
         return;
       }
@@ -2455,6 +2594,11 @@ export function App({
       if (synergyTimer.current !== null) {
         clearInterval(synergyTimer.current);
       }
+      if (negotiateExpireTimerRef.current !== null) {
+        clearTimeout(negotiateExpireTimerRef.current);
+        negotiateExpireTimerRef.current = null;
+      }
+      clearNotifications();
       requestInFlight.current = false;
       synergyActive.current = false;
     };
@@ -2580,8 +2724,8 @@ export function App({
                       <Text
                         color={t.primaryLight}
                         bold
-                      >{`NEGOTIATE: ${activeNegotiate.prompt}`}</Text>
-                      {activeNegotiate.choices.map((c) => (
+                      >{`NEGOTIATE: ${activeNegotiate.scenario.prompt}`}</Text>
+                      {activeNegotiate.scenario.choices.map((c) => (
                         <Text key={c.key}>{`  ${c.key}. ${c.label}`}</Text>
                       ))}
                       <Text>{"  Pick 1/2/3  ·  ESC to abandon"}</Text>

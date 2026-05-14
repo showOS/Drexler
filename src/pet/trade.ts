@@ -43,11 +43,19 @@ function sideBit(side: Side): number {
 // Deterministic 1-bit verdict from (date, ticker, side, seed). Cheap
 // fold over the inputs that maps any combination to a single bit. Same
 // pet on the same day cannot retry the same call and flip the outcome.
-export function tradeWinBit(seed: number, dateStamp: string, ticker: Ticker, side: Side): number {
+export function tradeWinBit(
+  seed: number,
+  dateStamp: string,
+  ticker: Ticker,
+  side: Side,
+  salt = "",
+): number {
   let acc = seed >>> 0;
-  for (let i = 0; i < dateStamp.length; i++) {
-    acc = ((acc << 5) - acc + dateStamp.charCodeAt(i)) | 0;
+  const input = `${dateStamp}:${salt}`;
+  for (let i = 0; i < input.length; i++) {
+    acc = ((acc << 5) - acc + input.charCodeAt(i)) | 0;
   }
+  if (salt.length > 0) acc ^= 0x9e3779b9;
   acc ^= tickerCode(ticker) << 3;
   acc ^= sideBit(side);
   return (acc >>> 0) & 1;
@@ -57,6 +65,7 @@ export function ensureTradeSession(
   stats: PetStats,
   now: number,
   rng: () => number = Math.random,
+  bonusAvailable = false,
 ): { stats: PetStats; session: TradeSessionRecord } {
   const date = localDateStamp(now);
   const existing = stats.tradeSession;
@@ -68,6 +77,7 @@ export function ensureTradeSession(
     seed: Math.floor(rng() * 0x100000000) >>> 0,
     used: false,
   };
+  if (bonusAvailable) fresh.bonusAvailable = true;
   return { stats: { ...stats, tradeSession: fresh }, session: fresh };
 }
 
@@ -78,6 +88,8 @@ export type TradeOutcome =
 export interface AttemptTradeOpts {
   now: number;
   rng?: () => number;
+  chartered?: boolean;
+  tradeEye?: boolean;
 }
 
 export function attemptTrade(
@@ -93,7 +105,12 @@ export function attemptTrade(
       message: "After hours, partner. /trade reopens at 09:30 local.",
     };
   }
-  const { stats: withSession, session } = ensureTradeSession(stats, opts.now, opts.rng);
+  const { stats: withSession, session } = ensureTradeSession(
+    stats,
+    opts.now,
+    opts.rng,
+    opts.chartered === true,
+  );
   if (session.used && !session.bonusAvailable) {
     return {
       ok: false,
@@ -102,7 +119,9 @@ export function attemptTrade(
     };
   }
   const bit = tradeWinBit(session.seed, session.date, ticker, side);
-  const win = bit === 1;
+  const eyeBit =
+    opts.tradeEye === true ? tradeWinBit(session.seed, session.date, ticker, side, "trade_eye") : 0;
+  const win = bit === 1 || eyeBit === 1;
   const consumedSession: TradeSessionRecord = session.used
     ? { ...session, bonusAvailable: false }
     : { ...session, used: true };

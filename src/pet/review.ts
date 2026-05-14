@@ -1,5 +1,6 @@
 import { localDateStamp } from "./trade.ts";
 import type { PetStats, ReviewCounters } from "./petState.ts";
+import { defaultRng, pick as rngPick, type Rng } from "./rng.ts";
 
 export interface ReviewSnapshot {
   date: string;
@@ -66,13 +67,15 @@ export interface BuildReviewOptions {
   stats: PetStats;
   now: number;
   oneLinerPick?: (lines: ReadonlyArray<string>) => string;
+  rng?: Rng;
 }
 
 export function buildReviewSnapshot(opts: BuildReviewOptions): ReviewSnapshot {
   const counters = opts.stats.reviewCounters;
   const happinessDelta = counters ? opts.stats.happiness - counters.startHappiness : 0;
   const energyDelta = counters ? opts.stats.energy - counters.startEnergy : 0;
-  const pick = opts.oneLinerPick ?? ((lines) => lines[Math.floor(Math.random() * lines.length)]!);
+  const rng = opts.rng ?? defaultRng;
+  const pick = opts.oneLinerPick ?? ((lines) => rngPick(rng, lines) ?? lines[0]!);
   return {
     date: localDateStamp(opts.now),
     dealsClosed: counters?.dealsClosed ?? 0,

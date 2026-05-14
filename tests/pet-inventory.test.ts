@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { buyItem, formatInventory, parseInventoryItem, useItem } from "../src/pet/inventory.ts";
 import { INVENTORY_COSTS, type InventoryKey, type PetStats } from "../src/pet/petState.ts";
+import { localDateStamp } from "../src/pet/trade.ts";
 
 function baseStats(overrides: Partial<PetStats> = {}): PetStats {
   return {
@@ -47,6 +48,18 @@ describe("inventory", () => {
     expect(r.stats.inventory?.coffee).toBe(0);
   });
 
+  test("iron_liver increases coffee energy restore", () => {
+    const stats = baseStats({
+      energy: 40,
+      inventory: { coffee: 1, pastry: 0, charter: 0 },
+      perks: ["iron_liver"],
+    });
+    const r = useItem(stats, "coffee");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.stats.energy).toBe(85);
+  });
+
   test("pastry restores hunger and signals feed cooldown clear", () => {
     const stats = baseStats({ hunger: 40, inventory: { coffee: 0, pastry: 1, charter: 0 } });
     const r = useItem(stats, "pastry");
@@ -56,16 +69,54 @@ describe("inventory", () => {
     expect(r.sideEffects?.clearCooldown).toBe("feed");
   });
 
+  test("big_meals increases pastry hunger restore", () => {
+    const stats = baseStats({
+      hunger: 40,
+      inventory: { coffee: 0, pastry: 1, charter: 0 },
+      perks: ["big_meals"],
+    });
+    const r = useItem(stats, "pastry");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.stats.hunger).toBe(85);
+  });
+
   test("charter sets bonusAvailable when trade session exists", () => {
+    const today = localDateStamp(Date.now());
     const stats = baseStats({
       inventory: { coffee: 0, pastry: 0, charter: 1 },
-      tradeSession: { date: "2026-05-13", seed: 1, used: true },
+      tradeSession: { date: today, seed: 1, used: true },
     });
     const r = useItem(stats, "charter");
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.stats.tradeSession?.bonusAvailable).toBe(true);
     expect(r.sideEffects?.grantBonusTrade).toBe(true);
+  });
+
+  test("charter replaces stale used trade session with fresh today session", () => {
+    const stats = baseStats({
+      inventory: { coffee: 0, pastry: 0, charter: 1 },
+      tradeSession: { date: "2026-05-13", seed: 1, used: true },
+    });
+    const now = new Date(2026, 4, 14, 10, 0).getTime();
+    const r = useItem(stats, "charter", now);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.stats.tradeSession).toMatchObject({
+      date: "2026-05-14",
+      used: false,
+      bonusAvailable: true,
+    });
+  });
+
+  test("charter creates today's trade session before first trade", () => {
+    const stats = baseStats({ inventory: { coffee: 0, pastry: 0, charter: 1 } });
+    const r = useItem(stats, "charter");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.stats.tradeSession?.bonusAvailable).toBe(true);
+    expect(r.stats.tradeSession?.used).toBe(false);
   });
 
   test("parseInventoryItem accepts known + rejects unknown", () => {

@@ -229,7 +229,7 @@ export function applyEventChoice(
   choiceKey: string,
   now: number = Date.now(),
 ): EventResolution | null {
-  if (now > event.expiresAt) return null;
+  if (now >= event.expiresAt) return null;
   const choice = event.choices.find((c) => c.key === choiceKey);
   if (!choice) return null;
   const next: PetStats = { ...stats };
@@ -256,5 +256,5 @@ export function applyEventExpire(stats: PetStats): EventResolution {
 }
 
 export function isEventExpired(event: PetEvent, now: number = Date.now()): boolean {
-  return now > event.expiresAt;
+  return now >= event.expiresAt;
 }

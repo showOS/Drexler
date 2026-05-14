@@ -6,6 +6,7 @@ import {
   ACHIEVEMENTS,
   isAchievementUnlocked,
   loadAchievements,
+  reloadAchievements,
   renderAchievements,
   unlockAchievement,
 } from "../src/pet/achievements.ts";
@@ -58,5 +59,32 @@ describe("achievements", () => {
     const r = unlockAchievement("nonexistent" as never);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toBe("unknown");
+  });
+
+  test("loadAchievements cache hits between unlocks (V65)", async () => {
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    // First call seeds the in-memory mirror.
+    reloadAchievements();
+    expect(loadAchievements()).toEqual([]);
+    // Mutate the underlying file directly to simulate an external write —
+    // without invalidation, the cached value should still be returned.
+    mkdirSync(`${dir}/.drexler`, { recursive: true });
+    writeFileSync(
+      `${dir}/.drexler/achievements.json`,
+      JSON.stringify([{ id: "first_blood", unlockedAt: 1 }]),
+    );
+    expect(loadAchievements()).toEqual([]);
+    // Explicit reload picks up the change.
+    reloadAchievements();
+    expect(isAchievementUnlocked("first_blood")).toBe(true);
+  });
+
+  test("unlockAchievement refreshes cache after write", () => {
+    reloadAchievements();
+    expect(isAchievementUnlocked("first_blood")).toBe(false);
+    const r = unlockAchievement("first_blood", 1);
+    expect(r.ok).toBe(true);
+    // Cache invalidated by unlockAchievement — no manual reload needed.
+    expect(isAchievementUnlocked("first_blood")).toBe(true);
   });
 });

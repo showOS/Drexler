@@ -99,6 +99,12 @@ describe("pet events", () => {
     expect(result).toBeNull();
   });
 
+  test("applyEventChoice rejects at the exact expiry boundary", () => {
+    const scheduler = defaultScheduler(fixedRng([0]));
+    const event = spawnEvent(1_000, scheduler);
+    expect(applyEventChoice(baseStats(), event, "1", event.expiresAt)).toBeNull();
+  });
+
   test("applyEventCancel drops happiness by 5", () => {
     const stats = baseStats({ happiness: 40 });
     const { stats: next } = applyEventCancel(stats);
@@ -122,6 +128,7 @@ describe("pet events", () => {
     const scheduler = defaultScheduler(fixedRng([0]));
     const event = spawnEvent(0, scheduler);
     expect(isEventExpired(event, 1_000)).toBe(false);
+    expect(isEventExpired(event, EVENT_WINDOW_MS)).toBe(true);
     expect(isEventExpired(event, EVENT_WINDOW_MS + 1)).toBe(true);
   });
 

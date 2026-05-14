@@ -60,6 +60,12 @@ describe("market trade", () => {
     expect(s2).toBe(s1);
   });
 
+  test("chartered option creates fresh session with bonus trade", () => {
+    const now = rthMonday(10, 0);
+    const { session } = ensureTradeSession(baseStats(), now, () => 0.5, true);
+    expect(session.bonusAvailable).toBe(true);
+  });
+
   test("attemptTrade off-hours rejects without state change", () => {
     const stats = baseStats();
     const result = attemptTrade(stats, "AAPL", "buy", { now: rthMonday(8, 0) });
@@ -104,6 +110,26 @@ describe("market trade", () => {
     expect(result.result).toBe("loss");
     expect(result.stats.deals).toBe(50 + TRADE_LOSS_DELTAS.deals);
     expect(result.stats.lifetimeDeals).toBe(100);
+  });
+
+  test("tradeEye adds a deterministic second win bit", () => {
+    const now = rthMonday(10, 0);
+    const date = localDateStamp(now);
+    const found = Array.from({ length: 200 }, (_, seed) => seed)
+      .flatMap((seed) =>
+        ["AAPL", "MSFT", "NVDA"].flatMap((t) => ["buy", "sell"].map((s) => [seed, t, s] as const)),
+      )
+      .find(
+        ([seed, t, s]) =>
+          tradeWinBit(seed, date, t as never, s as never) === 0 &&
+          tradeWinBit(seed, date, t as never, s as never, "trade_eye") === 1,
+      );
+    expect(found).toBeDefined();
+    const [seed, ticker, side] = found!;
+    const stats = baseStats({ tradeSession: { date, seed, used: false } });
+    const result = attemptTrade(stats, ticker as never, side as never, { now, tradeEye: true });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.result).toBe("win");
   });
 
   test("attemptTrade once-per-session enforced", () => {

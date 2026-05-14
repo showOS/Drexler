@@ -94,9 +94,11 @@ export function maybeOfferDeal(
   stats: PetStats,
   now: number,
   scheduler: DealScheduler,
+  cap: number = MAX_ACTIVE_DEALS,
 ): { stats: PetStats; offered: ActiveDeal | null } {
+  const safeCap = Math.max(0, Math.floor(cap));
   const current = stats.activeDeals ?? [];
-  if (current.length >= MAX_ACTIVE_DEALS) return { stats, offered: null };
+  if (current.length >= safeCap) return { stats, offered: null };
   if (!scheduler.shouldSpawn()) return { stats, offered: null };
   const deal = spawnDeal(now, scheduler);
   return {
@@ -151,14 +153,14 @@ export function tickDeals(
     }
     const updated: ActiveDeal = progress === deal.progress ? deal : { ...deal, progress };
 
-    if (requirementsMet(updated)) {
-      lifetime += updated.reward;
-      completed.push(updated);
-      continue;
-    }
     if (now >= updated.deadline) {
       happiness = Math.max(0, happiness - 10);
       expired.push(updated);
+      continue;
+    }
+    if (requirementsMet(updated)) {
+      lifetime += updated.reward;
+      completed.push(updated);
       continue;
     }
     survivors.push(updated);

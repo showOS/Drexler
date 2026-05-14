@@ -183,12 +183,16 @@ export function bumpDailyChallenge(
   const nextProgress = Math.min(c.target, c.progress + amount);
   if (nextProgress === c.progress) return { stats, completedNow: false };
   const reached = nextProgress >= c.target;
-  const next: DailyChallenge = {
+  const nextChallenge: DailyChallenge = {
     ...c,
     progress: nextProgress,
     rewarded: reached,
   };
-  return { stats: { ...stats, dailyChallenge: next }, completedNow: reached };
+  let nextStats: PetStats = { ...stats, dailyChallenge: nextChallenge };
+  if (reached) {
+    nextStats = applyChallengeReward(nextStats);
+  }
+  return { stats: nextStats, completedNow: reached };
 }
 
 export function applyChallengeReward(stats: PetStats): PetStats {

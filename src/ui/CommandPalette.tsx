@@ -68,6 +68,12 @@ const ARGUMENT_TITLES: Record<string, { title: string; hint: string }> = {
   "/retry": { title: "RETRY", hint: "tab fill, ↑↓ choose, enter reroll" },
   "/export": { title: "EXPORT", hint: "tab fill, ↑↓ choose, enter run" },
   "/model": { title: "MODELS", hint: "tab fill, ↑↓ choose, enter switch" },
+  "/respond": { title: "RESPOND", hint: "tab fill, ↑↓ choose, enter answer" },
+  "/trade": { title: "TRADES", hint: "tab fill, ↑↓ choose, enter place" },
+  "/buy": { title: "SHOP", hint: "tab fill, ↑↓ choose, enter buy" },
+  "/use": { title: "INVENTORY", hint: "tab fill, ↑↓ choose, enter use" },
+  "/perk": { title: "PERKS", hint: "tab fill, ↑↓ choose, enter acquire" },
+  "/archetype": { title: "ARCHETYPES", hint: "tab fill, ↑↓ choose, enter lock" },
 };
 
 function paletteHeading(items: ReadonlyArray<SlashCommand>): {

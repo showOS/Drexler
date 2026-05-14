@@ -1,16 +1,7 @@
-import {
-  closeSync,
-  existsSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  renameSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { randomUUID } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { withJsonFileLock } from "./fileLock.ts";
 
 export type AchievementId =
   | "first_blood"
@@ -84,11 +75,16 @@ function achievementsPath(): string {
   return join(achievementsDir(), "achievements.json");
 }
 
-export function loadAchievements(): AchievementEntry[] {
+// V65 — module-scope mirror of the achievements file. Lazily seeded on
+// first read; invalidated on every `unlockAchievement` outcome (success
+// or failure both refresh the cache from the post-write contents).
+// Per-call fs reads previously cost 4–5 disk reads per pet action (B8);
+// the mirror reduces hot-path overhead to a single in-memory lookup.
+let achievementCache: AchievementEntry[] | null = null;
+let cacheHomeKey: string | null = null;
+
+function parseAchievementsFile(raw: string): AchievementEntry[] {
   try {
-    const path = achievementsPath();
-    if (!existsSync(path)) return [];
-    const raw = readFileSync(path, "utf8");
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
     const known = new Set<AchievementId>(ACHIEVEMENTS.map((a) => a.id));
@@ -110,29 +106,30 @@ export function loadAchievements(): AchievementEntry[] {
   }
 }
 
-function writeAchievementsAtomic(entries: AchievementEntry[]): boolean {
+function readAchievementsFromDisk(): AchievementEntry[] {
   try {
-    const dir = achievementsDir();
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    const target = achievementsPath();
-    const tmp = `${target}.tmp.${process.pid}.${randomUUID()}`;
-    try {
-      const fd = openSync(tmp, "w", 0o600);
-      writeFileSync(fd, JSON.stringify(entries, null, 2));
-      closeSync(fd);
-      renameSync(tmp, target);
-      return true;
-    } catch {
-      try {
-        unlinkSync(tmp);
-      } catch {
-        // best-effort
-      }
-      return false;
-    }
+    const path = achievementsPath();
+    if (!existsSync(path)) return [];
+    return parseAchievementsFile(readFileSync(path, "utf8"));
   } catch {
-    return false;
+    return [];
   }
+}
+
+// Public: invalidate the cache. Useful in tests that swap $HOME between
+// runs, or in long-running daemons that suspect external writes.
+export function reloadAchievements(): AchievementEntry[] {
+  achievementCache = readAchievementsFromDisk();
+  cacheHomeKey = getHome();
+  return achievementCache;
+}
+
+export function loadAchievements(): AchievementEntry[] {
+  const home = getHome();
+  if (achievementCache === null || cacheHomeKey !== home) {
+    return reloadAchievements();
+  }
+  return achievementCache;
 }
 
 export type UnlockResult =
@@ -142,15 +139,38 @@ export type UnlockResult =
 export function unlockAchievement(id: AchievementId, now: number = Date.now()): UnlockResult {
   const def = ACHIEVEMENTS.find((a) => a.id === id);
   if (!def) return { ok: false, reason: "unknown" };
-  const current = loadAchievements();
-  if (current.some((e) => e.id === id)) {
-    return { ok: false, reason: "already_unlocked" };
-  }
   const entry: AchievementEntry = { id, unlockedAt: now };
-  const next = [...current, entry];
-  if (!writeAchievementsAtomic(next)) {
+  let already = false;
+  const wrote = withJsonFileLock<unknown[]>(achievementsPath(), [], (current) => {
+    const parsed = Array.isArray(current) ? current : [];
+    const known = new Set<AchievementId>(ACHIEVEMENTS.map((a) => a.id));
+    const out: AchievementEntry[] = [];
+    const seen = new Set<AchievementId>();
+    for (const item of parsed) {
+      if (!item || typeof item !== "object") continue;
+      const candidate = item as Record<string, unknown>;
+      const curId = candidate.id;
+      const at = candidate.unlockedAt;
+      if (typeof curId !== "string" || !known.has(curId as AchievementId)) continue;
+      if (seen.has(curId as AchievementId)) continue;
+      if (typeof at !== "number" || !Number.isFinite(at)) continue;
+      seen.add(curId as AchievementId);
+      out.push({ id: curId as AchievementId, unlockedAt: at });
+    }
+    if (seen.has(id)) {
+      already = true;
+      return out;
+    }
+    return [...out, entry];
+  });
+  // Cache invalidates on every outcome — `withJsonFileLock` may have
+  // mutated the file even on `already_unlocked` (e.g. dedup of stale
+  // entries) so the in-memory mirror must re-sync from disk.
+  reloadAchievements();
+  if (!wrote) {
     return { ok: false, reason: "write_failed" };
   }
+  if (already) return { ok: false, reason: "already_unlocked" };
   return { ok: true, entry, def };
 }
 

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { renderToString } from "ink";
 import React from "react";
-import { COMMAND_PALETTE, type SlashCommand } from "../src/commands.ts";
+import { COMMAND_PALETTE, filterPaletteByPrefix, type SlashCommand } from "../src/commands.ts";
 import { CommandPalette, COMMAND_HINTS } from "../src/ui/CommandPalette.tsx";
 import { displayWidth } from "../src/ui/graphemes.ts";
 import { ThemeProvider } from "../src/ui/ThemeContext.tsx";
@@ -133,5 +133,15 @@ describe("CommandPalette", () => {
   test("every COMMAND_PALETTE entry has a COMMAND_HINTS hint", () => {
     const missing = COMMAND_PALETTE.map((c) => c.name).filter((name) => !(name in COMMAND_HINTS));
     expect(missing).toEqual([]);
+  });
+
+  test("pet argument palettes open and filter", () => {
+    expect(filterPaletteByPrefix("/trade ").map((i) => i.name)).toContain("/trade AAPL buy");
+    expect(filterPaletteByPrefix("/trade AAPL b").map((i) => i.name)).toEqual(["/trade AAPL buy"]);
+    expect(filterPaletteByPrefix("/respond ").map((i) => i.name)).toContain("/respond 1");
+    expect(filterPaletteByPrefix("/perk iron").map((i) => i.name)).toEqual(["/perk iron_liver"]);
+    expect(filterPaletteByPrefix("/archetype op").map((i) => i.name)).toEqual([
+      "/archetype operator",
+    ]);
   });
 });

@@ -290,6 +290,70 @@ const ARGUMENT_PALETTE: ReadonlyArray<{
       },
     ],
   },
+  {
+    command: "/respond",
+    baseDescription: "Event response chooser",
+    baseHint: "pick active event choice",
+    values: [
+      { name: "/respond 1", description: "Choose option 1", hint: "event hotkey" },
+      { name: "/respond 2", description: "Choose option 2", hint: "event hotkey" },
+      { name: "/respond 3", description: "Choose option 3", hint: "event hotkey" },
+    ],
+  },
+  {
+    command: "/trade",
+    baseDescription: "Trade chooser",
+    baseHint: "pick ticker and side",
+    values: ["AAPL", "MSFT", "NVDA"].flatMap((ticker) => [
+      { name: `/trade ${ticker} buy`, description: `Buy ${ticker}`, hint: "RTH only" },
+      { name: `/trade ${ticker} sell`, description: `Sell ${ticker}`, hint: "RTH only" },
+    ]),
+  },
+  {
+    command: "/buy",
+    baseDescription: "Inventory shop",
+    baseHint: "spend deals",
+    values: [
+      { name: "/buy coffee", description: "Buy coffee", hint: "rest cooldown + energy" },
+      { name: "/buy pastry", description: "Buy pastry", hint: "feed cooldown + hunger" },
+      { name: "/buy charter", description: "Buy charter", hint: "bonus trade" },
+    ],
+  },
+  {
+    command: "/use",
+    baseDescription: "Inventory use",
+    baseHint: "consume an item",
+    values: [
+      { name: "/use coffee", description: "Use coffee", hint: "restore energy" },
+      { name: "/use pastry", description: "Use pastry", hint: "restore hunger" },
+      { name: "/use charter", description: "Use charter", hint: "grant bonus trade" },
+    ],
+  },
+  {
+    command: "/perk",
+    baseDescription: "Perk chooser",
+    baseHint: "spend promotion point",
+    values: [
+      "slow_decay",
+      "quick_recovery",
+      "big_meals",
+      "trade_eye",
+      "pipeline",
+      "chartered",
+      "iron_liver",
+      "rainmaker",
+    ].map((id) => ({ name: `/perk ${id}`, description: `Acquire ${id}`, hint: "promotion perk" })),
+  },
+  {
+    command: "/archetype",
+    baseDescription: "Archetype chooser",
+    baseHint: "VP specialization",
+    values: [
+      { name: "/archetype closer", description: "Closer", hint: "work-heavy profile" },
+      { name: "/archetype networker", description: "Networker", hint: "play-heavy profile" },
+      { name: "/archetype operator", description: "Operator", hint: "rest/decay profile" },
+    ],
+  },
 ];
 
 function filterArgumentPalette(input: string): ReadonlyArray<SlashCommand> {
