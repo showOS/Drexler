@@ -60,6 +60,57 @@ import {
   markReviewShown,
 } from "../pet/review.ts";
 import { buildPetSummary, injectPetSummary } from "../pet/personaSummary.ts";
+import { appendNotification, formatNotificationLog } from "../pet/notificationLog.ts";
+import {
+  isAchievementUnlocked,
+  renderAchievements,
+  unlockAchievement,
+  type AchievementId,
+} from "../pet/achievements.ts";
+import {
+  grantPerkPointOnPromotion,
+  parsePerkId,
+  perkCooldownReductionMs,
+  perkDecayMultiplier,
+  perkPipelineCap,
+  perkSynergyMultiplier,
+  renderPerks,
+  spendPerkPoint,
+} from "../pet/perks.ts";
+import {
+  ARCHETYPE_DEFS,
+  archetypeMultipliers,
+  chooseArchetype,
+  parseArchetype,
+  renderArchetypes,
+} from "../pet/archetype.ts";
+import {
+  applyChallengeReward,
+  bumpDailyChallenge,
+  bumpStreakForAction,
+  ensureDailyChallenge,
+  renderChallenge,
+  renderStreak,
+} from "../pet/streaks.ts";
+import {
+  defaultWorldScheduler,
+  expireWorldEvent,
+  maybeSpawnWorldEvent,
+  worldDecayMultiplier,
+  worldEventGapMultiplier,
+  worldTradeLossMultiplier,
+  worldWorkDealMultiplier,
+  type WorldScheduler,
+} from "../pet/world.ts";
+import {
+  canStartPitch,
+  openNegotiate,
+  resolveNegotiate,
+  resolvePitch,
+  type NegotiateScenario,
+} from "../pet/minigames.ts";
+import { BOSS_QUARTERLY, advanceBoss, startBoss } from "../pet/boss.ts";
+import { sessionDecayMultiplier } from "../pet/petState.ts";
 import { DeathScreen } from "./DeathScreen.tsx";
 import {
   CompactPetPanel,
@@ -523,8 +574,22 @@ export function App({
   const lastEventEndedAtRef = useRef(0);
   const dealSchedulerRef = useRef<DealScheduler>(defaultDealScheduler());
   const eventSchedulerRef = useRef<EventScheduler>(defaultEventScheduler());
+  const worldSchedulerRef = useRef<WorldScheduler>(defaultWorldScheduler());
   const activeEventRef = useRef<PetEvent | null>(null);
   const dailyReviewShownThisLaunchRef = useRef(false);
+  const tradeWinCounterRef = useRef(0);
+  const auditSurvivedRef = useRef(0);
+  const synergyTriggeredRef = useRef<Set<string>>(new Set());
+  const charterUsedRef = useRef(0);
+  const pitchHitsRef = useRef(0);
+  const negotiateWinsRef = useRef(0);
+  const pipelineCompletedRef = useRef(0);
+  const activeNegotiateRef = useRef<NegotiateScenario | null>(null);
+  const [activeNegotiate, setActiveNegotiate] = useState<NegotiateScenario | null>(null);
+  const pitchStartedAtRef = useRef<number | null>(null);
+  const [pitchActive, setPitchActive] = useState(false);
+  const [pitchFrame, setPitchFrame] = useState(0);
+  const pitchTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const petEnv: Environment = "office";
 
@@ -584,10 +649,37 @@ export function App({
       petActivityTimerRef.current = null;
     }, durationMs);
   }, []);
-  const setDashboardPetMode = useCallback((next: boolean) => {
-    petModeRef.current = next;
-    setPetMode(next);
-  }, []);
+  const setDashboardPetMode = useCallback(
+    (next: boolean) => {
+      petModeRef.current = next;
+      setPetMode(next);
+      if (!next) return;
+      // Coming online: roll today's daily challenge and consider spawning
+      // a world event. Both are idempotent within the day.
+      const now = Date.now();
+      const dc = ensureDailyChallenge(petStatsRef.current, now);
+      let nextStats = dc.stats;
+      if (dc.freshly && nextStats.dailyChallenge) {
+        const msg = `Today's challenge: ${nextStats.dailyChallenge.kind} (target ${nextStats.dailyChallenge.target}).`;
+        appendNotification("challenge", msg, now);
+        addItem("system", msg);
+      }
+      const world = maybeSpawnWorldEvent(nextStats, now, worldSchedulerRef.current);
+      nextStats = world.stats;
+      if (world.spawned) {
+        const msg = `${world.spawned.title} — ${world.spawned.description}`;
+        appendNotification("world", msg, now);
+        addItem("system", msg);
+      }
+      if (nextStats !== petStatsRef.current) {
+        explicitPetSavePendingRef.current = true;
+        const stamped = { ...nextStats, lastSaved: now };
+        petStatsRef.current = stamped;
+        setPetStats(() => stamped);
+      }
+    },
+    [addItem],
+  );
   // Reducer must stay pure: no IO, no ref writes. Ref mirror lives in
   // the effect below; persistence lives in its own save effect. React 19
   // StrictMode runs reducers twice in dev — any side effect here would
@@ -599,17 +691,49 @@ export function App({
       return next === stats ? stats : { ...next, lastSaved: now };
     });
   }, []);
+  const unlockBadge = useCallback(
+    (id: AchievementId, narrationBuffer: string[], now: number, silent = false) => {
+      const r = unlockAchievement(id, now);
+      if (!r.ok) return;
+      const msg = `Badge unlocked: ${r.def.title} — ${r.def.description}`;
+      appendNotification("badge", msg, now);
+      if (silent) return;
+      narrationBuffer.push(msg);
+      addItem("system", msg);
+    },
+    [addItem],
+  );
+
   const applyPetAction = useCallback(
     (action: PetActionKey, mutator: (stats: PetStats) => PetStats) => {
       // Precompute the next state from the latest committed stats (mirror'd
-      // in petStatsRef) so narration can fire exactly once per click.
-      // applyDecay is folded in so any decay that has accumulated since the
-      // last 1-minute tick is captured before this action lands; the worst
-      // case interleave with a concurrent decay tick is sub-millisecond and
-      // applyDecay returns same identity when there's no movement.
+      // in petStatsRef) so narration can fire exactly once per click. Folds
+      // decay, action stamp, streak, daily-challenge, deals tick, synergy,
+      // boss advance, and achievement checks in a single deterministic pass.
       const now = Date.now();
-      const decayed = applyDecay(petStatsRef.current, now);
+      const archetype = archetypeMultipliers(petStatsRef.current);
+      const decayMult = Math.min(
+        1,
+        sessionDecayMultiplier(petStatsRef.current, now) *
+          perkDecayMultiplier(petStatsRef.current) *
+          worldDecayMultiplier(petStatsRef.current, now) *
+          archetype.decay,
+      );
+      const decayed = applyDecay(petStatsRef.current, now, decayMult);
       let next: PetStats = mutator(decayed);
+      // Archetype reducer multipliers (after base reducer math, before clamp).
+      const archetypeKey =
+        action === "work" ? "work" : action === "play" ? "play" : action === "rest" ? "rest" : null;
+      if (archetypeKey) {
+        const m = archetype[archetypeKey];
+        if (m !== 1) {
+          for (const k of ["hunger", "happiness", "energy", "deals"] as const) {
+            const baseValue = decayed[k];
+            const delta = next[k] - baseValue;
+            next = { ...next, [k]: Math.max(0, Math.min(100, baseValue + delta * m)) };
+          }
+        }
+      }
       next = stampAction(next, action, now);
       next = accrueLifetimeDeals(next, action);
       next = appendActionHistory(next, action, now);
@@ -617,29 +741,112 @@ export function App({
       const tick = tickDeals(next, action, now);
       next = tick.stats;
       const narration: string[] = [];
-      if (action === "work") {
+      const offerCap = perkPipelineCap(next, 2);
+      if (action === "work" && (next.activeDeals?.length ?? 0) < offerCap) {
         const offer = maybeOfferDeal(next, now, dealSchedulerRef.current);
         next = offer.stats;
         if (offer.offered) {
-          narration.push(`New deal logged: ${formatDeal(offer.offered, now)}.`);
+          const msg = `New deal logged: ${formatDeal(offer.offered, now)}.`;
+          narration.push(msg);
+          appendNotification("deal", msg, now);
         }
       }
       const synergy = detectSynergy(next, now);
       next = synergy.stats;
-      if (synergy.matched && synergy.message) narration.push(synergy.message);
-      if (tick.completed.length > 0) next = bumpDealsClosed(next, tick.completed.length);
+      if (synergy.matched && synergy.message) {
+        const mult = perkSynergyMultiplier(next);
+        if (mult > 1 && synergy.matched) {
+          // Apply the additional fraction of the bonus deltas (rainmaker perk)
+          const bonus = mult - 1;
+          for (const [statKey, delta] of Object.entries(synergy.matched.delta)) {
+            if (typeof delta !== "number") continue;
+            const k = statKey as "hunger" | "happiness" | "energy" | "deals";
+            next = { ...next, [k]: Math.max(0, Math.min(100, next[k] + delta * bonus)) };
+          }
+        }
+        narration.push(synergy.message);
+        appendNotification("synergy", synergy.message, now);
+        synergyTriggeredRef.current.add(synergy.matched.id);
+        next = bumpDailyChallenge(next, "synergy_1", 1, now).stats;
+      }
+      if (tick.completed.length > 0) {
+        next = bumpDealsClosed(next, tick.completed.length);
+        pipelineCompletedRef.current += tick.completed.length;
+        next = bumpDailyChallenge(next, "close_deals_2", tick.completed.length, now).stats;
+      }
       for (const d of tick.completed) {
-        narration.push(`Deal closed: ${d.name}. +${d.reward} lifetime deals.`);
+        const msg = `Deal closed: ${d.name}. +${d.reward} lifetime deals.`;
+        narration.push(msg);
+        appendNotification("deal", msg, now);
       }
       for (const d of tick.expired) {
-        narration.push(`Deal expired: ${d.name}. Pipeline scrubbed.`);
+        const msg = `Deal expired: ${d.name}. Pipeline scrubbed.`;
+        narration.push(msg);
+        appendNotification("deal", msg, now);
       }
+
+      // Streak + daily challenge ticks.
+      const streakBump = bumpStreakForAction(next, now);
+      next = streakBump.stats;
+      if (streakBump.bumped) {
+        const sLine = `Streak now ${next.streak?.count}d (best ${next.streak?.bestCount}d).`;
+        appendNotification("streak", sLine, now);
+        if (streakBump.reset) narration.push("Streak reset — start anew.");
+        if (streakBump.milestone) {
+          const milestoneMsg = `Streak milestone reached. +${streakBump.rewardLifetime} lifetime deals.`;
+          narration.push(milestoneMsg);
+          appendNotification("streak", milestoneMsg, now);
+        }
+      }
+      const challengeBump = bumpDailyChallenge(next, "pet_action", 1, now);
+      next = challengeBump.stats;
+      if (challengeBump.completedNow) {
+        next = applyChallengeReward(next);
+        const msg = "Daily challenge complete. +25 deals + 1 charter.";
+        narration.push(msg);
+        appendNotification("challenge", msg, now);
+      }
+
+      // Boss step triggers.
+      if (action === "work" || action === "praise") {
+        const bossKind = action === "work" ? "work" : "praise";
+        const bossRes = advanceBoss(next, bossKind, now);
+        if (bossRes.message) {
+          narration.push(bossRes.message);
+          appendNotification("boss", bossRes.message, now);
+        }
+        if (bossRes.completed) {
+          unlockBadge("boss_quarterly", narration, now);
+        }
+        next = bossRes.stats;
+      }
+
       explicitPetSavePendingRef.current = true;
       petStatsRef.current = { ...next, lastSaved: now };
       setPetStats(() => ({ ...next, lastSaved: now }));
       for (const line of narration) addItem("system", line);
+
+      // Achievement checks (no state mutation needed; achievements are
+      // tracked in their own file).
+      if (!isAchievementUnlocked("first_blood")) {
+        unlockBadge("first_blood", [], now, /*silent*/ false);
+      }
+      if (pipelineCompletedRef.current >= 25 && !isAchievementUnlocked("pipeline_pro")) {
+        unlockBadge("pipeline_pro", [], now, false);
+      }
+      if (synergyTriggeredRef.current.size >= 3 && !isAchievementUnlocked("synergy_3")) {
+        unlockBadge("synergy_3", [], now, false);
+      }
+      const streakCount = next.streak?.bestCount ?? 0;
+      if (streakCount >= 7 && !isAchievementUnlocked("streak_7")) {
+        unlockBadge("streak_7", [], now, false);
+      }
+      const perkCount = next.perks?.length ?? 0;
+      if (perkCount >= 3 && !isAchievementUnlocked("perk_collector")) {
+        unlockBadge("perk_collector", [], now, false);
+      }
     },
-    [addItem],
+    [addItem, unlockBadge],
   );
 
   // Surface rank promotions as a system memo. Driven off committed
@@ -651,14 +858,58 @@ export function App({
     if (current !== prevRankRef.current) {
       const previous = prevRankRef.current;
       prevRankRef.current = current;
-      // Only celebrate forward motion; a decay-induced rank drop
-      // shouldn't trigger a fake promotion.
       const order = ["intern", "analyst", "associate", "vp", "md"] as const;
-      if (order.indexOf(current) > order.indexOf(previous)) {
+      const prevIdx = order.indexOf(previous);
+      const nextIdx = order.indexOf(current);
+      if (nextIdx > prevIdx) {
+        const now = Date.now();
         addItem(
           "system",
           `PROMOTION MEMO: Drexler ranked up to ${rankLabel(current)}. Reward: more meetings.`,
         );
+        appendNotification(
+          "promotion",
+          `Promotion to ${rankLabel(current)}. +${nextIdx - prevIdx} promotion point${
+            nextIdx - prevIdx === 1 ? "" : "s"
+          }.`,
+          now,
+        );
+        // Grant perk points on every forward step (V52).
+        const grant = grantPerkPointOnPromotion(petStatsRef.current, prevIdx, nextIdx);
+        if (grant.granted) {
+          explicitPetSavePendingRef.current = true;
+          const stamped = { ...grant.stats, lastSaved: now };
+          petStatsRef.current = stamped;
+          setPetStats(() => stamped);
+          addItem("system", `Promotion point earned. /perks to review, /perk <id> to spend.`);
+        }
+        // First VP promotion unlocks the boss encounter.
+        if (current === "vp" && !petStatsRef.current.boss) {
+          const bossStart = startBoss(petStatsRef.current, BOSS_QUARTERLY, now);
+          if (bossStart.ok) {
+            explicitPetSavePendingRef.current = true;
+            const stamped = { ...bossStart.stats, lastSaved: now };
+            petStatsRef.current = stamped;
+            setPetStats(() => stamped);
+            addItem("system", bossStart.message);
+            appendNotification("boss", bossStart.message, now);
+          }
+        }
+        // First VP promotion also opens archetype choice notification.
+        if (current === "vp" && !petStatsRef.current.archetype) {
+          addItem(
+            "system",
+            "Archetype unlocked. Choose with /archetype <closer|networker|operator>.",
+          );
+        }
+        // MD-rank achievement.
+        if (current === "md" && !isAchievementUnlocked("intern_to_md")) {
+          const ackRes = unlockAchievement("intern_to_md", now);
+          if (ackRes.ok) {
+            addItem("system", `Badge unlocked: ${ackRes.def.title} — ${ackRes.def.description}`);
+            appendNotification("badge", `Badge: ${ackRes.def.title}`, now);
+          }
+        }
       }
     }
   }, [petStats, addItem]);
@@ -701,7 +952,24 @@ export function App({
   // Real-time stat decay matches the offline per-hour decay rate.
   useEffect(() => {
     petDecayTimerRef.current = setInterval(() => {
-      updatePetStats(applyDecay);
+      updatePetStats((stats, now) => {
+        const mult = Math.min(
+          1,
+          sessionDecayMultiplier(stats, now) *
+            perkDecayMultiplier(stats) *
+            worldDecayMultiplier(stats, now) *
+            archetypeMultipliers(stats).decay,
+        );
+        const decayed = applyDecay(stats, now, mult);
+        // Also tick world-event expiration on the same cadence.
+        const { stats: afterWorld, expired } = expireWorldEvent(decayed, now);
+        if (expired) {
+          const msg = `${expired.title} window closed. Modifiers reverting.`;
+          appendNotification("world", msg, now);
+          addItem("system", msg);
+        }
+        return afterWorld;
+      });
     }, 60_000);
     return () => {
       if (petDecayTimerRef.current !== null) {
@@ -714,7 +982,7 @@ export function App({
       }
       savePetState(petStatsRef.current);
     };
-  }, [updatePetStats]);
+  }, [updatePetStats, addItem]);
 
   // Event scheduler — schedules a random-gap spawn while pet mode is on
   // and no event is active. Only spawns when the user isn't streaming or
@@ -727,7 +995,10 @@ export function App({
     }
     if (!petMode || isDead || activeEvent !== null) return;
     const now = Date.now();
-    const gap = eventSchedulerRef.current.pickGap();
+    // audit_week halves the gap (V58).
+    const gap = Math.round(
+      eventSchedulerRef.current.pickGap() * worldEventGapMultiplier(petStatsRef.current, now),
+    );
     const earliest = lastEventEndedAtRef.current + gap;
     const delay = Math.max(15_000, earliest - now);
     const handle = setTimeout(() => {
@@ -1188,10 +1459,13 @@ export function App({
                     : null;
       if (cooldownAction !== null) {
         const cd = actionCooldown(petStatsRef.current, cooldownAction);
-        if (!cd.ok) {
+        // quick_recovery perk shaves cooldown remaining (V52).
+        const reduction = perkCooldownReductionMs(petStatsRef.current);
+        const remaining = cd.ok ? 0 : Math.max(0, cd.remainingMs - reduction);
+        if (!cd.ok && remaining > 0) {
           addItem(
             "system",
-            `Drexler ${cooldownAction === "feed" ? "just ate" : cooldownAction === "play" ? "just played" : cooldownAction === "work" ? "just worked" : cooldownAction === "praise" ? "just got praised" : cooldownAction === "rest" ? "just rested" : "just vibed"}. Wait ${formatCooldownRemaining(cd.remainingMs)} before the next attempt. Drexler resents micromanagement.`,
+            `Drexler ${cooldownAction === "feed" ? "just ate" : cooldownAction === "play" ? "just played" : cooldownAction === "work" ? "just worked" : cooldownAction === "praise" ? "just got praised" : cooldownAction === "rest" ? "just rested" : "just vibed"}. Wait ${formatCooldownRemaining(remaining)} before the next attempt. Drexler resents micromanagement.`,
           );
           return;
         }
@@ -1209,7 +1483,15 @@ export function App({
         return;
       }
       if (slashCommand === "/work") {
-        applyPetAction("work", applyWork);
+        const now = Date.now();
+        const ipoMult = worldWorkDealMultiplier(petStatsRef.current, now);
+        const mutator = (s: PetStats): PetStats => {
+          const base = applyWork(s);
+          if (ipoMult === 1) return base;
+          const extra = base.deals - s.deals;
+          return { ...base, deals: Math.min(100, s.deals + extra * ipoMult) };
+        };
+        applyPetAction("work", mutator);
         triggerPetActivity("working", 5000);
         addItem("system", pick(PET_MESSAGES.work));
         return;
@@ -1349,11 +1631,31 @@ export function App({
           addItem("system", "Choice rejected (window closed or unknown option).");
           return;
         }
-        const reviewBumped = bumpEventsSurvived(result.stats);
+        let reviewBumped = bumpEventsSurvived(result.stats);
+        // Audit survival tracking + audit_survivor_5 badge.
+        if (event.kind === "audit") {
+          auditSurvivedRef.current += 1;
+          // Boss step trigger.
+          const bossRes = advanceBoss(reviewBumped, "audit_response", now);
+          reviewBumped = bossRes.stats;
+          if (bossRes.message) addItem("system", bossRes.message);
+          if (auditSurvivedRef.current >= 5 && !isAchievementUnlocked("audit_survivor_5")) {
+            const a = unlockAchievement("audit_survivor_5", now);
+            if (a.ok) addItem("system", `Badge unlocked: ${a.def.title}.`);
+          }
+        }
+        // Daily challenge: survive_2_events tally.
+        const dcBump = bumpDailyChallenge(reviewBumped, "survive_2_events", 1, now);
+        reviewBumped = dcBump.stats;
+        if (dcBump.completedNow) {
+          reviewBumped = applyChallengeReward(reviewBumped);
+          addItem("system", "Daily challenge complete. +25 deals + 1 charter.");
+        }
         explicitPetSavePendingRef.current = true;
         petStatsRef.current = { ...reviewBumped, lastSaved: now };
         setPetStats(() => ({ ...reviewBumped, lastSaved: now }));
         addItem("system", result.message);
+        appendNotification("event", result.message, now);
         if (eventExpireTimerRef.current !== null) {
           clearTimeout(eventExpireTimerRef.current);
           eventExpireTimerRef.current = null;
@@ -1384,18 +1686,57 @@ export function App({
           addItem("system", "Usage: /trade <AAPL|MSFT|NVDA> <buy|sell>");
           return;
         }
-        const outcome = attemptTrade(petStatsRef.current, ticker as Ticker, side, {
-          now: Date.now(),
-        });
+        const now = Date.now();
+        const outcome = attemptTrade(petStatsRef.current, ticker as Ticker, side, { now });
         if (!outcome.ok) {
           addItem("system", outcome.message);
           return;
         }
+        let stats = outcome.stats;
+        // Market crash world event amplifies losses ×2 (apply remainder once,
+        // since attemptTrade already applied base loss deltas).
+        if (outcome.result === "loss") {
+          const crashMult = worldTradeLossMultiplier(stats, now);
+          if (crashMult > 1) {
+            const extra = crashMult - 1;
+            stats = {
+              ...stats,
+              deals: Math.max(0, stats.deals + -15 * extra),
+              happiness: Math.max(0, stats.happiness + -5 * extra),
+            };
+          }
+        }
         explicitPetSavePendingRef.current = true;
-        const stamped = { ...outcome.stats, lastSaved: Date.now() };
+        const stamped = { ...stats, lastSaved: now };
         petStatsRef.current = stamped;
         setPetStats(() => stamped);
         addItem("system", outcome.message);
+        appendNotification("event", outcome.message, now);
+        if (outcome.result === "win") {
+          tradeWinCounterRef.current += 1;
+          const bumped = bumpDailyChallenge(petStatsRef.current, "win_trade", 1, now);
+          if (bumped.completedNow) {
+            const after = applyChallengeReward(bumped.stats);
+            petStatsRef.current = { ...after, lastSaved: now };
+            setPetStats(() => ({ ...after, lastSaved: now }));
+            addItem("system", "Daily challenge complete. +25 deals + 1 charter.");
+          } else if (bumped.stats !== petStatsRef.current) {
+            petStatsRef.current = { ...bumped.stats, lastSaved: now };
+            setPetStats(() => ({ ...bumped.stats, lastSaved: now }));
+          }
+          if (tradeWinCounterRef.current >= 10 && !isAchievementUnlocked("trade_winner_10")) {
+            const a = unlockAchievement("trade_winner_10", now);
+            if (a.ok) addItem("system", `Badge unlocked: ${a.def.title}.`);
+          }
+          // Boss step trigger.
+          const bossRes = advanceBoss(petStatsRef.current, "trade_win", now);
+          if (bossRes.message) addItem("system", bossRes.message);
+          if (bossRes.stats !== petStatsRef.current) {
+            const bossed = { ...bossRes.stats, lastSaved: now };
+            petStatsRef.current = bossed;
+            setPetStats(() => bossed);
+          }
+        }
         return;
       }
       if (slashCommand === "/buy") {
@@ -1436,9 +1777,17 @@ export function App({
             };
           }
           explicitPetSavePendingRef.current = true;
-          const stamped = { ...next, lastSaved: Date.now() };
+          const now = Date.now();
+          const stamped = { ...next, lastSaved: now };
           petStatsRef.current = stamped;
           setPetStats(() => stamped);
+          if (item === "charter") {
+            charterUsedRef.current += 1;
+            if (charterUsedRef.current >= 3 && !isAchievementUnlocked("chartered_3")) {
+              const a = unlockAchievement("chartered_3", now);
+              if (a.ok) addItem("system", `Badge unlocked: ${a.def.title}.`);
+            }
+          }
         }
         return;
       }
@@ -1450,6 +1799,131 @@ export function App({
         const now = Date.now();
         const snap = buildReviewSnapshot({ stats: petStatsRef.current, now });
         addItem("system", formatReview(snap));
+        return;
+      }
+      if (slashCommand === "/achievements") {
+        addItem("system", renderAchievements());
+        return;
+      }
+      if (slashCommand === "/perks") {
+        addItem("system", renderPerks(petStatsRef.current));
+        return;
+      }
+      if (slashCommand === "/perk") {
+        const arg = lower.slice("/perk".length).trim();
+        const perkId = parsePerkId(arg);
+        if (!perkId) {
+          addItem(
+            "system",
+            "Usage: /perk <slow_decay|quick_recovery|big_meals|trade_eye|pipeline|chartered|iron_liver|rainmaker>",
+          );
+          return;
+        }
+        const r = spendPerkPoint(petStatsRef.current, perkId);
+        addItem("system", r.ok ? `Perk acquired: ${r.def.title}.` : r.message);
+        if (r.ok) {
+          explicitPetSavePendingRef.current = true;
+          const stamped = { ...r.stats, lastSaved: Date.now() };
+          petStatsRef.current = stamped;
+          setPetStats(() => stamped);
+          appendNotification("perk", `Perk: ${r.def.title}`, Date.now());
+        }
+        return;
+      }
+      if (slashCommand === "/streak") {
+        addItem("system", renderStreak(petStatsRef.current));
+        return;
+      }
+      if (slashCommand === "/challenge") {
+        addItem("system", renderChallenge(petStatsRef.current));
+        return;
+      }
+      if (slashCommand === "/log") {
+        addItem("system", formatNotificationLog());
+        return;
+      }
+      if (slashCommand === "/archetype") {
+        const arg = lower.slice("/archetype".length).trim();
+        if (arg.length === 0) {
+          addItem("system", renderArchetypes(petStatsRef.current));
+          return;
+        }
+        const order = ["intern", "analyst", "associate", "vp", "md"] as const;
+        const rankIdx = order.indexOf(getPetRank(petStatsRef.current));
+        const r = chooseArchetype(petStatsRef.current, arg, rankIdx);
+        addItem(
+          "system",
+          r.ok ? `Archetype locked: ${r.def.id} — ${r.def.description}` : r.message,
+        );
+        if (r.ok) {
+          explicitPetSavePendingRef.current = true;
+          const stamped = { ...r.stats, lastSaved: Date.now() };
+          petStatsRef.current = stamped;
+          setPetStats(() => stamped);
+          const badgeId =
+            r.def.id === "closer"
+              ? "closer_chosen"
+              : r.def.id === "networker"
+                ? "networker_chosen"
+                : "operator_chosen";
+          if (!isAchievementUnlocked(badgeId)) {
+            const a = unlockAchievement(badgeId, Date.now());
+            if (a.ok) addItem("system", `Badge unlocked: ${a.def.title}.`);
+          }
+          appendNotification("archetype", `Archetype: ${r.def.id}`, Date.now());
+        }
+        // Reference parseArchetype to keep import live; used by chooseArchetype.
+        void parseArchetype;
+        void ARCHETYPE_DEFS;
+        return;
+      }
+      if (slashCommand === "/pitch") {
+        if (pitchActive || activeNegotiateRef.current) {
+          addItem("system", "Drexler already in a mini-game.");
+          return;
+        }
+        const ok = canStartPitch(petStatsRef.current);
+        if (!ok.ok) {
+          addItem("system", ok.message);
+          return;
+        }
+        const now = Date.now();
+        pitchStartedAtRef.current = now;
+        setPitchActive(true);
+        setPitchFrame(0);
+        addItem("system", "PITCH — bar cycling. Press Enter to hit at the peak ▇█.");
+        if (pitchTimerRef.current !== null) clearInterval(pitchTimerRef.current);
+        pitchTimerRef.current = setInterval(() => {
+          setPitchFrame((f) => f + 1);
+        }, 200);
+        return;
+      }
+      if (slashCommand === "/negotiate") {
+        if (activeNegotiateRef.current || pitchActive) {
+          addItem("system", "Drexler already in a mini-game.");
+          return;
+        }
+        const r = openNegotiate(petStatsRef.current);
+        if (!r.ok) {
+          addItem("system", r.message);
+          return;
+        }
+        activeNegotiateRef.current = r.scenario!;
+        setActiveNegotiate(r.scenario!);
+        const lines = [
+          `NEGOTIATE: ${r.scenario!.prompt}`,
+          ...r.scenario!.choices.map((c) => {
+            const gate =
+              c.tone === "bold" && petStatsRef.current.happiness < 60
+                ? " (locked: happy<60)"
+                : c.tone === "aggressive" && petStatsRef.current.energy < 60
+                  ? " (locked: energy<60)"
+                  : "";
+            return `  ${c.key}. ${c.label}${gate}`;
+          }),
+          "Pick 1/2/3 (or ESC to abandon).",
+        ];
+        addItem("system", lines.join("\n"));
         return;
       }
 
@@ -1532,6 +2006,7 @@ export function App({
       isDead,
       model,
       PET_MESSAGES,
+      pitchActive,
       removeLastAssistantItem,
       runLLM,
       runSynergyEvent,
@@ -1613,6 +2088,79 @@ export function App({
       );
       return;
     }
+    // Pitch mini-game: Enter resolves, ESC aborts (V57).
+    if (pitchActive) {
+      if (key.return) {
+        const startedAt = pitchStartedAtRef.current ?? Date.now();
+        const now = Date.now();
+        const r = resolvePitch(petStatsRef.current, startedAt, now);
+        explicitPetSavePendingRef.current = true;
+        const stamped = { ...r.stats, lastSaved: now };
+        petStatsRef.current = stamped;
+        setPetStats(() => stamped);
+        addItem("system", r.message);
+        appendNotification("minigame", r.message, now);
+        if (r.hit) {
+          pitchHitsRef.current += 1;
+          if (pitchHitsRef.current >= 5 && !isAchievementUnlocked("pitch_perfect")) {
+            const a = unlockAchievement("pitch_perfect", now);
+            if (a.ok) addItem("system", `Badge unlocked: ${a.def.title}.`);
+          }
+        }
+        if (pitchTimerRef.current !== null) {
+          clearInterval(pitchTimerRef.current);
+          pitchTimerRef.current = null;
+        }
+        setPitchActive(false);
+        pitchStartedAtRef.current = null;
+        return;
+      }
+      if (key.escape) {
+        if (pitchTimerRef.current !== null) {
+          clearInterval(pitchTimerRef.current);
+          pitchTimerRef.current = null;
+        }
+        setPitchActive(false);
+        pitchStartedAtRef.current = null;
+        addItem("system", "Pitch aborted.");
+        return;
+      }
+      return;
+    }
+    // Negotiate mini-game: 1/2/3 picks, ESC aborts (V57).
+    if (activeNegotiateRef.current) {
+      const scenario = activeNegotiateRef.current;
+      if (key.escape) {
+        activeNegotiateRef.current = null;
+        setActiveNegotiate(null);
+        addItem("system", "Negotiation abandoned.");
+        return;
+      }
+      if (!key.ctrl && !key.meta && (char === "1" || char === "2" || char === "3")) {
+        const now = Date.now();
+        const r = resolveNegotiate(petStatsRef.current, scenario, char, now);
+        if (r) {
+          explicitPetSavePendingRef.current = true;
+          const stamped = { ...r.stats, lastSaved: now };
+          petStatsRef.current = stamped;
+          setPetStats(() => stamped);
+          addItem("system", r.message);
+          appendNotification("minigame", r.message, now);
+          if (r.stats.minigame?.lastNegotiateAt === now) {
+            // counted as a successful resolution
+            negotiateWinsRef.current += 1;
+            if (negotiateWinsRef.current >= 5 && !isAchievementUnlocked("negotiator")) {
+              const a = unlockAchievement("negotiator", now);
+              if (a.ok) addItem("system", `Badge unlocked: ${a.def.title}.`);
+            }
+            activeNegotiateRef.current = null;
+            setActiveNegotiate(null);
+          }
+        }
+        return;
+      }
+      return;
+    }
     // Active event ESC cancels with a small happiness hit (V42). The
     // hotkeys 1/2/3 mirror `/respond` so the user can answer without
     // typing the slash.
@@ -1641,12 +2189,29 @@ export function App({
         const now = Date.now();
         const result = applyEventChoice(petStatsRef.current, event, char, now);
         if (result) {
-          const reviewBumped = bumpEventsSurvived(result.stats);
+          let reviewBumped = bumpEventsSurvived(result.stats);
+          if (event.kind === "audit") {
+            auditSurvivedRef.current += 1;
+            const bossRes = advanceBoss(reviewBumped, "audit_response", now);
+            reviewBumped = bossRes.stats;
+            if (bossRes.message) addItem("system", bossRes.message);
+            if (auditSurvivedRef.current >= 5 && !isAchievementUnlocked("audit_survivor_5")) {
+              const a = unlockAchievement("audit_survivor_5", now);
+              if (a.ok) addItem("system", `Badge unlocked: ${a.def.title}.`);
+            }
+          }
+          const dcBump = bumpDailyChallenge(reviewBumped, "survive_2_events", 1, now);
+          reviewBumped = dcBump.stats;
+          if (dcBump.completedNow) {
+            reviewBumped = applyChallengeReward(reviewBumped);
+            addItem("system", "Daily challenge complete. +25 deals + 1 charter.");
+          }
           explicitPetSavePendingRef.current = true;
           const stamped = { ...reviewBumped, lastSaved: now };
           petStatsRef.current = stamped;
           setPetStats(() => stamped);
           addItem("system", result.message);
+          appendNotification("event", result.message, now);
           if (eventExpireTimerRef.current !== null) {
             clearTimeout(eventExpireTimerRef.current);
             eventExpireTimerRef.current = null;
@@ -1997,15 +2562,44 @@ export function App({
                       width={contentWidth}
                     />
                   )}
+                  {pitchActive && (
+                    <Box marginBottom={1} paddingX={2}>
+                      <Text color={t.primaryLight}>
+                        {`PITCH ${(() => {
+                          const f = pitchFrame % 8;
+                          const cells = "▁▂▃▄▅▆▇█";
+                          let bar = "";
+                          for (let i = 0; i < 8; i++) bar += cells[i === f ? f : 0]!;
+                          return bar;
+                        })()}  Enter at the peak ▇█  ·  ESC to abort`}
+                      </Text>
+                    </Box>
+                  )}
+                  {activeNegotiate !== null && (
+                    <Box marginBottom={1} paddingX={2} flexDirection="column">
+                      <Text
+                        color={t.primaryLight}
+                        bold
+                      >{`NEGOTIATE: ${activeNegotiate.prompt}`}</Text>
+                      {activeNegotiate.choices.map((c) => (
+                        <Text key={c.key}>{`  ${c.key}. ${c.label}`}</Text>
+                      ))}
+                      <Text>{"  Pick 1/2/3  ·  ESC to abandon"}</Text>
+                    </Box>
+                  )}
                   <Box flexDirection="column">
                     <InputBox
                       value={input}
                       cursor={cursor}
-                      disabled={isBusy}
+                      disabled={isBusy || pitchActive || activeNegotiate !== null}
                       disabledLabel={
                         synergyEvent !== null
                           ? "(Synergy event running... boardroom locked)"
-                          : undefined
+                          : pitchActive
+                            ? "(Pitch active — Enter at peak, ESC to abort)"
+                            : activeNegotiate !== null
+                              ? "(Negotiate active — pick 1/2/3, ESC to abandon)"
+                              : undefined
                       }
                       width={contentInputWidth}
                     />

@@ -52,6 +52,15 @@ const HELP_TEXT = `New memo to staff! Drexler permit following directives:
   /use <item>    - consume coffee, pastry, or charter
   /graveyard     - list recent past Drexler lives
   /review        - re-show today's daily review card
+  /achievements  - list earned badges
+  /perks         - list earned + available perks
+  /perk <id>     - spend a promotion point on a perk
+  /streak        - show current daily streak
+  /challenge     - show today's challenge progress
+  /log           - print recent in-session pet notifications
+  /pitch         - timing mini-game (Enter at the peak)
+  /negotiate     - text-choice mini-game (1/2/3)
+  /archetype <c> - choose closer | networker | operator (VP rank)
   /model         - show or switch model (e.g. /model 26b)
   /theme         - show or switch theme (${THEME_NAMES.join(", ")})
   /startup       - persist startup mode (fast, no-intro, normal)
@@ -103,6 +112,15 @@ export const COMMAND_PALETTE: ReadonlyArray<SlashCommand> = [
   { name: "/use", description: "Use a desk consumable", group: "directives" },
   { name: "/graveyard", description: "Past Drexler lives", group: "directives" },
   { name: "/review", description: "Re-show today's review card", group: "directives" },
+  { name: "/achievements", description: "List earned badges", group: "directives" },
+  { name: "/perks", description: "List earned + available perks", group: "directives" },
+  { name: "/perk", description: "Spend a promotion point", group: "directives" },
+  { name: "/streak", description: "Show current daily streak", group: "directives" },
+  { name: "/challenge", description: "Show today's challenge", group: "directives" },
+  { name: "/log", description: "Recent pet notifications", group: "directives" },
+  { name: "/pitch", description: "Timing mini-game", group: "directives" },
+  { name: "/negotiate", description: "Text-choice mini-game", group: "directives" },
+  { name: "/archetype", description: "Pick a VP specialization", group: "directives" },
   { name: "/model", description: "Show or switch model", group: "models" },
   { name: "/theme", description: "Show or switch theme", group: "themes" },
   { name: "/startup", description: "Persist startup mode", group: "startup" },
@@ -387,6 +405,15 @@ export function dispatch(input: string, ctx: CommandContext): CommandAction {
     case "use":
     case "graveyard":
     case "review":
+    case "achievements":
+    case "perks":
+    case "perk":
+    case "streak":
+    case "challenge":
+    case "log":
+    case "pitch":
+    case "negotiate":
+    case "archetype":
       ctx.print(
         "Drexler pet directives require the interactive deal desk. Launch Drexler in a TTY.",
       );

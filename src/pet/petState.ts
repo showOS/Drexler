@@ -58,6 +58,50 @@ export interface TradeSessionRecord {
   bonusAvailable?: boolean;
 }
 
+export interface PetStreakRecord {
+  lastActiveDate: string;
+  count: number;
+  bestCount: number;
+  milestoneClaimedAt: number;
+}
+
+export type PetDailyChallengeKind =
+  | "close_deals_2"
+  | "win_trade"
+  | "survive_2_events"
+  | "synergy_1"
+  | "pet_action_10";
+
+export interface PetDailyChallenge {
+  date: string;
+  kind: PetDailyChallengeKind;
+  target: number;
+  progress: number;
+  rewarded: boolean;
+}
+
+export type PetWorldEventKind = "market_crash" | "ipo_mania" | "audit_week" | "holiday";
+
+export interface PetWorldEventRecord {
+  kind: PetWorldEventKind;
+  startedAt: number;
+  expiresAt: number;
+}
+
+export type PetArchetype = "closer" | "networker" | "operator";
+
+export interface PetBossRecord {
+  id: string;
+  step: number;
+  startedAt: number;
+  deadline: number;
+}
+
+export interface PetMinigameRecord {
+  lastPitchAt?: number;
+  lastNegotiateAt?: number;
+}
+
 export interface PetStats {
   hunger: number;
   happiness: number;
@@ -75,6 +119,14 @@ export interface PetStats {
   tradeSession?: TradeSessionRecord;
   lastReviewAt?: number;
   reviewCounters?: ReviewCounters;
+  perks?: string[];
+  perkPoints?: number;
+  streak?: PetStreakRecord;
+  dailyChallenge?: PetDailyChallenge;
+  worldEvent?: PetWorldEventRecord;
+  archetype?: PetArchetype;
+  boss?: PetBossRecord;
+  minigame?: PetMinigameRecord;
 }
 
 export interface ReviewCounters {
@@ -162,7 +214,10 @@ const DECAY_PER_HOUR = {
 
 export type PetActionKey = "feed" | "play" | "work" | "praise" | "rest" | "vibe";
 
-export const PET_COOLDOWN_MS = 90_000;
+// V60 — base cooldown 60s. Perks (`quick_recovery`) and inventory
+// effects reduce or bypass per-action. Composers in App layer apply the
+// reductions before invoking actionCooldown().
+export const PET_COOLDOWN_MS = 60_000;
 
 interface CooldownCheck {
   ok: boolean;
@@ -327,6 +382,107 @@ function parseTradeSession(input: unknown): TradeSessionRecord | undefined {
   return record;
 }
 
+function parseStringArray(input: unknown): string[] | undefined {
+  if (!Array.isArray(input)) return undefined;
+  const out: string[] = [];
+  for (const item of input) {
+    if (typeof item === "string" && item.length > 0) out.push(item);
+  }
+  return out.length > 0 ? out : undefined;
+}
+
+function parseStreak(input: unknown): PetStats["streak"] | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const o = input as Record<string, unknown>;
+  if (typeof o.lastActiveDate !== "string") return undefined;
+  return {
+    lastActiveDate: o.lastActiveDate,
+    count:
+      typeof o.count === "number" && Number.isFinite(o.count)
+        ? Math.max(0, Math.floor(o.count))
+        : 0,
+    bestCount:
+      typeof o.bestCount === "number" && Number.isFinite(o.bestCount)
+        ? Math.max(0, Math.floor(o.bestCount))
+        : 0,
+    milestoneClaimedAt:
+      typeof o.milestoneClaimedAt === "number" && Number.isFinite(o.milestoneClaimedAt)
+        ? Math.max(0, Math.floor(o.milestoneClaimedAt))
+        : 0,
+  };
+}
+
+function parseDailyChallenge(input: unknown): PetStats["dailyChallenge"] | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const o = input as Record<string, unknown>;
+  if (
+    typeof o.date !== "string" ||
+    typeof o.kind !== "string" ||
+    typeof o.target !== "number" ||
+    !Number.isFinite(o.target) ||
+    typeof o.progress !== "number" ||
+    !Number.isFinite(o.progress) ||
+    typeof o.rewarded !== "boolean"
+  ) {
+    return undefined;
+  }
+  return {
+    date: o.date,
+    kind: o.kind as PetStats["dailyChallenge"] extends { kind: infer K } | undefined ? K : never,
+    target: Math.max(0, Math.floor(o.target)),
+    progress: Math.max(0, Math.floor(o.progress)),
+    rewarded: o.rewarded,
+  };
+}
+
+function parseWorldEvent(input: unknown): PetStats["worldEvent"] | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const o = input as Record<string, unknown>;
+  if (typeof o.kind !== "string") return undefined;
+  if (typeof o.startedAt !== "number" || !Number.isFinite(o.startedAt)) return undefined;
+  if (typeof o.expiresAt !== "number" || !Number.isFinite(o.expiresAt)) return undefined;
+  return {
+    kind: o.kind as PetStats["worldEvent"] extends { kind: infer K } | undefined ? K : never,
+    startedAt: o.startedAt,
+    expiresAt: o.expiresAt,
+  };
+}
+
+const ARCHETYPE_SET = new Set(["closer", "networker", "operator"]);
+function parseArchetypeField(input: unknown): PetStats["archetype"] | undefined {
+  return typeof input === "string" && ARCHETYPE_SET.has(input)
+    ? (input as PetStats["archetype"])
+    : undefined;
+}
+
+function parseBoss(input: unknown): PetStats["boss"] | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const o = input as Record<string, unknown>;
+  if (typeof o.id !== "string") return undefined;
+  if (typeof o.step !== "number" || !Number.isFinite(o.step)) return undefined;
+  if (typeof o.startedAt !== "number" || !Number.isFinite(o.startedAt)) return undefined;
+  if (typeof o.deadline !== "number" || !Number.isFinite(o.deadline)) return undefined;
+  return {
+    id: o.id,
+    step: Math.max(0, Math.floor(o.step)),
+    startedAt: o.startedAt,
+    deadline: o.deadline,
+  };
+}
+
+function parseMinigame(input: unknown): PetStats["minigame"] | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const o = input as Record<string, unknown>;
+  const out: { lastPitchAt?: number; lastNegotiateAt?: number } = {};
+  if (typeof o.lastPitchAt === "number" && Number.isFinite(o.lastPitchAt)) {
+    out.lastPitchAt = o.lastPitchAt;
+  }
+  if (typeof o.lastNegotiateAt === "number" && Number.isFinite(o.lastNegotiateAt)) {
+    out.lastNegotiateAt = o.lastNegotiateAt;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 function parseReviewCounters(input: unknown): ReviewCounters | undefined {
   if (!input || typeof input !== "object") return undefined;
   const o = input as Record<string, unknown>;
@@ -350,17 +506,39 @@ function parseReviewCounters(input: unknown): ReviewCounters | undefined {
   };
 }
 
+export const SESSION_ACTIVE_WINDOW_MS = 5 * 60_000;
+export const SESSION_ACTIVE_DECAY_MULTIPLIER = 0.5;
+
+export function sessionDecayMultiplier(stats: PetStats, now: number = Date.now()): number {
+  const history = stats.actionHistory ?? [];
+  if (history.length === 0) return 1;
+  const lastAt = history[history.length - 1]!.at;
+  const elapsed = now - lastAt;
+  if (elapsed < 0) return SESSION_ACTIVE_DECAY_MULTIPLIER;
+  return elapsed <= SESSION_ACTIVE_WINDOW_MS ? SESSION_ACTIVE_DECAY_MULTIPLIER : 1;
+}
+
 // Decay over (now - stats.lastSaved). Works the same on a 1-minute
 // tick during an active session and on resume after a multi-hour OS
 // suspend — both cases compute the exact delta since the timestamp
 // was last bumped. `now` is injectable so React state updaters can stay
-// deterministic under StrictMode double-invocation.
-export function applyDecay(stats: PetStats, now: number = Date.now()): PetStats {
+// deterministic under StrictMode double-invocation. `multiplier` ∈
+// [0,1] scales the per-hour rate so perks / world modifiers / session
+// presence compose into a single effective rate (V60).
+export function applyDecay(
+  stats: PetStats,
+  now: number = Date.now(),
+  multiplier: number = 1,
+): PetStats {
   const elapsed = Math.max(0, (now - stats.lastSaved) / 3_600_000);
-  const nextHunger = clamp(stats.hunger - DECAY_PER_HOUR.hunger * elapsed);
-  const nextHappiness = clamp(stats.happiness - DECAY_PER_HOUR.happiness * elapsed);
-  const nextEnergy = clamp(stats.energy - DECAY_PER_HOUR.energy * elapsed);
-  const nextDeals = clamp(stats.deals - DECAY_PER_HOUR.deals * elapsed);
+  const safeMult =
+    typeof multiplier === "number" && Number.isFinite(multiplier) && multiplier >= 0
+      ? Math.min(1, multiplier)
+      : 1;
+  const nextHunger = clamp(stats.hunger - DECAY_PER_HOUR.hunger * elapsed * safeMult);
+  const nextHappiness = clamp(stats.happiness - DECAY_PER_HOUR.happiness * elapsed * safeMult);
+  const nextEnergy = clamp(stats.energy - DECAY_PER_HOUR.energy * elapsed * safeMult);
+  const nextDeals = clamp(stats.deals - DECAY_PER_HOUR.deals * elapsed * safeMult);
   if (
     nextHunger === stats.hunger &&
     nextHappiness === stats.happiness &&
@@ -409,6 +587,10 @@ export function loadPetState(): PetStats {
             typeof parsed.name === "string" && parsed.name.length > 0
               ? sanitizePetName(parsed.name)
               : undefined,
+          // Archetype survives respawn (V61). Perks ledger does not — it is
+          // tied to the rank ladder which gets halved on death, so re-earning
+          // perk points starts fresh.
+          archetype: parseArchetypeField(parsed.archetype),
         };
         savePetState(revived);
         return revived;
@@ -453,6 +635,17 @@ export function loadPetState(): PetStats {
             ? parsed.lastReviewAt
             : undefined,
         reviewCounters: parseReviewCounters(parsed.reviewCounters),
+        perks: parseStringArray(parsed.perks),
+        perkPoints:
+          typeof parsed.perkPoints === "number" && Number.isFinite(parsed.perkPoints)
+            ? Math.max(0, Math.floor(parsed.perkPoints))
+            : undefined,
+        streak: parseStreak(parsed.streak),
+        dailyChallenge: parseDailyChallenge(parsed.dailyChallenge),
+        worldEvent: parseWorldEvent(parsed.worldEvent),
+        archetype: parseArchetypeField(parsed.archetype),
+        boss: parseBoss(parsed.boss),
+        minigame: parseMinigame(parsed.minigame),
       };
       return applyDecay(stats, now);
     }

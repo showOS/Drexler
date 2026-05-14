@@ -141,6 +141,44 @@ describe("pet state", () => {
     expect(isPetDead(stats)).toBe(false);
   });
 
+  test("applyDecay multiplier scales per-hour rate (V60)", () => {
+    const baseTime = 1_700_000_000_000;
+    const now = baseTime + 2 * 3_600_000;
+    const halfDecayed = applyDecay(
+      {
+        hunger: 80,
+        happiness: 80,
+        energy: 80,
+        deals: 80,
+        lastSaved: baseTime,
+      },
+      now,
+      0.5,
+    );
+    expect(halfDecayed.hunger).toBeCloseTo(65, 5);
+  });
+
+  test("applyDecay multiplier 0 disables decay; negative falls back to 1 (V60)", () => {
+    const baseTime = 1_700_000_000_000;
+    const now = baseTime + 5 * 3_600_000;
+    const frozen = applyDecay(
+      { hunger: 80, happiness: 80, energy: 80, deals: 80, lastSaved: baseTime },
+      now,
+      0,
+    );
+    expect(frozen.hunger).toBe(80);
+    const fallback = applyDecay(
+      { hunger: 80, happiness: 80, energy: 80, deals: 80, lastSaved: baseTime },
+      now,
+      -1,
+    );
+    expect(fallback.hunger).toBeCloseTo(5, 0);
+  });
+
+  test("PET_COOLDOWN_MS lowered to 60s (V60)", () => {
+    expect(PET_COOLDOWN_MS).toBe(60_000);
+  });
+
   test("respawn halves lifetimeDeals and keeps name (V47)", async () => {
     const petDir = join(dir, ".drexler");
     await mkdir(petDir, { recursive: true });

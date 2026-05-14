@@ -1,6 +1,6 @@
 import { Box, Text } from "ink";
 import { memo, useEffect, useMemo, useState } from "react";
-import type { PetActivity, PetStats } from "../../pet/petState.ts";
+import { getPetRank, type PetActivity, type PetRank, type PetStats } from "../../pet/petState.ts";
 import {
   BRIEFCASE_FINAL,
   MASCOT_WIDTH,
@@ -205,8 +205,26 @@ function mascotStateForActivity(activity: PetActivity, frame: number): MascotSta
   }
 }
 
+// V56 — pure function of getPetRank(stats). Same rank ⇒ same label;
+// no caching needed since the title row is rebuilt every frame anyway.
+// Keeps "DREXLER OFFICE" anchor so wide-pane tests still match.
+export function rankTitleVariant(rank: PetRank): string {
+  switch (rank) {
+    case "intern":
+      return " DREXLER OFFICE · INTERN ";
+    case "analyst":
+      return " DREXLER OFFICE · ANALYST ";
+    case "associate":
+      return " DREXLER OFFICE · ASSOCIATE ";
+    case "vp":
+      return " DREXLER OFFICE · VP ";
+    case "md":
+      return " DREXLER OFFICE · MD ";
+  }
+}
+
 function titleLine(width: number, stats: PetStats): string {
-  const label = " DREXLER OFFICE ";
+  const label = rankTitleVariant(getPetRank(stats));
   const worst = pickWorstStat(stats);
   const readout = ` ${worst.key.toUpperCase()} ${Math.round(worst.value)}% `;
   const leftCap = width >= 72 ? "╭" : "─";

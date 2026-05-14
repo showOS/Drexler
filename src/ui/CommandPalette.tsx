@@ -51,6 +51,15 @@ export const COMMAND_HINTS: Record<string, string> = {
   "/use": "/use coffee · /use pastry · /use charter",
   "/graveyard": "past Drexler obituaries",
   "/review": "today's daily review card",
+  "/achievements": "list earned + locked badges",
+  "/perks": "list available perks + points",
+  "/perk": "/perk slow_decay · /perk quick_recovery",
+  "/streak": "show current daily streak",
+  "/challenge": "show today's challenge",
+  "/log": "recent system notifications",
+  "/pitch": "Enter at the peak ▇█",
+  "/negotiate": "1/2/3 to pick (ESC abort)",
+  "/archetype": "/archetype closer · networker · operator",
 };
 
 const ARGUMENT_TITLES: Record<string, { title: string; hint: string }> = {

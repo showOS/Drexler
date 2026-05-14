@@ -111,15 +111,24 @@ Case-insensitive. Local-only. Never sent to model. Never appended to history.
 | `/use <coffee\|pastry\|charter>` | consume inventory item (V48) |
 | `/graveyard` | list past pet lives (V47) |
 | `/review` | re-show today's daily review (V49) |
+| `/achievements` | list earned badges (V51) |
+| `/perks` | list earned + available perks (V52) |
+| `/perk <id>` | spend a promotion point on a perk (V52) |
+| `/streak` | show current daily streak (V53) |
+| `/challenge` | show today's challenge progress (V54) |
+| `/log` | print recent in-session pet notifications (V55) |
+| `/pitch` | timing mini-game (V57) |
+| `/negotiate` | text-choice mini-game (V57) |
+| `/archetype <closer\|networker\|operator>` | pick specialization at vp+ (V61) |
 
-Palette opens on `/`. Argument choosers: `/theme`, `/startup`, `/retry`, `/export`, `/model`, `/respond`, `/trade`, `/buy`, `/use`.
+Palette opens on `/`. Argument choosers: `/theme`, `/startup`, `/retry`, `/export`, `/model`, `/respond`, `/trade`, `/buy`, `/use`, `/perk`, `/archetype`.
 
 ### Pet state — `src/pet/petState.ts`
 
 - File: `~/.drexler/pet.json` (atomic temp+rename, swallow errors).
-- Stats: `hunger`, `happiness`, `energy`, `deals` ∈ [0,100]. Plus `lastSaved`, `dead?`, `name?`, `createdAt?`, `lastActionAt?`, `lifetimeDeals?`, `activeDeals?`, `actionHistory?`, `inventory?`, `tradeSession?`, `lastReviewAt?`.
+- Stats: `hunger`, `happiness`, `energy`, `deals` ∈ [0,100]. Plus `lastSaved`, `dead?`, `name?`, `createdAt?`, `lastActionAt?`, `lifetimeDeals?`, `activeDeals?`, `actionHistory?`, `inventory?`, `tradeSession?`, `lastReviewAt?`, `perks?`, `perkPoints?`, `streak?`, `dailyChallenge?`, `worldEvent?`, `archetype?`, `boss?`, `minigame?`.
 - Decay per hour: hunger 15, happiness 8, energy 10, deals 5. Applied over `now − lastSaved`.
-- Cooldown per action: `PET_COOLDOWN_MS = 90_000` ms.
+- Cooldown per action: `PET_COOLDOWN_MS = 60_000` ms (lowered from 90s in P17). Perks (`quick_recovery`) can reduce further.
 - Action reducers: `applyFeed`, `applyPlay`, `applyWork`, `applyPraise`, `applyRest`, `applyVibe`.
 - `applyVibe` precedence: energy<30 ⇒ nap; else hunger<30 ⇒ feed; else 4 random branches via injectable `roll`.
 - Death: any of hunger/happiness/energy ≤ 0. Next load resets to halfway (50/50/50/25).
@@ -189,6 +198,104 @@ Palette opens on `/`. Argument choosers: `/theme`, `/startup`, `/retry`, `/expor
 - Card contents: yesterday deals closed, events survived, mood arc (delta), Drexler one-liner.
 - `/review` re-prints today's card.
 
+### Achievements — `src/pet/achievements.ts`
+
+- Persistent unlock list at `~/.drexler/achievements.json`. Array of `{id, unlockedAt}` deduped by id.
+- ~20 launch badges: `first_blood` (first action), `intern_to_md` (reach MD rank), `audit_survivor_5` (handle 5 audit events), `trade_winner_10` (win 10 /trades), `streak_7` (7-day streak), `boss_quarterly` (beat first boss), `synergy_3` (trigger all 3 patterns), `pipeline_pro` (close 25 deals), `cohort_2` (visit graveyard with 2+ entries), `chartered_3` (use 3 charters), etc.
+- Unlock points: invoked from action hooks + event hooks + trade hooks. Pure check function per id.
+- `/achievements` slash prints earned + locked summary.
+
+### Perks / skill tree — `src/pet/perks.ts`
+
+- `pet.json.perks: string[]`. `pet.json.perkPoints: number` (unspent).
+- Earn 1 point per rank-up (forward only — decay-induced rank drops do not refund).
+- Fixed catalog: `slow_decay`, `quick_recovery`, `big_meals`, `trade_eye`, `pipeline`, `chartered`, `iron_liver`, `rainmaker`.
+- `/perks` lists earned + available. `/perk <id>` spends one point.
+- Effects compose with existing reducers via `getPerkMultiplier(perks, key)`:
+  - `slow_decay` ⇒ decay ×0.8
+  - `quick_recovery` ⇒ cooldown −30s
+  - `big_meals` ⇒ feed + pastry effect ×1.5
+  - `trade_eye` ⇒ trade win bit OR-ed with extra bias
+  - `pipeline` ⇒ MAX_ACTIVE_DEALS 2→3
+  - `chartered` ⇒ tradeSession bonusAvailable default true each session
+  - `iron_liver` ⇒ coffee energy +50%
+  - `rainmaker` ⇒ synergy bonus deltas ×1.5
+
+### Streaks + Daily challenge — `src/pet/streaks.ts`
+
+- `pet.json.streak: {lastActiveDate, count, bestCount}`. Bumped once per local-day on first action. Skip a day ⇒ count resets to 0; best preserved.
+- Streak bonus: every 3-day milestone awards +10 lifetimeDeals once per milestone (tracked via best).
+- `pet.json.dailyChallenge: {date, kind, target, progress, rewarded}`.
+- Kinds: `close_deals_2`, `win_trade`, `survive_2_events`, `synergy_1`, `pet_action_10`.
+- Roll once per local-day on /pet on. Reward on completion = 25 deals + 1 charter, set `rewarded:true`.
+- `/streak` and `/challenge` slashes print status.
+
+### Notification log — `src/pet/notificationLog.ts`
+
+- In-memory ring buffer length 30 of `{at, kind, message}`. Cleared on process exit.
+- Append from: event spawn, deal completion/expire, synergy detection, promotion, badge unlock, world event start/end, boss step.
+- `/log` prints last 20 entries in transcript card. No file persistence (V55).
+
+### Mascot rank variants — `src/ui/pet/MascotScene.tsx`
+
+- Pure function of `getPetRank(stats)`. Sprite variants:
+  - intern: minimal hoodie sprite
+  - analyst: blazer + tie
+  - associate: suit
+  - vp: pinstripes
+  - md: penthouse silhouette with skyline frame
+- Selection at render time; no extra perf cost (variants are static strings).
+
+### Mini-games: pitch + negotiate — `src/pet/minigames.ts`
+
+- Both store last-played in `pet.json.minigame: {lastPitchAt?, lastNegotiateAt?}`. Cooldown 5m each.
+- `/pitch`:
+  - Cycles ASCII bar 0..7 (`▁..█`). User presses Enter when peak shown.
+  - Hit if bar in [6, 7]. Hit ⇒ +20 happiness, +15 deals. Miss ⇒ -5 happiness.
+  - Sequence is deterministic from seed (`now`-derived), 16 frames at 200ms.
+- `/negotiate`:
+  - Scenario from fixed pool of 6. User picks 1|2|3 within 30s.
+  - Choice options gated by stats: bold needs happiness ≥ 60, aggressive needs energy ≥ 60.
+  - Outcome stat-deltas ±20.
+
+### World events / seasonal modifiers — `src/pet/world.ts`
+
+- `pet.json.worldEvent: {kind, startedAt, expiresAt}`.
+- Kinds: `market_crash`, `ipo_mania`, `audit_week`, `holiday`.
+- 5% spawn chance on /pet on (when no active world event). Duration 2h–8h.
+- Modifiers compose with existing reducers:
+  - `market_crash` ⇒ trade loss deltas ×2; win deltas same.
+  - `ipo_mania` ⇒ work `deals` gain ×1.5.
+  - `audit_week` ⇒ event spawn cadence halved gap.
+  - `holiday` ⇒ decay rate ×0.5.
+- Banner narrated on start + end via notification log.
+
+### Boss encounters — `src/pet/boss.ts`
+
+- `pet.json.boss: {id, step, startedAt, deadline}`.
+- Triggered once per pet life at first promotion to `vp`+ via dedicated hook.
+- Steps for `quarterly_earnings`:
+  1. complete 1 /work
+  2. win 1 /trade
+  3. respond to 1 audit event
+  4. /praise within 30m from step 1
+- Completion: +200 lifetimeDeals, unlock `boss_quarterly` achievement.
+- Failure / deadline: -15 happiness, removed.
+
+### Cooldown + decay tuning — P17
+
+- `PET_COOLDOWN_MS` lowered 90_000 → 60_000.
+- `applyDecay` accepts effective rate multiplier. When session is active (`now - latest actionHistory.at < 5m`), rate ×0.5. Off-session = full.
+- Perk `slow_decay` composes with session multiplier (e.g. 0.5 × 0.8 = 0.4).
+
+### Archetypes — P18
+
+- `pet.json.archetype?: 'closer'|'networker'|'operator'`. Set once at first VP promotion via `/archetype`. Immutable after.
+- Reducer modifiers:
+  - `closer` ⇒ applyWork deltas ×1.5; applyPlay deltas ×0.75
+  - `networker` ⇒ applyPlay deltas ×1.5; applyWork deltas ×0.75
+  - `operator` ⇒ applyRest deltas ×1.5; decay rate ×0.9
+
 ## §V Invariants
 
 - V1 — System message always index 0. Never trimmed.
@@ -241,6 +348,18 @@ Palette opens on `/`. Argument choosers: `/theme`, `/startup`, `/retry`, `/expor
 - V48 — Inventory: `pet.json.inventory` ∈ ℤ≥0 for {coffee,pastry,charter}. `/buy` rejects if `deals < cost`. `/use` rejects if count = 0. Effects clamp per §V25. Cost decrement only from volatile `deals`; never touches `lifetimeDeals`.
 - V49 — Daily review: shown at most once per local-calendar day, gated by `lastReviewAt` < today-midnight-local. Skipped when prior 24h has zero `actionHistory` entries. Renders as transcript card (V17), never blocks input.
 - V50 — All new slash commands honor §V6 (in-character unknown), §V7 (empty nudge), §V22 (input lock during stream/synergy), §V31 (prefix filter + arg chooser).
+- V51 — Achievements: append-only `~/.drexler/achievements.json`, deduped by `id`. Atomic temp+rename writes. Reads tolerate missing/corrupt file (empty array fallback). Unlocking is idempotent — re-unlocking a known id is a no-op, never duplicates the entry.
+- V52 — Perks: 1 promotion point granted per forward rank transition (decay-induced rank drops never refund). `perkPoints` floor at 0; `/perk <id>` rejected unless point available and perk not already owned. Effects compose multiplicatively with archetype + world-event modifiers; final stats clamp per §V25.
+- V53 — Streaks: anchored to local-calendar day via `lastActiveDate`. Same-day actions never bump count. Missing a day resets `count` to 0; `bestCount` is monotonic non-decreasing. Streak milestone reward (every 3 days) credited at most once per `bestCount` value.
+- V54 — Daily challenge: rolls once per local-day on first `/pet on` of day. `kind`/`target` immutable until day rollover. `rewarded:true` makes re-completion a no-op. Reward applied via volatile `deals` + inventory only — never touches `lifetimeDeals`.
+- V55 — Notification log: in-memory ring buffer ≤ 30 entries. Never persisted. Cleared on Ink unmount. `/log` output is read-only — never mutates pet state.
+- V56 — Mascot rank variants: pure function of `getPetRank(stats)`. Variant pick happens at render time (no caching state); same rank ⇒ same sprite. Variants must respect existing display-width budget (§V21).
+- V57 — Mini-games: `/pitch` and `/negotiate` honor 5m cooldown via `pet.json.minigame.lastPitchAt|lastNegotiateAt`. Backward clock skew handled like §V28. Outcomes computed locally; never call the model.
+- V58 — World events: at most 1 active at a time, persisted in `pet.json.worldEvent`. Expired events removed at next decay tick. Modifiers compose multiplicatively with perk + archetype multipliers; ordering deterministic = `base × perk × archetype × world`. Stat clamp per §V25.
+- V59 — Boss encounters: at most 1 active per pet life, persisted in `pet.json.boss`. Steps must complete in order before `deadline`. Step completion idempotent — repeating a satisfied step doesn't advance. Failure or deadline ⇒ removed; never decreases `lifetimeDeals`.
+- V60 — `PET_COOLDOWN_MS = 60_000`. `applyDecay` accepts effective multiplier ∈ [0,1]; default 1. Caller composes session × perk × world multipliers and passes the product. Multiplier 0 ⇒ no decay; never inverts (negative multipliers rejected → fallback 1).
+- V61 — Archetype: chosen at first `vp` promotion via `/archetype`. Immutable once set. `pet.json.archetype` survives respawn. Reducer multipliers applied AFTER base reducer math, BEFORE clamp.
+- V62 — All new commands honor §V6/§V7/§V22/§V31 same as §V50.
 
 ## §T Tasks
 
@@ -273,6 +392,17 @@ Palette opens on `/`. Argument choosers: `/theme`, `/startup`, `/retry`, `/expor
 | T25 | x | Inventory: schema in `pet.json`, `/buy` + `/use` cmds, item effects, cost/clamp gates | V48,V50 |
 | T26 | x | Daily review: `src/pet/review.ts` `lastReviewAt`, render card on launch + `/review` cmd | V49,V50 |
 | T27 | x | Tests: unit + integration coverage for T19–T26; deterministic clock + RNG injection | V41–V50 |
+| T28 | x | Achievements: `src/pet/achievements.ts` file IO, ~20 badge defs, unlock hooks across event/trade/deal/synergy/promotion paths, `/achievements` cmd | V51,V62 |
+| T29 | x | Perks: `src/pet/perks.ts` catalog, point ledger, `/perks` + `/perk <id>` cmds, multiplier helpers wired into reducers and trade | V52,V62 |
+| T30 | x | Streaks + daily challenge: `src/pet/streaks.ts`, daily roll on `/pet on`, `/streak` + `/challenge` cmds, milestone reward | V53,V54,V62 |
+| T31 | x | Notification log: `src/pet/notificationLog.ts` ring buffer, `/log` cmd, integration hooks at event/deal/synergy/promotion/badge/world/boss | V55,V62 |
+| T32 | x | Mascot rank variants: extend `src/ui/pet/MascotScene.tsx` w/ 5 sprite tiers selected by `getPetRank` | V56 |
+| T33 | x | Mini-games: `src/pet/minigames.ts` pitch + negotiate, `/pitch` + `/negotiate` cmds, 5m cooldown stamp | V57,V62 |
+| T34 | x | World events: `src/pet/world.ts`, spawn on `/pet on`, expiry tick, modifiers composed into decay + trade + spawn cadence | V58,V62 |
+| T35 | x | Boss encounters: `src/pet/boss.ts`, trigger at first vp promotion, step state machine, integration in action/trade/event hooks | V59,V62 |
+| T36 | x | Cooldown + decay tuning: `PET_COOLDOWN_MS=60_000`, `applyDecay` multiplier param, session-active detection, perk/world composition | V60 |
+| T37 | x | Archetypes: `src/pet/archetype.ts`, `/archetype <id>` cmd at vp+, reducer multipliers, persist across respawn | V61,V62 |
+| T38 | x | Tests: unit + integration coverage for T28–T37; deterministic clock + RNG injection; verify multiplier composition ordering (§V58) | V51–V62 |
 
 ## §B Bugs
 

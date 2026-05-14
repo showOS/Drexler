@@ -897,7 +897,7 @@ describe("filterPaletteByPrefix", () => {
 
   test("pet command appears in palette", () => {
     const out = filterPaletteByPrefix("/pe");
-    expect(out).toMatchObject([{ name: "/pet", description: "Toggle pet dashboard mode" }]);
+    expect(out.map((c) => c.name)).toEqual(["/pet", "/perks", "/perk"]);
   });
 
   test("save-last command appears after overlapping prefix", () => {
