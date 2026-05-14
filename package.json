@@ -39,6 +39,7 @@
     "drexler": "bun run src/index.ts",
     "link": "bun link",
     "test": "bun test",
+    "perf:smoke": "bun run scripts/perf-smoke.ts",
     "test:coverage": "bun test --coverage --coverage-reporter=lcov --coverage-dir=coverage",
     "typecheck": "tsc --noEmit",
     "lint": "bunx eslint src tests --max-warnings=0",

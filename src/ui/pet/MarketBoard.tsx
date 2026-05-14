@@ -64,14 +64,23 @@ function panelCellWidths(width: number): {
   centerWidth: number;
   rightWidth: number;
 } {
+  const cached = panelCellWidthCache.get(width);
+  if (cached) return cached;
   const inner = Math.max(1, width - 2);
   const contentWidth = Math.max(1, inner - 2);
   const separator = 3; // " │ "
   const leftWidth = Math.min(32, Math.max(18, Math.floor(contentWidth * 0.3)));
   const rightWidth = Math.min(12, Math.max(9, Math.floor(contentWidth * 0.14)));
   const centerWidth = Math.max(1, contentWidth - leftWidth - rightWidth - separator * 2);
-  return { leftWidth, centerWidth, rightWidth };
+  const result = { leftWidth, centerWidth, rightWidth };
+  panelCellWidthCache.set(width, result);
+  return result;
 }
+
+const panelCellWidthCache = new Map<
+  number,
+  { leftWidth: number; centerWidth: number; rightWidth: number }
+>();
 
 function marketBoardPanelRow(width: number, left: string, center: string, right: string): string {
   const { leftWidth, centerWidth, rightWidth } = panelCellWidths(width);
@@ -107,15 +116,29 @@ const MSFT_SPARK = [
 const NVDA_SPARK = [
   2, 2, 3, 3, 4, 4, 4, 5, 5, 6, 6, 7, 7, 7, 7, 8, 8, 8, 7, 7, 8, 8, 8, 7, 8, 8, 8, 7, 7, 8, 8, 7,
 ] as const;
+const sparkCache = new Map<string, string>();
 
-function sparkSlice(spark: readonly number[], frame: number, width: number): string {
+function sparkSlice(
+  ticker: string,
+  spark: readonly number[],
+  frame: number,
+  width: number,
+): string {
   if (width <= 0 || spark.length === 0) return "";
   const len = spark.length;
   const start = ((frame % len) + len) % len;
+  const key = `${ticker}|${width}|${start}`;
+  const cached = sparkCache.get(key);
+  if (cached !== undefined) return cached;
   let out = "";
   for (let i = 0; i < width; i++) {
     const idx = (start + i) % len;
     out += BAR_CHARS[spark[idx] ?? 0];
+  }
+  sparkCache.set(key, out);
+  if (sparkCache.size > 384) {
+    const oldest = sparkCache.keys().next().value;
+    if (oldest !== undefined) sparkCache.delete(oldest);
   }
   return out;
 }
@@ -157,9 +180,9 @@ export function marketBoardLines(
   const { centerWidth } = panelCellWidths(width);
   const narrowSparkWidth = Math.max(8, Math.min(20, Math.max(1, width - 2) - 32));
   const sparkW = narrow ? narrowSparkWidth : centerWidth;
-  const chartA = sparkSlice(AAPL_SPARK, frame, sparkW);
-  const chartB = sparkSlice(MSFT_SPARK, frame, sparkW);
-  const chartC = sparkSlice(NVDA_SPARK, frame, sparkW);
+  const chartA = sparkSlice("AAPL", AAPL_SPARK, frame, sparkW);
+  const chartB = sparkSlice("MSFT", MSFT_SPARK, frame, sparkW);
+  const chartC = sparkSlice("NVDA", NVDA_SPARK, frame, sparkW);
 
   if (narrow) {
     return [

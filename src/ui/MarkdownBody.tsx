@@ -37,7 +37,18 @@ function isFenceClose(line: string, marker: string): boolean {
   return true;
 }
 
+const inlineTokenCache = new Map<string, InlineToken[]>();
+const MAX_INLINE_TOKEN_CACHE = 1024;
+
 export function tokenizeInline(input: string): InlineToken[] {
+  const cached = inlineTokenCache.get(input);
+  if (cached !== undefined) {
+    // Bump to MRU
+    inlineTokenCache.delete(input);
+    inlineTokenCache.set(input, cached);
+    return cached;
+  }
+
   const tokens: InlineToken[] = [];
   let buf = "";
   let i = 0;
@@ -131,6 +142,12 @@ export function tokenizeInline(input: string): InlineToken[] {
     i += 1;
   }
   flushBuf();
+
+  if (inlineTokenCache.size >= MAX_INLINE_TOKEN_CACHE) {
+    const oldest = inlineTokenCache.keys().next().value;
+    if (oldest !== undefined) inlineTokenCache.delete(oldest);
+  }
+  inlineTokenCache.set(input, tokens);
   return tokens;
 }
 

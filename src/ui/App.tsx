@@ -1,5 +1,5 @@
 import { Box, Text, useApp, useInput, useStdout } from "ink";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   accrueLifetimeDeals,
   actionCooldown,
@@ -221,6 +221,87 @@ interface AppProps {
   registerGracefulExitHandler?: (handler: (() => void) | null) => void;
 }
 
+interface ChromePaneProps {
+  showFullDashboard: boolean;
+  showFallbackPetPanel: boolean;
+  greeting?: string;
+  chromeWidth: number;
+  mood: string;
+  petMode: boolean;
+  introActive: boolean;
+  petStats: PetStats;
+  petActivity: PetActivity;
+  petEnv: Environment;
+  isBusy: boolean;
+  introProgress: number;
+  introState?: ReturnType<typeof useIntroAnimation>["state"];
+  introBar?: ReturnType<typeof useIntroAnimation>["bar"];
+  introBarColor?: string;
+  introStatus?: string;
+  dealDeskHeader: ReactNode;
+  dealDesk: (width: number) => ReactNode;
+}
+
+const ChromePane = memo(function ChromePane({
+  showFullDashboard,
+  showFallbackPetPanel,
+  greeting,
+  chromeWidth,
+  mood,
+  petMode,
+  introActive,
+  petStats,
+  petActivity,
+  petEnv,
+  isBusy,
+  introProgress,
+  introState,
+  introBar,
+  introBarColor,
+  introStatus,
+  dealDeskHeader,
+  dealDesk,
+}: ChromePaneProps) {
+  if (showFullDashboard && typeof greeting === "string") {
+    return (
+      <Box marginBottom={1}>
+        <MascotDashboard
+          greeting={greeting}
+          width={chromeWidth}
+          mood={mood}
+          mode={petMode && !introActive ? "pet" : "normal"}
+          petStats={petStats}
+          petActivity={petActivity}
+          petEnv={petEnv}
+          petPaused={isBusy}
+          bootProgress={introActive ? introProgress : 1}
+          state={introActive ? introState : undefined}
+          bar={introActive ? introBar : undefined}
+          barColor={introActive ? introBarColor : undefined}
+          mascotStatus={introActive ? introStatus : undefined}
+          dealDesk={dealDesk}
+        />
+      </Box>
+    );
+  }
+
+  if (showFallbackPetPanel) {
+    return (
+      <Box marginBottom={1}>
+        <CompactPetPanel
+          stats={petStats}
+          activity={petActivity}
+          env={petEnv}
+          isPaused={isBusy}
+          width={chromeWidth}
+        />
+      </Box>
+    );
+  }
+
+  return dealDeskHeader;
+});
+
 export function App({
   conversation,
   config,
@@ -278,8 +359,16 @@ export function App({
     [dashboardRowBudget, fallbackPetRowBudget, rows],
   );
 
-  const [items, setItems] = useState<ChatItem[]>([]);
-  const itemIdRef = useRef(0);
+  const [items, setItems] = useState<ChatItem[]>(() => {
+    const snap = conversation.snapshot();
+    const turns = snap.filter((m) => m.role === "user" || m.role === "assistant");
+    return turns.map((m, i) => ({
+      id: i + 1,
+      role: m.role as "user" | "assistant",
+      content: m.content,
+    }));
+  });
+  const itemIdRef = useRef(items.length);
   const addItem = useCallback((role: ChatItem["role"], content: string) => {
     itemIdRef.current += 1;
     setItems((prev) => [...prev, { id: itemIdRef.current, role, content }]);
@@ -354,8 +443,15 @@ export function App({
   const [paletteIdx, setPaletteIdx] = useState(0);
   const [scrollOffset, setScrollOffset] = useState(0);
   const handleIntroComplete = useCallback(() => {
+    // Wipe the pre-Ink banner/tagline/resume lines BEFORE flipping introDone
+    // so Ink's next paint lands on a cleared screen with chrome at the top.
+    // Doing this in a post-commit effect would erase the freshly drawn frame
+    // and leave the terminal blank until the next render.
+    if (stdout) {
+      stdout.write("\x1b[3J\x1b[2J\x1b[H");
+    }
     setIntroDone(true);
-  }, []);
+  }, [stdout]);
   const intro = useIntroAnimation(chromeWidth, introActive, handleIntroComplete);
 
   const [petStats, setPetStats] = useState<PetStats>(() => loadPetState());
@@ -665,7 +761,7 @@ export function App({
         return;
       }
       if (streamTimerRef.current === null) {
-        streamTimerRef.current = setTimeout(flushStream, 33);
+        streamTimerRef.current = setTimeout(flushStream, 50);
       }
     },
     [flushStream],
@@ -1460,7 +1556,14 @@ export function App({
     ),
     [mood, msgCount, headerStatus, isCompact, introActive, deskNotice],
   );
-  const dealDeskHeader = renderDealDeskHeader(chromeWidth);
+  const dealDeskHeader = useMemo(
+    () => renderDealDeskHeader(chromeWidth),
+    [chromeWidth, renderDealDeskHeader],
+  );
+  const dealDeskForDashboard = useCallback(
+    (width: number) => renderDealDeskHeader(width, 0),
+    [renderDealDeskHeader],
+  );
   const introBarColor = introPhaseColor(intro.colorPhase, t);
 
   if (isDead) {
@@ -1474,38 +1577,26 @@ export function App({
   return (
     <ThemeProvider value={activeTheme}>
       <Box flexDirection="column">
-        {showFullDashboard && typeof greeting === "string" ? (
-          <Box marginBottom={1}>
-            <MascotDashboard
-              greeting={greeting}
-              width={chromeWidth}
-              mood={mood}
-              mode={petMode && !introActive ? "pet" : "normal"}
-              petStats={petStats}
-              petActivity={petActivity}
-              petEnv={petEnv}
-              petPaused={isBusy}
-              bootProgress={introActive ? intro.progress : 1}
-              state={introActive ? intro.state : undefined}
-              bar={introActive ? intro.bar : undefined}
-              barColor={introActive ? introBarColor : undefined}
-              mascotStatus={introActive ? intro.status : undefined}
-              dealDesk={(width) => renderDealDeskHeader(width, 0)}
-            />
-          </Box>
-        ) : showFallbackPetPanel ? (
-          <Box marginBottom={1}>
-            <CompactPetPanel
-              stats={petStats}
-              activity={petActivity}
-              env={petEnv}
-              isPaused={isBusy}
-              width={chromeWidth}
-            />
-          </Box>
-        ) : (
-          dealDeskHeader
-        )}
+        <ChromePane
+          showFullDashboard={showFullDashboard}
+          showFallbackPetPanel={showFallbackPetPanel}
+          greeting={greeting}
+          chromeWidth={chromeWidth}
+          mood={mood}
+          petMode={petMode}
+          introActive={introActive}
+          petStats={petStats}
+          petActivity={petActivity}
+          petEnv={petEnv}
+          isBusy={isBusy}
+          introProgress={intro.progress}
+          introState={intro.state}
+          introBar={intro.bar}
+          introBarColor={introBarColor}
+          introStatus={intro.status}
+          dealDeskHeader={dealDeskHeader}
+          dealDesk={dealDeskForDashboard}
+        />
         <Box flexDirection="row" alignItems="flex-start">
           <Box flexDirection="column" flexGrow={1}>
             <TranscriptViewport

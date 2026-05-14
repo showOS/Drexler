@@ -136,6 +136,13 @@ const CODE_KEYWORDS = new Set([
 const CODE_OPERATOR_RE = /^[()[\]{}.,:;+\-*/%=<>!&|^~?]+/u;
 const CODE_NUMBER_RE = /^\b(?:0x[\da-f]+|\d+(?:\.\d+)?)\b/iu;
 const CODE_IDENTIFIER_RE = /^[A-Za-z_$][\w$]*/u;
+const ASCII_ONLY_RE = /^[\x20-\x7e]*$/;
+const MAX_CODE_TOKEN_CACHE = 256;
+const codeTokenCache = new Map<string, CodeToken[]>();
+
+function isAsciiOnly(input: string): boolean {
+  return ASCII_ONLY_RE.test(input);
+}
 
 function bodyPrefixForRole(role: TranscriptViewportItem["role"]): string {
   if (role === "user") return "│ › ";
@@ -152,6 +159,7 @@ function wrapDisplayLine(input: string, maxWidth: number): string[] {
   const width = Math.max(1, maxWidth);
   if (input.length === 0) return [""];
   if (displayWidth(input) <= width) return [input];
+  if (isAsciiOnly(input)) return wrapAsciiDisplayLine(input, width);
 
   const parts = splitGraphemes(input);
   const widths = parts.map((part) => graphemeWidth(part));
@@ -216,6 +224,42 @@ function wrapDisplayLine(input: string, maxWidth: number): string[] {
   }
 
   rows.push(parts.slice(start, end).join("").trimEnd());
+  return rows.filter((row, index) => row.length > 0 || index === 0);
+}
+
+function wrapAsciiDisplayLine(input: string, width: number): string[] {
+  const rows: string[] = [];
+  let start = 0;
+  let end = 0;
+  let lastBreakAt = -1;
+
+  for (let i = 0; i < input.length; i += 1) {
+    const nextWidth = i - start + 1;
+    if (nextWidth <= width) {
+      end = i + 1;
+      if (/\s/u.test(input[i]!)) lastBreakAt = end;
+      continue;
+    }
+
+    if (lastBreakAt > start) {
+      rows.push(input.slice(start, lastBreakAt).trimEnd());
+      start = lastBreakAt;
+      while (start < end && /\s/u.test(input[start]!)) start += 1;
+      end = i + 1;
+    } else {
+      if (end > start) rows.push(input.slice(start, end));
+      start = i;
+      end = i + 1;
+    }
+    lastBreakAt = /\s/u.test(input[i]!) ? end : -1;
+
+    while (end - start > width) {
+      rows.push(input.slice(start, start + width));
+      start += width;
+    }
+  }
+
+  rows.push(input.slice(start, end).trimEnd());
   return rows.filter((row, index) => row.length > 0 || index === 0);
 }
 
@@ -384,6 +428,26 @@ function tokenizeCodeLine(line: string): CodeToken[] {
   return tokens;
 }
 
+function cachedCodeTokens(line: string): CodeToken[] {
+  const cached = codeTokenCache.get(line);
+  if (cached !== undefined) {
+    codeTokenCache.delete(line);
+    codeTokenCache.set(line, cached);
+    return cached;
+  }
+  const tokens = tokenizeCodeLine(line);
+  codeTokenCache.set(line, tokens);
+  if (codeTokenCache.size > MAX_CODE_TOKEN_CACHE) {
+    const oldest = codeTokenCache.keys().next().value;
+    if (oldest !== undefined) codeTokenCache.delete(oldest);
+  }
+  return tokens;
+}
+
+export function transcriptCodeTokenCacheSize(): number {
+  return codeTokenCache.size;
+}
+
 export function estimateTranscriptRows(
   items: readonly TranscriptViewportItem[],
   compact: boolean,
@@ -448,7 +512,7 @@ const DefaultTranscriptItem = memo(function DefaultTranscriptItem({
   const label = ROLE_LABELS[item.role];
   const accent = roleAccentColor(item.role, t);
   const renderCodeLine = (line: string) =>
-    tokenizeCodeLine(line).map((token, tokenIndex) => {
+    cachedCodeTokens(line).map((token, tokenIndex) => {
       const color =
         token.kind === "keyword"
           ? DRACULA_CODE.keyword

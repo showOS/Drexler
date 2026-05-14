@@ -122,6 +122,29 @@ describe("handleLine", () => {
     expect(out.join("\n")).toMatch(/Trading tantrum/);
   });
 
+  test("interrupted stream discards partial assistant content and leaves user turn retryable", async () => {
+    const fetchFn: FetchFn = async () =>
+      new Response(
+        `data: ${JSON.stringify({
+          choices: [{ delta: { content: "partial memo" }, finish_reason: null }],
+        })}\n\n`,
+        {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        },
+      );
+    const { deps, conversation, out } = makeDeps(fetchFn);
+
+    await handleLine("retryable user turn", deps);
+
+    expect(conversation.snapshot()).toEqual([
+      { role: "system", content: "SYS" },
+      { role: "user", content: "retryable user turn" },
+    ]);
+    expect(out.join("\n")).toContain("partial response discarded");
+    expect(out.join("\n")).not.toContain("partial response saved");
+  });
+
   test("V3 fallback: 429 on primary triggers retry, history reflects only final assistant", async () => {
     let calls = 0;
     const fetchFn: FetchFn = async (_url, init) => {

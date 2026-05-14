@@ -51,6 +51,12 @@ function isWideCodePoint(codePoint: number): boolean {
 
 export function graphemeWidth(input: string): number {
   if (input.length === 0) return 0;
+  // Common case: single ASCII character
+  if (input.length === 1) {
+    const cp = input.charCodeAt(0);
+    if (cp >= 0x20 && cp <= 0x7e) return 1;
+    if (cp < 32 || (cp >= 0x7f && cp < 0xa0)) return 0;
+  }
   if (/^\p{Mark}+$/u.test(input)) return 0;
   if (/^[©®™]$/u.test(input)) return 1;
   if (/\p{Extended_Pictographic}/u.test(input)) return 2;
@@ -78,14 +84,25 @@ export function displayWidth(input: string): number {
     }
     return w;
   }
-  return splitGraphemes(input).reduce((sum, grapheme) => sum + graphemeWidth(grapheme), 0);
+  const active = getSegmenter();
+  if (!active) {
+    let w = 0;
+    for (const char of input) w += graphemeWidth(char);
+    return w;
+  }
+  let totalWidth = 0;
+  for (const { segment } of active.segment(input)) {
+    totalWidth += graphemeWidth(segment);
+  }
+  return totalWidth;
 }
 
 const ELLIPSIS_WIDTH = 1;
 
 export function fitDisplayText(input: string, maxWidth: number): string {
   if (maxWidth <= 0) return "";
-  if (displayWidth(input) <= maxWidth) return input;
+  const totalWidth = displayWidth(input);
+  if (totalWidth <= maxWidth) return input;
   if (maxWidth === 1) return "…";
 
   // Single-pass accumulator: track running width instead of recomputing
@@ -95,6 +112,19 @@ export function fitDisplayText(input: string, maxWidth: number): string {
   const budget = maxWidth - ELLIPSIS_WIDTH;
   let used = 0;
   let out = "";
+
+  if (isAsciiOnly(input)) {
+    for (let i = 0; i < input.length; i++) {
+      const char = input[i]!;
+      const code = char.charCodeAt(0);
+      const width = code >= 0x20 && code <= 0x7e ? 1 : 0;
+      if (used + width > budget) break;
+      used += width;
+      out += char;
+    }
+    return `${out}…`;
+  }
+
   for (const part of splitGraphemes(input)) {
     const partWidth = graphemeWidth(part);
     if (used + partWidth > budget) break;

@@ -1,5 +1,5 @@
 import { Box, Text } from "ink";
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import type { PetActivity, PetStats } from "../../pet/petState.ts";
 import {
   BRIEFCASE_FINAL,
@@ -87,6 +87,8 @@ function sceneLayout(width: number): SceneLayout {
 }
 
 function officeMetrics(width: number): OfficeMetrics {
+  const cached = officeMetricsCache.get(width);
+  if (cached !== undefined) return cached;
   const layout = sceneLayout(width);
   const sidePad = layout === "compact" ? 1 : 2;
   const maxStageWidth = layout === "wide" ? 124 : layout === "standard" ? 96 : width - 2;
@@ -109,7 +111,7 @@ function officeMetrics(width: number): OfficeMetrics {
   const windowX = stageX;
   const boardX = layout === "compact" ? stageX : windowX + windowWidth + boardGap;
 
-  return {
+  const metrics = {
     layout,
     stageWidth,
     stageX,
@@ -121,7 +123,11 @@ function officeMetrics(width: number): OfficeMetrics {
     windowWidth,
     windowX,
   };
+  officeMetricsCache.set(width, metrics);
+  return metrics;
 }
+
+const officeMetricsCache = new Map<number, OfficeMetrics>();
 
 function sceneStateForActivity(activity: PetActivity): SceneState {
   switch (activity) {
@@ -212,11 +218,15 @@ function titleLine(width: number, stats: PetStats): string {
 }
 
 function cityWindowLines(width: number, frame: number): string[] {
+  const phase = frame % 24 < 12 ? `day-${frame % 6 < 3 ? 0 : 1}` : `night-${frame % 6 < 3 ? 0 : 1}`;
+  const cacheKey = `${width}|${phase}|${frame % 4 < 2 ? 0 : 1}`;
+  const cached = cityWindowCache.get(cacheKey);
+  if (cached !== undefined) return cached;
   const sun = frame % 24 < 12 ? "-o-" : "(~)";
   const skyline = frame % 4 < 2 ? "▁▃▅▇" : "▁▃▆█";
   const cloud = frame % 6 < 3 ? "(~~)" : " (~~)";
   if (width < 20) {
-    return [
+    const lines = [
       plainBoxTop(width),
       boxContent(width, `╭──╮ ${sun}`),
       boxContent(width, `│╥╥│ ${skyline}`),
@@ -224,8 +234,10 @@ function cityWindowLines(width: number, frame: number): string[] {
       boxContent(width, "╰──╯ ▁▁"),
       boxBottom(width),
     ];
+    cityWindowCache.set(cacheKey, lines);
+    return lines;
   }
-  return [
+  const lines = [
     plainBoxTop(width),
     boxContent(width, `╭──╮ ╭──╮  ${sun} ${cloud}`),
     boxContent(width, `│╥╥│ │╤╤│  ${skyline}`),
@@ -233,7 +245,11 @@ function cityWindowLines(width: number, frame: number): string[] {
     boxContent(width, "╰──╯ ╰──╯  ▁▁▁"),
     boxBottom(width),
   ];
+  cityWindowCache.set(cacheKey, lines);
+  return lines;
 }
+
+const cityWindowCache = new Map<string, string[]>();
 
 function lampLines(activity: PetActivity, frame: number): string[] {
   const rays = activity === "sleeping" ? "    │    " : frame % 6 < 3 ? "   ╲│╱   " : "   ╱│╲   ";
@@ -317,6 +333,9 @@ function deskFasciaLine(width: number, center: string, right: string): string {
 }
 
 function deskBaseLines(width: number, stats: PetStats, activity: PetActivity): string[] {
+  const key = `${width}|${activity}|${Math.round(stats.happiness)}|${Math.round(stats.energy)}|${Math.round(stats.deals)}`;
+  const cached = deskBaseCache.get(key);
+  if (cached !== undefined) return cached;
   const inner = Math.max(1, width - 2);
   const covenants = stats.happiness < 30 || stats.energy < 25 ? "WARN" : "OK";
   const close = activity === "praised" ? "COMPOUND" : activity === "working" ? "EXEC" : "WATCH";
@@ -324,7 +343,7 @@ function deskBaseLines(width: number, stats: PetStats, activity: PetActivity): s
   const fascia =
     width < 64 ? "DREXLER DESK" : width < 84 ? "DREXLER DEAL DESK" : "DREXLER DEAL DESK";
   const readout = width < 64 ? `PIPE ${pipe}%` : `PIPE ${pipe}%  COV ${covenants}  ${close}`;
-  return [
+  const lines = [
     `╭${"─".repeat(inner)}╮`,
     deskContent(width),
     deskContent(width),
@@ -334,15 +353,29 @@ function deskBaseLines(width: number, stats: PetStats, activity: PetActivity): s
     deskFasciaLine(width, fascia, readout),
     deskJoinLine(width, "╰", "┴", "┴", "╯"),
   ];
+  deskBaseCache.set(key, lines);
+  if (deskBaseCache.size > 256) {
+    const oldest = deskBaseCache.keys().next().value;
+    if (oldest !== undefined) deskBaseCache.delete(oldest);
+  }
+  return lines;
 }
 
+const deskBaseCache = new Map<string, string[]>();
+
 function floorShadowLines(width: number): string[] {
+  const cached = floorShadowCache.get(width);
+  if (cached !== undefined) return cached;
   const shadow = "░░░░░░        ░░░░░░        ░░░░░░";
-  return [
+  const lines = [
     centerText(blankRow(width), shadow),
     centerText(blankRow(width), "▁▁▁▁        ▁▁▁▁        ▁▁▁▁"),
   ];
+  floorShadowCache.set(width, lines);
+  return lines;
 }
+
+const floorShadowCache = new Map<number, string[]>();
 
 function coffeeFrames(stats: PetStats): readonly (readonly string[])[] {
   const cup = `${cupForEnergy(stats.energy).slice(0, 1)}[__]`;
@@ -719,7 +752,7 @@ function usePetFrame({
   return frame;
 }
 
-export function PetScene({
+function PetSceneView({
   stats,
   activity,
   isPaused = false,
@@ -754,3 +787,5 @@ export function PetScene({
     </Box>
   );
 }
+
+export const PetScene = memo(PetSceneView);

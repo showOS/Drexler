@@ -159,8 +159,8 @@ function clamp(v: unknown, fallback = 0): number {
   return Math.max(0, Math.min(100, n));
 }
 
-function safeTimestamp(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : Date.now();
+function safeTimestamp(value: unknown, fallback: number = Date.now()): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
 // Decay over (now - stats.lastSaved). Works the same on a 1-minute
@@ -199,6 +199,7 @@ export function loadPetState(): PetStats {
   try {
     const target = petFile();
     if (existsSync(target)) {
+      const now = Date.now();
       const raw = readFileSync(target, "utf8");
       const parsed = JSON.parse(raw) as Partial<PetStats>;
       if (parsed.dead === true) {
@@ -228,11 +229,11 @@ export function loadPetState(): PetStats {
         happiness: clamp(parsed.happiness, DEFAULT_STATS.happiness),
         energy: clamp(parsed.energy, DEFAULT_STATS.energy),
         deals: clamp(parsed.deals, DEFAULT_STATS.deals),
-        lastSaved: safeTimestamp(parsed.lastSaved),
+        lastSaved: safeTimestamp(parsed.lastSaved, now),
         createdAt:
           typeof parsed.createdAt === "number" && Number.isFinite(parsed.createdAt)
             ? parsed.createdAt
-            : Date.now(),
+            : now,
         name:
           typeof parsed.name === "string" && parsed.name.length > 0
             ? sanitizePetName(parsed.name)
@@ -245,7 +246,7 @@ export function loadPetState(): PetStats {
             ? parsed.lifetimeDeals
             : undefined,
       };
-      return applyDecay(stats);
+      return applyDecay(stats, now);
     }
   } catch {
     // fall through to defaults
@@ -379,7 +380,7 @@ function writePetStateAtomic(stats: PetStats): PetSaveResult {
     try {
       // Atomic write: temp + rename so a crash mid-write leaves the prior
       // pet.json intact rather than a truncated zero-byte file.
-      const tmp = `${target}.tmp.${process.pid}.${Date.now()}`;
+      const tmp = `${target}.tmp.${process.pid}.${randomUUID()}`;
       try {
         writeFileSync(tmp, JSON.stringify({ ...stats, lastSaved: Date.now() }, null, 2));
         renameSync(tmp, target);

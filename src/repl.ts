@@ -138,7 +138,7 @@ async function streamFromHistory(deps: ReplDeps, instruction?: string): Promise<
   if (firstToken) spinner.stop();
   accent.end();
 
-  if (result.content) {
+  if (result.ok && result.content) {
     deps.conversation.push("assistant", result.content);
   }
   if (result.ok) {
@@ -149,9 +149,9 @@ async function streamFromHistory(deps: ReplDeps, instruction?: string): Promise<
       deps.print(dim("(persona drift detected — model used 'I')"));
     }
   } else if (cancelled) {
-    deps.print(dim("(cancelled — Drexler taking lunch)"));
+    deps.print(dim("(cancelled — response discarded; /retry available)"));
   } else if (result.interrupted) {
-    deps.print(dim("(stream interrupted — partial response saved)"));
+    deps.print(dim("(stream interrupted — partial response discarded; /retry available)"));
   } else {
     const detail = result.error ? ` [${result.error}]` : "";
     deps.print(error(`${STREAM_ERROR}${detail}`));

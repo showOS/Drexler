@@ -449,6 +449,13 @@ export async function parseSSEStream(
     if (buf.length > 0) processLine(buf);
     return { content: acc, complete: doneSeen };
   } catch (err) {
+    if (!doneSeen) {
+      try {
+        await reader.cancel().catch(() => {});
+      } catch {
+        // best-effort cleanup
+      }
+    }
     return {
       content: acc,
       complete: false,

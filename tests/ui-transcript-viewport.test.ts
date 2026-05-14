@@ -4,6 +4,7 @@ import React from "react";
 import {
   estimateTranscriptRows,
   TranscriptViewport,
+  transcriptCodeTokenCacheSize,
   wrappedTranscriptLines,
   type TranscriptViewportItem,
 } from "../src/ui/TranscriptViewport.tsx";
@@ -604,5 +605,23 @@ describe("wrappedTranscriptLines cache (P10)", () => {
 
     expect(rendered).toContain("second memo");
     expect(rendered).not.toContain("first memo");
+  });
+
+  test("code token cache stays bounded across many rendered code lines", () => {
+    for (let i = 0; i < 320; i += 1) {
+      renderViewport({
+        items: [
+          {
+            id: `code-${i}`,
+            role: "assistant",
+            content: `\`\`\`ts\nconst fee${i} = ${i};\n\`\`\``,
+          },
+        ],
+        maxRows: 6,
+        cols: 72,
+      });
+    }
+
+    expect(transcriptCodeTokenCacheSize()).toBeLessThanOrEqual(256);
   });
 });

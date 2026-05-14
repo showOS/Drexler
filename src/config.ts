@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { chmod, lstat, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import * as readline from "node:readline/promises";
@@ -211,7 +212,7 @@ export async function saveConfig(partial: Partial<Config>): Promise<void> {
   const target = configPath();
   await mkdir(dir, { recursive: true, mode: 0o700 });
   // Atomic write: temp file + rename, mode 0600 (config holds API key).
-  const tmp = `${target}.tmp.${process.pid}.${Date.now()}`;
+  const tmp = `${target}.tmp.${process.pid}.${randomUUID()}`;
   try {
     await writeFile(tmp, JSON.stringify(merged, null, 2), {
       encoding: "utf-8",

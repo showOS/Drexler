@@ -23,12 +23,13 @@ export class Conversation {
   }
 
   private trim(): void {
-    while (this.messages.length > this.maxHistory) {
-      this.messages.splice(1, 1);
-      if (this.messages[1]?.role === "assistant") {
-        this.messages.splice(1, 1);
-      }
-    }
+    const excess = this.messages.length - this.maxHistory;
+    if (excess <= 0) return;
+
+    const history = this.messages.slice(1);
+    let keepFrom = Math.min(history.length, excess);
+    if (history[keepFrom]?.role === "assistant") keepFrom += 1;
+    this.messages = [this.system, ...history.slice(keepFrom)];
   }
 
   clear(): void {

@@ -1,5 +1,5 @@
 import { Box, Text, useApp, useInput, useStdout } from "ink";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   formatTenure,
   getPetMood,
@@ -417,7 +417,7 @@ export function useIntroAnimation(width: number, active: boolean, onComplete?: (
   return useMemo(() => introSnapshot(frameIdx, width), [frameIdx, width]);
 }
 
-function TipsPanel({ width }: { width: number }) {
+const TipsPanel = memo(function TipsPanel({ width }: { width: number }) {
   const t = useTheme();
   const textWidth = Math.max(1, width);
   const innerWidth = Math.max(1, textWidth - 4);
@@ -463,7 +463,7 @@ function TipsPanel({ width }: { width: number }) {
       <Text color={t.primary}>{titledPanelBottom(textWidth)}</Text>
     </Box>
   );
-}
+});
 
 type MoodTone = "error" | "primaryLight" | "warning";
 
@@ -634,7 +634,7 @@ function bootPostureDetail(progress: number): string {
   return "board patience: nearly loaded";
 }
 
-function MoodReadout({
+const MoodReadout = memo(function MoodReadoutView({
   mood,
   progress = 1,
   progressColor,
@@ -762,7 +762,7 @@ function MoodReadout({
       <Text color={t.primaryDim}>{titledPanelBottom(panelWidth)}</Text>
     </Box>
   );
-}
+});
 
 function padDisplayText(input: string, width: number): string {
   const safeWidth = Math.max(1, width);
@@ -870,7 +870,7 @@ function PetDashboardStatBar({
   );
 }
 
-function PetStatsReadout({
+const PetStatsReadout = memo(function PetStatsReadoutView({
   stats,
   activity,
   width,
@@ -899,7 +899,7 @@ function PetStatsReadout({
         displayWidth("╮"),
     ),
   );
-  const memo = `memo ${getPetStatusMessage(stats, 0)}`;
+  const memoText = `memo ${getPetStatusMessage(stats, 0)}`;
 
   if (panelWidth < PET_STATS_MIN_WIDTH) {
     return (
@@ -944,13 +944,13 @@ function PetStatsReadout({
       <PetDashboardStatBar label="hunger" value={stats.hunger} width={panelWidth} />
       <PetDashboardStatBar label="energy" value={stats.energy} width={panelWidth} />
       <PetDashboardStatBar label="deals" value={stats.deals} width={panelWidth} />
-      <PetStatsBodyLine text={memo} width={panelWidth} color={t.dim} />
+      <PetStatsBodyLine text={memoText} width={panelWidth} color={t.dim} />
       <Text color={t.primary}>{titledPanelBottom(panelWidth)}</Text>
     </Box>
   );
-}
+});
 
-function PetStatsMiniReadout({
+const PetStatsMiniReadout = memo(function PetStatsMiniReadoutView({
   stats,
   activity,
   width,
@@ -1006,9 +1006,9 @@ function PetStatsMiniReadout({
       <Text color={t.primary}>{titledPanelBottom(panelWidth)}</Text>
     </Box>
   );
-}
+});
 
-function PetDashboard({
+const PetDashboard = memo(function PetDashboardView({
   layout,
   stats,
   activity,
@@ -1103,9 +1103,9 @@ function PetDashboard({
       </Box>
     </Box>
   );
-}
+});
 
-export function MascotDashboard({
+function MascotDashboardView({
   greeting,
   width,
   mood,
@@ -1268,6 +1268,8 @@ export function MascotDashboard({
     </Box>
   );
 }
+
+export const MascotDashboard = memo(MascotDashboardView);
 
 export function MascotIntro({ greeting }: IntroProps) {
   const t = useTheme();
