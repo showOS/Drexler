@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.36
+
+- **Pet-mode reliability pass**: fixed event scheduling, deal expiration, perk wiring, daily challenge rewards, durable achievement progress, pet-state validation, mini-game timeouts, and achievement/graveyard write locking.
+- **Pet UI and command polish**: added argument palettes for pet commands, cleared notification logs on unmount, and hardened mini-game input locks.
+- **Release test isolation**: live App chrome tests now run with a temporary pet home so local `pet.json` decay cannot force the death screen and mask UI behavior.
+
 ## 0.2.32
 
 - **Persistence serialization**: `saveSession` calls now flow through a single FIFO queue. Concurrent saves used to race on `rename()` and a stale payload could clobber the latest turn; the queue guarantees the most recently scheduled save lands last on disk. New test asserts the contract under 20 parallel calls.

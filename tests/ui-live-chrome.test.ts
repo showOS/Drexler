@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PassThrough, Writable } from "node:stream";
 import { render, renderToString } from "ink";
 import React from "react";
@@ -110,6 +113,29 @@ function waitFor<T>(
 
 function captureRendered(chunks: string[]): string {
   return chunks.join("").replace(ANSI_RE, "");
+}
+
+async function withIsolatedPetHome<T>(fn: () => Promise<T>): Promise<T> {
+  const originalHome = process.env.HOME;
+  const originalXdgState = process.env.XDG_STATE_HOME;
+  const home = await mkdtemp(join(tmpdir(), "drexler-ui-live-"));
+  try {
+    process.env.HOME = home;
+    delete process.env.XDG_STATE_HOME;
+    return await fn();
+  } finally {
+    if (originalHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = originalHome;
+    }
+    if (originalXdgState === undefined) {
+      delete process.env.XDG_STATE_HOME;
+    } else {
+      process.env.XDG_STATE_HOME = originalXdgState;
+    }
+    await rm(home, { recursive: true, force: true });
+  }
 }
 
 describe("live chrome width handling", () => {
@@ -240,197 +266,200 @@ describe("live chrome width handling", () => {
     }
   });
 
-  test("App runs /synergy as an animated lifecycle and then re-enables input", async () => {
-    const { stdin, stdout, chunks } = makeInteractiveStreams();
-    const config: Config = {
-      apiKey: "k",
-      model: MODEL_PRIMARY,
-      maxHistory: 50,
-      personaPath: "/tmp/p.md",
-    };
-    const instance = render(
-      React.createElement(App, {
-        conversation: new Conversation("SYS", 50),
-        config,
-      }),
-      {
-        stdin: stdin as unknown as NodeJS.ReadStream,
-        stdout: stdout as unknown as NodeJS.WriteStream,
-        exitOnCtrlC: false,
-        interactive: true,
-        patchConsole: false,
-        maxFps: 60,
-      },
-    );
-
-    try {
-      stdin.write("/synergy");
-      await instance.waitUntilRenderFlush();
-      stdin.write("\r");
-
-      // The synergy animation prints "synergy complete" + the
-      // transcript line "SYNERGY EVENT:" only after the full
-      // 28-frame run plus 8-frame hold (~1.6s). Poll captured chunks
-      // for the final marker instead of sleeping a fixed 2.3s.
-      await waitFor(
-        () => {
-          const r = captureRendered(chunks);
-          return r.includes("synergy complete") && r.includes("SYNERGY EVENT:");
+  test("App runs /synergy as an animated lifecycle and then re-enables input", async () =>
+    withIsolatedPetHome(async () => {
+      const { stdin, stdout, chunks } = makeInteractiveStreams();
+      const config: Config = {
+        apiKey: "k",
+        model: MODEL_PRIMARY,
+        maxHistory: 50,
+        personaPath: "/tmp/p.md",
+      };
+      const instance = render(
+        React.createElement(App, {
+          conversation: new Conversation("SYS", 50),
+          config,
+        }),
+        {
+          stdin: stdin as unknown as NodeJS.ReadStream,
+          stdout: stdout as unknown as NodeJS.WriteStream,
+          exitOnCtrlC: false,
+          interactive: true,
+          patchConsole: false,
+          maxFps: 60,
         },
-        { timeoutMs: 3000, label: "synergy lifecycle complete" },
       );
-      await instance.waitUntilRenderFlush();
 
-      const rendered = captureRendered(chunks);
-      expect(rendered).toContain("SYNERGY EVENT");
-      expect(rendered).toContain("boardroom locked");
-      expect(rendered).toContain("synergy complete");
-      expect(rendered).toContain("SYNERGY EVENT:");
-      expect(rendered).toContain("❯");
-    } finally {
-      instance.unmount();
-    }
-  });
+      try {
+        stdin.write("/synergy");
+        await instance.waitUntilRenderFlush();
+        stdin.write("\r");
 
-  test("App toggles /pet dashboard locally without calling the LLM", async () => {
-    const { stdin, stdout, chunks } = makeInteractiveStreams();
-    stdout.columns = 128;
-    stdout.rows = 40;
-    let fetchCalls = 0;
-    const config: Config = {
-      apiKey: "k",
-      model: MODEL_PRIMARY,
-      maxHistory: 50,
-      personaPath: "/tmp/p.md",
-    };
-    const instance = render(
-      React.createElement(App, {
-        conversation: new Conversation("SYS", 50),
-        config,
-        mood: "ruthless",
-        greeting: "Hello",
-        showIntroChrome: true,
-        introInitiallyDone: true,
-        fetchFn: async () => {
-          fetchCalls += 1;
-          return new Response("data: [DONE]\n\n", {
-            status: 200,
-            headers: { "content-type": "text/event-stream" },
-          });
+        // The synergy animation prints "synergy complete" + the
+        // transcript line "SYNERGY EVENT:" only after the full
+        // 28-frame run plus 8-frame hold (~1.6s). Poll captured chunks
+        // for the final marker instead of sleeping a fixed 2.3s.
+        await waitFor(
+          () => {
+            const r = captureRendered(chunks);
+            return r.includes("synergy complete") && r.includes("SYNERGY EVENT:");
+          },
+          { timeoutMs: 3000, label: "synergy lifecycle complete" },
+        );
+        await instance.waitUntilRenderFlush();
+
+        const rendered = captureRendered(chunks);
+        expect(rendered).toContain("SYNERGY EVENT");
+        expect(rendered).toContain("boardroom locked");
+        expect(rendered).toContain("synergy complete");
+        expect(rendered).toContain("SYNERGY EVENT:");
+        expect(rendered).toContain("❯");
+      } finally {
+        instance.unmount();
+      }
+    }));
+
+  test("App toggles /pet dashboard locally without calling the LLM", async () =>
+    withIsolatedPetHome(async () => {
+      const { stdin, stdout, chunks } = makeInteractiveStreams();
+      stdout.columns = 128;
+      stdout.rows = 40;
+      let fetchCalls = 0;
+      const config: Config = {
+        apiKey: "k",
+        model: MODEL_PRIMARY,
+        maxHistory: 50,
+        personaPath: "/tmp/p.md",
+      };
+      const instance = render(
+        React.createElement(App, {
+          conversation: new Conversation("SYS", 50),
+          config,
+          mood: "ruthless",
+          greeting: "Hello",
+          showIntroChrome: true,
+          introInitiallyDone: true,
+          fetchFn: async () => {
+            fetchCalls += 1;
+            return new Response("data: [DONE]\n\n", {
+              status: 200,
+              headers: { "content-type": "text/event-stream" },
+            });
+          },
+        }),
+        {
+          stdin: stdin as unknown as NodeJS.ReadStream,
+          stdout: stdout as unknown as NodeJS.WriteStream,
+          exitOnCtrlC: false,
+          interactive: true,
+          patchConsole: false,
+          maxFps: 60,
         },
-      }),
-      {
-        stdin: stdin as unknown as NodeJS.ReadStream,
-        stdout: stdout as unknown as NodeJS.WriteStream,
-        exitOnCtrlC: false,
-        interactive: true,
-        patchConsole: false,
-        maxFps: 60,
-      },
-    );
-
-    // Each /pet variant flips the desk chrome locally without an LLM round
-    // trip, so the only thing the test needs to wait for is a render that
-    // contains the expected marker string. Replace fixed-duration delays
-    // with event-driven waits on captured stdout.
-    async function submit(command: string, expectedMarker: string): Promise<string> {
-      stdin.write(command);
-      await instance.waitUntilRenderFlush();
-      const mark = chunks.length;
-      stdin.write("\r");
-      await waitFor(
-        () => {
-          const r = chunks.slice(mark).join("").replace(ANSI_RE, "");
-          return r.includes(expectedMarker);
-        },
-        { timeoutMs: 1500, label: `submit(${command}) -> ${expectedMarker}` },
       );
-      await instance.waitUntilRenderFlush();
-      return chunks.slice(mark).join("").replace(ANSI_RE, "");
-    }
 
-    try {
-      // Initial render: poll for the intro chrome so we are sure the App
-      // has mounted before we start typing slash commands.
-      await waitFor(() => captureRendered(chunks).includes("Drexler Deal Desk"), {
-        timeoutMs: 1500,
-        label: "initial chrome rendered",
-      });
+      // Each /pet variant flips the desk chrome locally without an LLM round
+      // trip, so the only thing the test needs to wait for is a render that
+      // contains the expected marker string. Replace fixed-duration delays
+      // with event-driven waits on captured stdout.
+      async function submit(command: string, expectedMarker: string): Promise<string> {
+        stdin.write(command);
+        await instance.waitUntilRenderFlush();
+        const mark = chunks.length;
+        stdin.write("\r");
+        await waitFor(
+          () => {
+            const r = chunks.slice(mark).join("").replace(ANSI_RE, "");
+            return r.includes(expectedMarker);
+          },
+          { timeoutMs: 1500, label: `submit(${command}) -> ${expectedMarker}` },
+        );
+        await instance.waitUntilRenderFlush();
+        return chunks.slice(mark).join("").replace(ANSI_RE, "");
+      }
 
-      const petOn = await submit("/pet", "Drexler Pet Desk");
-      expect(petOn).toContain("Drexler Pet Desk");
-      expect(petOn).toContain("Pet Stats");
-      expect(petOn).not.toContain("╭─ Tips");
+      try {
+        // Initial render: poll for the intro chrome so we are sure the App
+        // has mounted before we start typing slash commands.
+        await waitFor(() => captureRendered(chunks).includes("Drexler Deal Desk"), {
+          timeoutMs: 1500,
+          label: "initial chrome rendered",
+        });
 
-      const petOnAgain = await submit("/pet on", "Drexler Pet Desk");
-      expect(petOnAgain).toContain("Drexler Pet Desk");
-      expect(petOnAgain).toContain("Pet Stats");
+        const petOn = await submit("/pet", "Drexler Pet Desk");
+        expect(petOn).toContain("Drexler Pet Desk");
+        expect(petOn).toContain("Pet Stats");
+        expect(petOn).not.toContain("╭─ Tips");
 
-      const petOff = await submit("/pet off", "Drexler Deal Desk");
-      expect(petOff).toContain("╭─ Tips");
-      expect(petOff).toContain("Drexler Deal Desk");
-      expect(petOff).not.toContain("Pet Stats");
-      expect(fetchCalls).toBe(0);
-    } finally {
-      instance.unmount();
-    }
-  });
+        const petOnAgain = await submit("/pet on", "Drexler Pet Desk");
+        expect(petOnAgain).toContain("Drexler Pet Desk");
+        expect(petOnAgain).toContain("Pet Stats");
 
-  test("App advances the startup mascot boot animation in-place", async () => {
-    const { stdin, stdout, chunks } = makeInteractiveStreams();
-    stdout.columns = 120;
-    stdout.rows = 40;
-    const config: Config = {
-      apiKey: "k",
-      model: MODEL_PRIMARY,
-      maxHistory: 50,
-      personaPath: "/tmp/p.md",
-    };
-    const instance = render(
-      React.createElement(App, {
-        conversation: new Conversation("SYS", 50),
-        config,
-        greeting: "Hello",
-        showIntroChrome: true,
-      }),
-      {
-        stdin: stdin as unknown as NodeJS.ReadStream,
-        stdout: stdout as unknown as NodeJS.WriteStream,
-        exitOnCtrlC: false,
-        interactive: true,
-        patchConsole: false,
-        maxFps: 60,
-      },
-    );
+        const petOff = await submit("/pet off", "Drexler Deal Desk");
+        expect(petOff).toContain("╭─ Tips");
+        expect(petOff).toContain("Drexler Deal Desk");
+        expect(petOff).not.toContain("Pet Stats");
+        expect(fetchCalls).toBe(0);
+      } finally {
+        instance.unmount();
+      }
+    }));
 
-    try {
-      // The intro mascot advances frames every ~520ms; "Deal tape live"
-      // is the second boot note, so polling for both notes proves the
-      // animation actually advanced in-place rather than waiting a fixed
-      // 700ms (which was already a tight bound).
-      await waitFor(
-        () => {
-          const r = captureRendered(chunks);
-          return (
-            r.includes("◆ Briefcase boot") &&
-            r.includes("◆ Deal tape live") &&
-            r.includes("╭─ Tips") &&
-            r.includes("Drexler Deal Desk")
-          );
+  test("App advances the startup mascot boot animation in-place", async () =>
+    withIsolatedPetHome(async () => {
+      const { stdin, stdout, chunks } = makeInteractiveStreams();
+      stdout.columns = 120;
+      stdout.rows = 40;
+      const config: Config = {
+        apiKey: "k",
+        model: MODEL_PRIMARY,
+        maxHistory: 50,
+        personaPath: "/tmp/p.md",
+      };
+      const instance = render(
+        React.createElement(App, {
+          conversation: new Conversation("SYS", 50),
+          config,
+          greeting: "Hello",
+          showIntroChrome: true,
+        }),
+        {
+          stdin: stdin as unknown as NodeJS.ReadStream,
+          stdout: stdout as unknown as NodeJS.WriteStream,
+          exitOnCtrlC: false,
+          interactive: true,
+          patchConsole: false,
+          maxFps: 60,
         },
-        { timeoutMs: 2000, label: "intro mascot advanced past first frame" },
       );
-      await instance.waitUntilRenderFlush();
 
-      const rendered = captureRendered(chunks);
-      expect(rendered).toContain("◆ Briefcase boot");
-      expect(rendered).toContain("◆ Deal tape live");
-      expect(rendered).toContain("▰▰");
-      expect(rendered).toContain(" │ ");
-      expect(rendered).toContain("╭─ Tips");
-      expect(rendered).toContain("Drexler Deal Desk");
-    } finally {
-      instance.unmount();
-    }
-  });
+      try {
+        // The intro mascot advances frames every ~520ms; "Deal tape live"
+        // is the second boot note, so polling for both notes proves the
+        // animation actually advanced in-place rather than waiting a fixed
+        // 700ms (which was already a tight bound).
+        await waitFor(
+          () => {
+            const r = captureRendered(chunks);
+            return (
+              r.includes("◆ Briefcase boot") &&
+              r.includes("◆ Deal tape live") &&
+              r.includes("╭─ Tips") &&
+              r.includes("Drexler Deal Desk")
+            );
+          },
+          { timeoutMs: 2000, label: "intro mascot advanced past first frame" },
+        );
+        await instance.waitUntilRenderFlush();
+
+        const rendered = captureRendered(chunks);
+        expect(rendered).toContain("◆ Briefcase boot");
+        expect(rendered).toContain("◆ Deal tape live");
+        expect(rendered).toContain("▰▰");
+        expect(rendered).toContain(" │ ");
+        expect(rendered).toContain("╭─ Tips");
+        expect(rendered).toContain("Drexler Deal Desk");
+      } finally {
+        instance.unmount();
+      }
+    }));
 });
