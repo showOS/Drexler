@@ -41,6 +41,8 @@ function SetupPrompt({ onDone }: SetupPromptProps) {
       return;
     }
     if (!keypress.ctrl && !keypress.meta && input) {
+      // intentional: strip ANSI/control chars from raw keypress before append
+      // eslint-disable-next-line no-control-regex
       const filtered = input.replace(/[\x00-\x1f]/g, "");
       if (filtered.length > 0) {
         setKey((prev) => prev + filtered);

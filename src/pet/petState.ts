@@ -1,13 +1,25 @@
 import {
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
   readFileSync,
   renameSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
+import { randomUUID } from "node:crypto";
+import { homedir, hostname } from "node:os";
 import { join } from "node:path";
+
+// Serialize concurrent saves so the latest scheduled call lands last on
+// disk. Without this, parallel rename() races mean a stale payload from
+// an earlier turn can clobber the most recent at random. Mirrors the
+// queue idiom in `src/conversation/persist.ts`.
+let saveQueue: Promise<PetSaveResult> = Promise.resolve({ ok: true });
+let queueGeneration = 0;
+let heldLockToken: string | null = null;
 
 export type PetActivity =
   | "idle"
@@ -30,6 +42,19 @@ export interface PetStats {
   lastActionAt?: Partial<Record<PetActionKey, number>>;
   lifetimeDeals?: number;
 }
+
+export type PetSaveResult =
+  | { ok: true }
+  | { ok: false; reason: "locked" | "write_failed" | "timeout"; message?: string };
+
+interface PetLockRecord {
+  pid: number;
+  token: string;
+  createdAt: number;
+  hostname: string;
+}
+
+export const PET_LOCK_TTL_MS = 15_000;
 
 const MAX_NAME_LEN = 16;
 const NAME_SANITIZE_RE = /[^\p{L}\p{N} ._'-]/gu;
@@ -57,13 +82,7 @@ const DECAY_PER_HOUR = {
   deals: 5,
 };
 
-export type PetActionKey =
-  | "feed"
-  | "play"
-  | "work"
-  | "praise"
-  | "rest"
-  | "vibe";
+export type PetActionKey = "feed" | "play" | "work" | "praise" | "rest" | "vibe";
 
 export const PET_COOLDOWN_MS = 90_000;
 
@@ -140,10 +159,8 @@ function clamp(v: unknown, fallback = 0): number {
   return Math.max(0, Math.min(100, n));
 }
 
-function safeTimestamp(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value)
-    ? value
-    : Date.now();
+function safeTimestamp(value: unknown, fallback: number = Date.now()): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
 // Decay over (now - stats.lastSaved). Works the same on a 1-minute
@@ -182,6 +199,7 @@ export function loadPetState(): PetStats {
   try {
     const target = petFile();
     if (existsSync(target)) {
+      const now = Date.now();
       const raw = readFileSync(target, "utf8");
       const parsed = JSON.parse(raw) as Partial<PetStats>;
       if (parsed.dead === true) {
@@ -211,12 +229,11 @@ export function loadPetState(): PetStats {
         happiness: clamp(parsed.happiness, DEFAULT_STATS.happiness),
         energy: clamp(parsed.energy, DEFAULT_STATS.energy),
         deals: clamp(parsed.deals, DEFAULT_STATS.deals),
-        lastSaved: safeTimestamp(parsed.lastSaved),
+        lastSaved: safeTimestamp(parsed.lastSaved, now),
         createdAt:
-          typeof parsed.createdAt === "number" &&
-          Number.isFinite(parsed.createdAt)
+          typeof parsed.createdAt === "number" && Number.isFinite(parsed.createdAt)
             ? parsed.createdAt
-            : Date.now(),
+            : now,
         name:
           typeof parsed.name === "string" && parsed.name.length > 0
             ? sanitizePetName(parsed.name)
@@ -229,7 +246,7 @@ export function loadPetState(): PetStats {
             ? parsed.lifetimeDeals
             : undefined,
       };
-      return applyDecay(stats);
+      return applyDecay(stats, now);
     }
   } catch {
     // fall through to defaults
@@ -237,29 +254,225 @@ export function loadPetState(): PetStats {
   return defaultStats();
 }
 
-export function savePetState(stats: PetStats): void {
+function readLockRecord(lockPath: string): PetLockRecord | null {
+  try {
+    const parsed = JSON.parse(readFileSync(lockPath, "utf8")) as Partial<PetLockRecord>;
+    if (
+      typeof parsed.pid === "number" &&
+      Number.isInteger(parsed.pid) &&
+      parsed.pid > 0 &&
+      typeof parsed.token === "string" &&
+      parsed.token.length > 0 &&
+      typeof parsed.createdAt === "number" &&
+      Number.isFinite(parsed.createdAt) &&
+      typeof parsed.hostname === "string"
+    ) {
+      return {
+        pid: parsed.pid,
+        token: parsed.token,
+        createdAt: parsed.createdAt,
+        hostname: parsed.hostname,
+      };
+    }
+  } catch {
+    // Invalid or unreadable lockfiles are handled by mtime-based staleness below.
+  }
+  return null;
+}
+
+function lockCreatedAt(lockPath: string, record: PetLockRecord | null): number {
+  if (record) return record.createdAt;
+  try {
+    return statSync(lockPath).mtimeMs;
+  } catch {
+    return Date.now();
+  }
+}
+
+function isPidAlive(pid: number): boolean {
+  if (pid === process.pid) return true;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return code === "EPERM";
+  }
+}
+
+function shouldBreakLock(lockPath: string): boolean {
+  const record = readLockRecord(lockPath);
+  const createdAt = lockCreatedAt(lockPath, record);
+  if (Date.now() - createdAt > PET_LOCK_TTL_MS) return true;
+  if (record && !isPidAlive(record.pid)) return true;
+  return false;
+}
+
+function releaseOwnedLock(lockPath: string, token: string): void {
+  try {
+    const record = readLockRecord(lockPath);
+    if (record?.token === token) {
+      unlinkSync(lockPath);
+    }
+  } catch {
+    // best-effort: lock may already be gone
+  } finally {
+    if (heldLockToken === token) heldLockToken = null;
+  }
+}
+
+function tryAcquireLock(
+  lockPath: string,
+):
+  | { ok: true; fd: number; token: string }
+  | { ok: false; reason: "locked" | "write_failed"; message?: string } {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const token = randomUUID();
+    let lockFd: number;
+    try {
+      lockFd = openSync(lockPath, "wx", 0o600);
+    } catch {
+      if (attempt === 0 && shouldBreakLock(lockPath)) {
+        try {
+          unlinkSync(lockPath);
+          continue;
+        } catch {
+          // Another process may have raced us; treat as live contention.
+        }
+      }
+      return { ok: false, reason: "locked", message: "pet state locked by another process" };
+    }
+    try {
+      const record: PetLockRecord = {
+        pid: process.pid,
+        token,
+        createdAt: Date.now(),
+        hostname: hostname(),
+      };
+      writeFileSync(lockFd, JSON.stringify(record));
+      heldLockToken = token;
+      return { ok: true, fd: lockFd, token };
+    } catch (err) {
+      try {
+        closeSync(lockFd);
+      } catch {
+        // best-effort: fd may already be closed
+      }
+      releaseOwnedLock(lockPath, token);
+      return {
+        ok: false,
+        reason: "write_failed",
+        message: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+  return { ok: false, reason: "locked", message: "pet state locked by another process" };
+}
+
+function writePetStateAtomic(stats: PetStats): PetSaveResult {
   try {
     const dir = petDir();
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     const target = petFile();
-    // Atomic write: temp + rename so a crash mid-write leaves the prior
-    // pet.json intact rather than a truncated zero-byte file.
-    const tmp = `${target}.tmp.${process.pid}.${Date.now()}`;
+    const lockPath = `${target}.lock`;
+    const lock = tryAcquireLock(lockPath);
+    if (!lock.ok) return lock;
     try {
-      writeFileSync(
-        tmp,
-        JSON.stringify({ ...stats, lastSaved: Date.now() }, null, 2),
-      );
-      renameSync(tmp, target);
-    } catch (err) {
+      // Atomic write: temp + rename so a crash mid-write leaves the prior
+      // pet.json intact rather than a truncated zero-byte file.
+      const tmp = `${target}.tmp.${process.pid}.${randomUUID()}`;
       try {
-        unlinkSync(tmp);
-      } catch {}
-      throw err;
+        writeFileSync(tmp, JSON.stringify({ ...stats, lastSaved: Date.now() }, null, 2));
+        renameSync(tmp, target);
+        return { ok: true };
+      } catch {
+        try {
+          unlinkSync(tmp);
+        } catch {
+          // best-effort: tmp may already be unlinked or never created (§V29)
+        }
+        return { ok: false, reason: "write_failed", message: "pet state write failed" };
+      }
+    } finally {
+      try {
+        closeSync(lock.fd);
+      } catch {
+        // best-effort: lockfd may already be closed on a partial failure (§V33)
+      }
+      releaseOwnedLock(lockPath, lock.token);
     }
-  } catch {
-    // best-effort
+  } catch (err) {
+    return {
+      ok: false,
+      reason: "write_failed",
+      message: err instanceof Error ? err.message : String(err),
+    };
   }
+}
+
+// Indirection hook so tests can simulate a stuck/slow underlying write
+// without needing to mock node:fs at the module-loader level. Default
+// is the real atomic writer; tests restore the default in afterEach.
+let writeImpl: (stats: PetStats) => PetSaveResult | void | Promise<PetSaveResult | void> =
+  writePetStateAtomic;
+
+export function __setPetWriteImpl(
+  impl: ((stats: PetStats) => PetSaveResult | void | Promise<PetSaveResult | void>) | null,
+): void {
+  writeImpl = impl ?? writePetStateAtomic;
+}
+
+async function writePetStateQueued(stats: PetStats, generation: number): Promise<PetSaveResult> {
+  if (generation !== queueGeneration) return { ok: false, reason: "timeout" };
+  const result = await writeImpl(stats);
+  if (generation !== queueGeneration) return { ok: false, reason: "timeout" };
+  return result ?? { ok: true };
+}
+
+// All saves serialize through `saveQueue` (§V33). Returns a settled
+// promise once this write finishes; callers may fire-and-forget. The
+// default writer runs synchronous fs calls inline (so a load right
+// after `savePetState` still sees the new file), but the queue
+// tracks the work so `flushPetSaves()` can drain on exit (§V35).
+export function savePetState(stats: PetStats): Promise<PetSaveResult> {
+  const generation = queueGeneration;
+  const write = () => writePetStateQueued(stats, generation);
+  const next = saveQueue.then(write, write);
+  const guarded = next.catch((err) => ({
+    ok: false as const,
+    reason: "write_failed" as const,
+    message: err instanceof Error ? err.message : String(err),
+  }));
+  saveQueue = guarded;
+  return guarded;
+}
+
+// Drain the pet save queue with a hard timeout. Used by SIGINT/SIGTERM,
+// uncaughtException, and Ink unmount paths so a parallel
+// `savePetState` chain finishes before the process tears down. If the
+// timeout fires before the queue settles, abandon that queue generation
+// without touching any lockfile owned by another process.
+export function flushPetSaves(timeoutMs: number = 2000): Promise<PetSaveResult> {
+  const pending = saveQueue;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<"timeout">((resolve) => {
+    timer = setTimeout(() => resolve("timeout"), Math.max(0, timeoutMs));
+    // Don't keep the event loop alive solely for the drain timer; the
+    // pending queue itself is what holds the process open.
+    if (typeof timer.unref === "function") timer.unref();
+  });
+  return Promise.race([pending, timeout]).then((outcome) => {
+    if (timer !== null) clearTimeout(timer);
+    if (outcome === "timeout") {
+      // Abandon the stuck queue head so subsequent saves are not blocked
+      // behind it. The queue generation prevents late older writes from
+      // being treated as current, and we never delete a foreign lock here.
+      queueGeneration++;
+      saveQueue = Promise.resolve({ ok: true });
+      return { ok: false, reason: "timeout" };
+    }
+    return outcome;
+  });
 }
 
 export function applyFeed(stats: PetStats): PetStats {
@@ -344,7 +557,6 @@ export function applyRest(stats: PetStats): PetStats {
   };
 }
 
-
 export function isPetDead(stats: PetStats): boolean {
   return stats.hunger <= 0 || stats.happiness <= 0 || stats.energy <= 0;
 }
@@ -379,11 +591,16 @@ export function getPetRank(stats: PetStats): PetRank {
 
 export function rankLabel(rank: PetRank): string {
   switch (rank) {
-    case "intern":    return "Intern";
-    case "analyst":   return "Analyst";
-    case "associate": return "Associate";
-    case "vp":        return "Vice President";
-    case "md":        return "Managing Director";
+    case "intern":
+      return "Intern";
+    case "analyst":
+      return "Analyst";
+    case "associate":
+      return "Associate";
+    case "vp":
+      return "Vice President";
+    case "md":
+      return "Managing Director";
   }
 }
 

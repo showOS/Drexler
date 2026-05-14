@@ -7,3 +7,4 @@ dist/
 .drexlerrc
 config.json
 .config/
+.claude/

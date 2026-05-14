@@ -9,11 +9,7 @@ import { THEMES } from "../src/ui/themes.ts";
 
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
 
-function renderPalette(
-  items: SlashCommand[],
-  width: number,
-  selectedIdx = 0,
-): string {
+function renderPalette(items: SlashCommand[], width: number, selectedIdx = 0): string {
   return renderToString(
     React.createElement(ThemeProvider, {
       value: THEMES.apollo,
@@ -135,9 +131,7 @@ describe("CommandPalette", () => {
   });
 
   test("every COMMAND_PALETTE entry has a COMMAND_HINTS hint", () => {
-    const missing = COMMAND_PALETTE.map((c) => c.name).filter(
-      (name) => !(name in COMMAND_HINTS),
-    );
+    const missing = COMMAND_PALETTE.map((c) => c.name).filter((name) => !(name in COMMAND_HINTS));
     expect(missing).toEqual([]);
   });
 });

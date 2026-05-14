@@ -6,12 +6,7 @@ import {
   normalizeAssistantDisplayContent,
   type AssistantDisplayLine,
 } from "./displayContent.ts";
-import {
-  displayWidth,
-  fitDisplayText,
-  graphemeWidth,
-  splitGraphemes,
-} from "./graphemes.ts";
+import { displayWidth, fitDisplayText, graphemeWidth, splitGraphemes } from "./graphemes.ts";
 import { useTheme } from "./ThemeContext.tsx";
 
 export interface TranscriptViewportItem {
@@ -32,9 +27,7 @@ export interface TranscriptViewportProps {
 
 interface TranscriptEntry {
   key: string;
-  node:
-    | ReactNode
-    | ((clipTo?: { readonly start: number; readonly rows: number }) => ReactNode);
+  node: ReactNode | ((clipTo?: { readonly start: number; readonly rows: number }) => ReactNode);
   estimatedRows: number;
 }
 
@@ -65,7 +58,7 @@ const ROLE_LABELS: Record<TranscriptViewportItem["role"], string> = {
 const ROLE_MARKERS: Record<TranscriptViewportItem["role"], string> = {
   user: "›",
   assistant: "│",
-  system: "!",
+  system: "§",
 };
 
 const BODY_SUFFIX = " │";
@@ -89,14 +82,7 @@ interface WrappedTranscriptLine {
 }
 
 interface CodeToken {
-  kind:
-    | "plain"
-    | "keyword"
-    | "function"
-    | "string"
-    | "number"
-    | "comment"
-    | "operator";
+  kind: "plain" | "keyword" | "function" | "string" | "number" | "comment" | "operator";
   text: string;
 }
 
@@ -150,27 +136,30 @@ const CODE_KEYWORDS = new Set([
 const CODE_OPERATOR_RE = /^[()[\]{}.,:;+\-*/%=<>!&|^~?]+/u;
 const CODE_NUMBER_RE = /^\b(?:0x[\da-f]+|\d+(?:\.\d+)?)\b/iu;
 const CODE_IDENTIFIER_RE = /^[A-Za-z_$][\w$]*/u;
+const ASCII_ONLY_RE = /^[\x20-\x7e]*$/;
+const MAX_CODE_TOKEN_CACHE = 256;
+const codeTokenCache = new Map<string, CodeToken[]>();
+
+function isAsciiOnly(input: string): boolean {
+  return ASCII_ONLY_RE.test(input);
+}
 
 function bodyPrefixForRole(role: TranscriptViewportItem["role"]): string {
   if (role === "user") return "│ › ";
   if (role === "assistant") return "│ ◆ ";
+  if (role === "system") return "│ § ";
   return CONTINUATION_PREFIX;
 }
 
-function transcriptContentWidth(
-  role: TranscriptViewportItem["role"],
-  cols: number,
-): number {
-  return Math.max(
-    1,
-    cols - displayWidth(bodyPrefixForRole(role)) - displayWidth(BODY_SUFFIX),
-  );
+function transcriptContentWidth(role: TranscriptViewportItem["role"], cols: number): number {
+  return Math.max(1, cols - displayWidth(bodyPrefixForRole(role)) - displayWidth(BODY_SUFFIX));
 }
 
 function wrapDisplayLine(input: string, maxWidth: number): string[] {
   const width = Math.max(1, maxWidth);
   if (input.length === 0) return [""];
   if (displayWidth(input) <= width) return [input];
+  if (isAsciiOnly(input)) return wrapAsciiDisplayLine(input, width);
 
   const parts = splitGraphemes(input);
   const widths = parts.map((part) => graphemeWidth(part));
@@ -238,6 +227,42 @@ function wrapDisplayLine(input: string, maxWidth: number): string[] {
   return rows.filter((row, index) => row.length > 0 || index === 0);
 }
 
+function wrapAsciiDisplayLine(input: string, width: number): string[] {
+  const rows: string[] = [];
+  let start = 0;
+  let end = 0;
+  let lastBreakAt = -1;
+
+  for (let i = 0; i < input.length; i += 1) {
+    const nextWidth = i - start + 1;
+    if (nextWidth <= width) {
+      end = i + 1;
+      if (/\s/u.test(input[i]!)) lastBreakAt = end;
+      continue;
+    }
+
+    if (lastBreakAt > start) {
+      rows.push(input.slice(start, lastBreakAt).trimEnd());
+      start = lastBreakAt;
+      while (start < end && /\s/u.test(input[start]!)) start += 1;
+      end = i + 1;
+    } else {
+      if (end > start) rows.push(input.slice(start, end));
+      start = i;
+      end = i + 1;
+    }
+    lastBreakAt = /\s/u.test(input[i]!) ? end : -1;
+
+    while (end - start > width) {
+      rows.push(input.slice(start, start + width));
+      start += width;
+    }
+  }
+
+  rows.push(input.slice(start, end).trimEnd());
+  return rows.filter((row, index) => row.length > 0 || index === 0);
+}
+
 function displayContentForItem(item: TranscriptViewportItem): string {
   if (item.role !== "assistant") return item.content;
   return normalizeAssistantDisplayContent(item.content);
@@ -274,11 +299,7 @@ const itemCache = new WeakMap<TranscriptViewportItem, TranscriptItemCache>();
 
 function cacheForItem(item: TranscriptViewportItem): TranscriptItemCache {
   const existing = itemCache.get(item);
-  if (
-    existing !== undefined &&
-    existing.role === item.role &&
-    existing.content === item.content
-  ) {
+  if (existing !== undefined && existing.role === item.role && existing.content === item.content) {
     return existing;
   }
 
@@ -315,9 +336,7 @@ function computeWrappedTranscriptLines(
 ): WrappedTranscriptLine[] {
   return displayLinesForItem(item).flatMap((line) => {
     const width =
-      line.kind === "code"
-        ? Math.max(1, contentWidth - displayWidth(CODE_GUTTER))
-        : contentWidth;
+      line.kind === "code" ? Math.max(1, contentWidth - displayWidth(CODE_GUTTER)) : contentWidth;
     return wrapDisplayLine(line.text, width).map((text) => ({
       kind: line.kind,
       text,
@@ -348,15 +367,14 @@ function tokenizeCodeLine(line: string): CodeToken[] {
   let rest = line;
 
   while (rest.length > 0) {
-    const comment =
-      rest.startsWith("#") || rest.startsWith("//") ? rest : undefined;
+    const comment = rest.startsWith("#") || rest.startsWith("//") ? rest : undefined;
     if (comment !== undefined) {
       tokens.push({ kind: "comment", text: comment });
       break;
     }
 
     const stringQuote = rest[0];
-    if (stringQuote === "\"" || stringQuote === "'" || stringQuote === "`") {
+    if (stringQuote === '"' || stringQuote === "'" || stringQuote === "`") {
       let end = 1;
       let escaped = false;
       while (end < rest.length) {
@@ -386,12 +404,11 @@ function tokenizeCodeLine(line: string): CodeToken[] {
     const identifier = CODE_IDENTIFIER_RE.exec(rest)?.[0];
     if (identifier) {
       const after = rest.slice(identifier.length);
-      const kind =
-        CODE_KEYWORDS.has(identifier.toLowerCase())
-          ? "keyword"
-          : /^\s*\(/u.test(after)
-            ? "function"
-            : "plain";
+      const kind = CODE_KEYWORDS.has(identifier.toLowerCase())
+        ? "keyword"
+        : /^\s*\(/u.test(after)
+          ? "function"
+          : "plain";
       tokens.push({ kind, text: identifier });
       rest = rest.slice(identifier.length);
       continue;
@@ -411,32 +428,41 @@ function tokenizeCodeLine(line: string): CodeToken[] {
   return tokens;
 }
 
+function cachedCodeTokens(line: string): CodeToken[] {
+  const cached = codeTokenCache.get(line);
+  if (cached !== undefined) {
+    codeTokenCache.delete(line);
+    codeTokenCache.set(line, cached);
+    return cached;
+  }
+  const tokens = tokenizeCodeLine(line);
+  codeTokenCache.set(line, tokens);
+  if (codeTokenCache.size > MAX_CODE_TOKEN_CACHE) {
+    const oldest = codeTokenCache.keys().next().value;
+    if (oldest !== undefined) codeTokenCache.delete(oldest);
+  }
+  return tokens;
+}
+
+export function transcriptCodeTokenCacheSize(): number {
+  return codeTokenCache.size;
+}
+
 export function estimateTranscriptRows(
   items: readonly TranscriptViewportItem[],
   compact: boolean,
   cols: number,
 ): number {
-  return items.reduce(
-    (sum, item) => sum + getCachedItemRows(item, compact, cols),
-    0,
-  );
+  return items.reduce((sum, item) => sum + getCachedItemRows(item, compact, cols), 0);
 }
 
-function itemRows(
-  item: TranscriptViewportItem,
-  compact: boolean,
-  cols: number,
-): number {
+function itemRows(item: TranscriptViewportItem, compact: boolean, cols: number): number {
   if (compact) return 1;
   const contentWidth = transcriptContentWidth(item.role, cols);
   return 2 + wrappedTranscriptLines(item, contentWidth).length;
 }
 
-function getCachedItemRows(
-  item: TranscriptViewportItem,
-  compact: boolean,
-  cols: number,
-): number {
+function getCachedItemRows(item: TranscriptViewportItem, compact: boolean, cols: number): number {
   const cache = cacheForItem(item).rows;
 
   const key = `${compact ? "c" : "f"}-${cols}`;
@@ -452,7 +478,7 @@ function roleAccentColor(
   role: TranscriptViewportItem["role"],
   theme: ReturnType<typeof useTheme>,
 ): string {
-  if (role === "system") return theme.warning;
+  if (role === "system") return theme.system;
   if (role === "user") return theme.warning;
   return theme.primaryLight;
 }
@@ -461,7 +487,7 @@ function roleBodyColor(
   role: TranscriptViewportItem["role"],
   theme: ReturnType<typeof useTheme>,
 ): string {
-  if (role === "system") return theme.dim;
+  if (role === "system") return theme.systemText;
   return theme.text;
 }
 
@@ -486,7 +512,7 @@ const DefaultTranscriptItem = memo(function DefaultTranscriptItem({
   const label = ROLE_LABELS[item.role];
   const accent = roleAccentColor(item.role, t);
   const renderCodeLine = (line: string) =>
-    tokenizeCodeLine(line).map((token, tokenIndex) => {
+    cachedCodeTokens(line).map((token, tokenIndex) => {
       const color =
         token.kind === "keyword"
           ? DRACULA_CODE.keyword
@@ -524,7 +550,7 @@ const DefaultTranscriptItem = memo(function DefaultTranscriptItem({
           {fitDisplayText(prefix, cols)}
         </Text>
         {displayWidth(prefix) < cols ? (
-          <Text color={roleBodyColor(item.role, t)} wrap="truncate">
+          <Text color={roleBodyColor(item.role, t)} italic={item.role === "system"} wrap="truncate">
             {fitDisplayText(firstLine, budget)}
           </Text>
         ) : null}
@@ -540,18 +566,14 @@ const DefaultTranscriptItem = memo(function DefaultTranscriptItem({
   const allDisplayLines = wrappedTranscriptLines(item, contentWidth);
   let displayLines: WrappedTranscriptLine[] = allDisplayLines;
   if (maxRows !== undefined) {
-    const bodyBudget = Math.max(
-      MIN_TRUNCATED_BODY_ROWS,
-      maxRows - HEADER_FOOTER_ROWS,
-    );
+    const bodyBudget = Math.max(MIN_TRUNCATED_BODY_ROWS, maxRows - HEADER_FOOTER_ROWS);
     const bodyStart = Math.max(0, Math.min(allDisplayLines.length, clipStart - 1));
     const before = bodyStart;
     const afterAvailable = Math.max(0, allDisplayLines.length - bodyStart);
     const needsTopHint = before > 0;
     const needsBottomHint = afterAvailable > bodyBudget;
     const hintRows =
-      (needsTopHint ? TRUNCATION_HINT_ROWS : 0) +
-      (needsBottomHint ? TRUNCATION_HINT_ROWS : 0);
+      (needsTopHint ? TRUNCATION_HINT_ROWS : 0) + (needsBottomHint ? TRUNCATION_HINT_ROWS : 0);
     const keep = Math.max(0, bodyBudget - hintRows);
     const bodyEnd = Math.min(allDisplayLines.length, bodyStart + keep);
     if (needsTopHint || bodyEnd < allDisplayLines.length) {
@@ -582,32 +604,21 @@ const DefaultTranscriptItem = memo(function DefaultTranscriptItem({
   return (
     <Box flexDirection="column" width={cols} flexShrink={1}>
       <Text color={accent} bold wrap="truncate">
-        {fitDisplayText(
-          `${headerPrefix}${rule("─", headerRuleWidth)}╮`,
-          cols,
-        )}
+        {fitDisplayText(`${headerPrefix}${rule("─", headerRuleWidth)}╮`, cols)}
       </Text>
       {displayLines.map((line, index) => (
         <Box key={index} width={cols} flexShrink={1}>
           <Text color={accent} bold={item.role === "user"}>
             {index === 0 ? bodyPrefix : CONTINUATION_PREFIX}
           </Text>
-          {line.kind === "code" ? (
-            <Text color={DRACULA_CODE.gutter}>{CODE_GUTTER}</Text>
-          ) : null}
+          {line.kind === "code" ? <Text color={DRACULA_CODE.gutter}>{CODE_GUTTER}</Text> : null}
           <Text
-            color={
-              line.kind === "code"
-                ? DRACULA_CODE.text
-                : roleBodyColor(item.role, t)
-            }
+            color={line.kind === "code" ? DRACULA_CODE.text : roleBodyColor(item.role, t)}
+            italic={item.role === "system" && line.kind !== "code"}
           >
             {line.kind === "code"
               ? renderCodeLine(
-                  fitDisplayText(
-                    line.text,
-                    Math.max(1, contentWidth - displayWidth(CODE_GUTTER)),
-                  ),
+                  fitDisplayText(line.text, Math.max(1, contentWidth - displayWidth(CODE_GUTTER))),
                 )
               : fitDisplayText(line.text, contentWidth)}
           </Text>
@@ -735,8 +746,7 @@ function selectWindow(
     visible.some(
       ({ entry, clipRows }) =>
         entry.estimatedRows >= HEADER_FOOTER_ROWS + MIN_TRUNCATED_BODY_ROWS &&
-        (clipRows ?? entry.estimatedRows) <
-          HEADER_FOOTER_ROWS + MIN_TRUNCATED_BODY_ROWS,
+        (clipRows ?? entry.estimatedRows) < HEADER_FOOTER_ROWS + MIN_TRUNCATED_BODY_ROWS,
     )
   ) {
     indicatorRows = 0;
@@ -760,8 +770,7 @@ function selectWindow(
   let hiddenRowsBefore = startRow;
   let hiddenRowsAfter = Math.max(0, totalRows - endRow);
   const showTopIndicator = indicatorRows > 0 && hiddenRowsBefore > 0;
-  const showBottomIndicator =
-    indicatorRows > (showTopIndicator ? 1 : 0) && hiddenRowsAfter > 0;
+  const showBottomIndicator = indicatorRows > (showTopIndicator ? 1 : 0) && hiddenRowsAfter > 0;
   if (!showTopIndicator) {
     hiddenBefore = 0;
     hiddenRowsBefore = 0;
@@ -826,13 +835,7 @@ function TranscriptViewportInner({
         : childrenToEntries(children),
     [children, compact, items, renderItem, width],
   );
-  const {
-    visible,
-    hiddenBefore,
-    hiddenAfter,
-    hiddenRowsBefore,
-    hiddenRowsAfter,
-  } = useMemo(
+  const { visible, hiddenBefore, hiddenAfter, hiddenRowsBefore, hiddenRowsAfter } = useMemo(
     () => selectWindow(entries, maxRows, scrollOffset),
     [entries, maxRows, scrollOffset],
   );
@@ -852,9 +855,7 @@ function TranscriptViewportInner({
         <Box key={entry.key} flexDirection="column" width={width} flexShrink={1}>
           {typeof entry.node === "function"
             ? entry.node(
-                clipRows === undefined
-                  ? undefined
-                  : { start: clipStart ?? 0, rows: clipRows },
+                clipRows === undefined ? undefined : { start: clipStart ?? 0, rows: clipRows },
               )
             : entry.node}
         </Box>

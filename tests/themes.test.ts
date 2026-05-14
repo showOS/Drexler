@@ -21,15 +21,11 @@ describe("selectTheme priority", () => {
   });
 
   test("flag wins over env and config", () => {
-    expect(
-      selectTheme({ flag: "plasma", env: "mono", configValue: "apollo" }),
-    ).toBe("plasma");
+    expect(selectTheme({ flag: "plasma", env: "mono", configValue: "apollo" })).toBe("plasma");
   });
 
   test("env wins over config when no flag", () => {
-    expect(selectTheme({ env: "midnight", configValue: "apollo" })).toBe(
-      "midnight",
-    );
+    expect(selectTheme({ env: "midnight", configValue: "apollo" })).toBe("midnight");
   });
 
   test("config used when no flag/env", () => {
@@ -44,27 +40,12 @@ describe("selectTheme priority", () => {
 describe("theme registry", () => {
   test("contains the launch/config theme pack", () => {
     expect(Object.keys(THEMES).sort()).toEqual(
-      [
-        "amber",
-        "apollo",
-        "dealroom",
-        "midnight",
-        "mono",
-        "paper",
-        "plasma",
-        "terminal",
-      ].sort(),
+      ["amber", "apollo", "dealroom", "midnight", "mono", "paper", "plasma", "terminal"].sort(),
     );
   });
 
   test("new premium themes have required color slots", () => {
-    for (const name of [
-      "terminal",
-      "dealroom",
-      "midnight",
-      "paper",
-      "plasma",
-    ] as const) {
+    for (const name of ["terminal", "dealroom", "midnight", "paper", "plasma"] as const) {
       expect(THEMES[name].primary).toBeTruthy();
       expect(THEMES[name].primaryLight).toBeTruthy();
       expect(THEMES[name].primaryDim).toBeTruthy();
@@ -72,6 +53,12 @@ describe("theme registry", () => {
       expect(THEMES[name].dim).toBeTruthy();
       expect(THEMES[name].error).toBeTruthy();
       expect(THEMES[name].warning).toBeTruthy();
+      expect(THEMES[name].system).toBeTruthy();
+      expect(THEMES[name].systemText).toBeTruthy();
+      expect(THEMES[name].system).not.toBe(THEMES[name].warning);
+      if (!THEMES[name].ansi) {
+        expect(THEMES[name].systemText).not.toBe(THEMES[name].dim);
+      }
     }
   });
 });
@@ -90,9 +77,7 @@ describe("selectTheme NO_COLOR handling", () => {
 
   test("NO_COLOR=1 forces mono regardless of flag", () => {
     process.env.NO_COLOR = "1";
-    expect(
-      selectTheme({ flag: "amber", env: "apollo", configValue: "apollo" }),
-    ).toBe("mono");
+    expect(selectTheme({ flag: "amber", env: "apollo", configValue: "apollo" })).toBe("mono");
   });
 
   test('NO_COLOR="" (empty) does NOT force mono', () => {
@@ -139,7 +124,7 @@ describe("setActiveTheme + getActiveTheme round-trip", () => {
 });
 
 describe("buildChalkColors", () => {
-  test("returns object with all 7 keys", () => {
+  test("returns object with all theme color keys", () => {
     const colors = buildChalkColors(THEMES.apollo);
     expect(Object.keys(colors).sort()).toEqual(
       [
@@ -148,6 +133,8 @@ describe("buildChalkColors", () => {
         "apolloLight",
         "dim",
         "error",
+        "system",
+        "systemText",
         "text",
         "warning",
       ].sort(),

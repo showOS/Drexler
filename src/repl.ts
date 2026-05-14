@@ -1,10 +1,5 @@
 import * as readline from "node:readline";
-import {
-  COMMAND_PALETTE,
-  dispatch,
-  isSlash,
-  type CommandAction,
-} from "./commands.ts";
+import { COMMAND_PALETTE, dispatch, isSlash, type CommandAction } from "./commands.ts";
 import { saveConfig } from "./config.ts";
 import type { Conversation } from "./conversation.ts";
 import { streamChat, type FetchFn } from "./llm.ts";
@@ -80,7 +75,7 @@ export function detectPersonaDrift(content: string): boolean {
     // Strip LaTeX-style inline math $...$ and display math $$...$$ so
     // `$I = mc^2$` doesn't trip drift detection.
     .replace(/\$\$[\s\S]*?\$\$/g, "")
-    .replace(/\$[^\$\n]*\$/g, "");
+    .replace(/\$[^$\n]*\$/g, "");
   const folded = noCode.normalize("NFKC").replace(I_CONFUSABLES_RE, "I");
   return /\bI\b|\bI'm\b|\bI'll\b|\bI've\b|\bI'd\b/.test(folded);
 }
@@ -90,10 +85,7 @@ interface KeypressKey {
 }
 type KeypressListener = (str: string | undefined, key: KeypressKey) => void;
 
-async function streamFromHistory(
-  deps: ReplDeps,
-  instruction?: string,
-): Promise<void> {
+async function streamFromHistory(deps: ReplDeps, instruction?: string): Promise<void> {
   const spinner = startSpinner();
   let firstToken = true;
   const accent = createAccentBarWriter();
@@ -146,7 +138,7 @@ async function streamFromHistory(
   if (firstToken) spinner.stop();
   accent.end();
 
-  if (result.content) {
+  if (result.ok && result.content) {
     deps.conversation.push("assistant", result.content);
   }
   if (result.ok) {
@@ -157,19 +149,16 @@ async function streamFromHistory(
       deps.print(dim("(persona drift detected — model used 'I')"));
     }
   } else if (cancelled) {
-    deps.print(dim("(cancelled — Drexler taking lunch)"));
+    deps.print(dim("(cancelled — response discarded; /retry available)"));
   } else if (result.interrupted) {
-    deps.print(dim("(stream interrupted — partial response saved)"));
+    deps.print(dim("(stream interrupted — partial response discarded; /retry available)"));
   } else {
     const detail = result.error ? ` [${result.error}]` : "";
     deps.print(error(`${STREAM_ERROR}${detail}`));
   }
 }
 
-export async function handleLine(
-  raw: string,
-  deps: ReplDeps,
-): Promise<CommandAction> {
+export async function handleLine(raw: string, deps: ReplDeps): Promise<CommandAction> {
   const line = raw.trim();
 
   if (line === "") {
@@ -238,7 +227,9 @@ export async function startRepl(deps: ReplDeps): Promise<void> {
     if (msg) console.log("\n" + msg);
     try {
       rl.close();
-    } catch {}
+    } catch {
+      // best-effort: readline may already be closed when SIGINT races exit
+    }
     process.exit(0);
   };
 

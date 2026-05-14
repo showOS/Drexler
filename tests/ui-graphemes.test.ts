@@ -4,6 +4,7 @@ import {
   deleteAtCursor,
   deleteBeforeCursor,
   displayWidth,
+  fitDisplayText,
   graphemeLength,
   insertAtCursor,
   splitGraphemes,
@@ -60,5 +61,12 @@ describe("ui grapheme helpers", () => {
     expect(displayWidth("👩‍💻")).toBe(2);
     expect(displayWidth("e\u0301")).toBe(1);
     expect(displayWidth("Drexler International™")).toBe(22);
+  });
+
+  test("fits ASCII and Unicode text to visible width budgets", () => {
+    expect(fitDisplayText("abcdef", 4)).toBe("abc…");
+    expect(fitDisplayText("abc", 4)).toBe("abc");
+    expect(fitDisplayText("漢字abc", 5)).toBe("漢字…");
+    expect(displayWidth(fitDisplayText("漢字abc", 5))).toBeLessThanOrEqual(5);
   });
 });

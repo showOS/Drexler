@@ -106,19 +106,19 @@ describe("PetScene", () => {
     expect(rendered).toContain("│        12         │");
     expect(rendered).toContain("│    9  ──·    3    │");
     expect(rendered).toContain("DREXLER MARKETS");
-    expect(rendered).toContain("BTC 67842");
+    expect(rendered).toContain("AAPL 214");
     expect(rendered).toContain("TAPE");
     expect(rendered).toContain("BID");
     expect(rendered).toContain("ASK");
     expect(rendered).toContain("VOL");
-    expect(rendered).toContain("SOL");
-    expect(rendered).toContain("CANDLE");
-    expect(rendered).toContain("OPEN 09:00");
+    expect(rendered).toContain("NVDA");
+    expect(rendered).toContain("1m CHART");
+    expect(rendered).toContain("OPEN 09:30");
     expect(rendered).toContain("PIPE");
     expect(rendered).toContain("╭──╮");
     expect(rendered).toMatch(/\d{2}:\d{2}/);
-    expect(rendered).toContain("▐█▌");
-    expect(rendered).toContain("▐░▌");
+    // Sparkline bars across the ticker rows.
+    expect(rendered).toMatch(/[▁▂▃▄▅▆▇█]/);
     expect(rendered).toContain("c[__]");
     expect(rendered).toContain("memo");
     expect(rendered).toContain("▄ ▄ ▄");
@@ -130,8 +130,10 @@ describe("PetScene", () => {
   });
 
   test("keeps every animated clock frame visually connected", () => {
-    for (let frame = 0; frame < 8; frame++) {
+    const firstLines = analogClockLines(0);
+    for (let frame = 1; frame < 8; frame++) {
       const lines = analogClockLines(frame);
+      expect(lines).toEqual(firstLines);
 
       expect(lines.length).toBe(7);
       expect(lines[0]).toBe("╭───────────────────╮");
@@ -156,53 +158,73 @@ describe("PetScene", () => {
   });
 
   test.each([
-    [12, 0, [
-      "╭───────────────────╮",
-      "│        12         │",
-      "│         │         │",
-      "│    9    ·    3    │",
-      "│                   │",
-      "│         6         │",
-      "╰───────────────────╯",
-    ]],
-    [3, 0, [
-      "╭───────────────────╮",
-      "│        12         │",
-      "│         │         │",
-      "│    9    ·──  3    │",
-      "│                   │",
-      "│         6         │",
-      "╰───────────────────╯",
-    ]],
-    [6, 30, [
-      "╭───────────────────╮",
-      "│        12         │",
-      "│                   │",
-      "│    9    ·    3    │",
-      "│         │         │",
-      "│         6         │",
-      "╰───────────────────╯",
-    ]],
-    [9, 15, [
-      "╭───────────────────╮",
-      "│        12         │",
-      "│                   │",
-      "│    9  ──·────3    │",
-      "│                   │",
-      "│         6         │",
-      "╰───────────────────╯",
-    ]],
-    [10, 10, [
-      "╭───────────────────╮",
-      "│        12         │",
-      "│     ╲       ╱     │",
-      "│    9    ·    3    │",
-      "│                   │",
-      "│         6         │",
-      "╰───────────────────╯",
-    ]],
+    [
+      12,
+      0,
+      [
+        "╭───────────────────╮",
+        "│        12         │",
+        "│         │         │",
+        "│    9  ──·    3    │",
+        "│                   │",
+        "│         6         │",
+        "╰───────────────────╯",
+      ],
+    ],
+    [
+      3,
+      0,
+      [
+        "╭───────────────────╮",
+        "│        12         │",
+        "│         │         │",
+        "│    9  ──·    3    │",
+        "│                   │",
+        "│         6         │",
+        "╰───────────────────╯",
+      ],
+    ],
+    [
+      6,
+      30,
+      [
+        "╭───────────────────╮",
+        "│        12         │",
+        "│         │         │",
+        "│    9  ──·    3    │",
+        "│                   │",
+        "│         6         │",
+        "╰───────────────────╯",
+      ],
+    ],
+    [
+      9,
+      15,
+      [
+        "╭───────────────────╮",
+        "│        12         │",
+        "│         │         │",
+        "│    9  ──·    3    │",
+        "│                   │",
+        "│         6         │",
+        "╰───────────────────╯",
+      ],
+    ],
+    [
+      10,
+      10,
+      [
+        "╭───────────────────╮",
+        "│        12         │",
+        "│         │         │",
+        "│    9  ──·    3    │",
+        "│                   │",
+        "│         6         │",
+        "╰───────────────────╯",
+      ],
+    ],
   ] as const)(
-    "renders the requested 21x7 ASCII clock for %d:%d",
+    "renders the requested 21x7 ASCII clock for %d:%d (frozen at 09:00)",
     (hour, minute, expected) => {
       const clock = buildAsciiClock(hour, minute);
       const lines = clock.split("\n");
@@ -293,21 +315,25 @@ describe("PetScene", () => {
       const rendered = renderScene("working", "office", statsCases[0]!, width);
 
       expect(rendered).toContain("DREXLER MARKETS");
-      expect(rendered).toContain("DEMO");
+      expect(rendered).toContain("RTH");
       expect(rendered).toContain("TAPE");
       expect(rendered).toContain("BID");
       expect(rendered).toContain("ASK");
       expect(rendered).toContain("VOL");
       expect(rendered).toContain("FEE");
-      expect(rendered).toContain("BTC 67842");
-      expect(rendered).toContain("OPEN 09:00");
-      expect(rendered).toContain("▐█▌");
-      expect(rendered).toContain("▐░▌");
+      expect(rendered).toContain("AAPL 214");
+      expect(rendered).toContain("▲ 1.25");
+      expect(rendered).toContain("MSFT");
+      expect(rendered).toContain("▼ 0.82");
+      expect(rendered).not.toContain("MSFT ▲ 0.82");
+      expect(rendered).not.toContain("▲1.25");
+      expect(rendered).toContain("OPEN 09:30");
+      expect(rendered).toMatch(/[▁▂▃▄▅▆▇█]/);
       if (width >= 96) {
-        expect(rendered).toContain("SOL");
-        expect(rendered).toContain("CANDLE");
-        expect(rendered).toContain("69000");
-        expect(rendered).toContain("68000");
+        expect(rendered).toContain("NVDA");
+        expect(rendered).toContain("1m CHART");
+        expect(rendered).toContain("220");
+        expect(rendered).toContain("430");
       }
       if (width >= 124) {
         expect(rendered).toContain("CLOSE 16:00");
@@ -319,6 +345,23 @@ describe("PetScene", () => {
       }
     },
   );
+
+  test.each([
+    [52, ["TAPE> AAPL", "AAPL 214", "MSFT 421"]],
+    [124, ["DREX 0.8421", "TAPE> AAPL", "AAPL 214", "MSFT 421", "NVDA 912"]],
+  ] as const)("keeps market quote arrows aligned at %d scene columns", (width, labels) => {
+    const rendered = renderScene("working", "office", statsCases[0]!, width);
+    const lines = rendered.split("\n");
+    const arrowColumns = labels.map((label) => {
+      const line = lines.find((candidate) => candidate.includes(label));
+
+      expect(line).toBeDefined();
+      expect(/[▲▼]/.test(line!)).toBe(true);
+      return line!.search(/[▲▼]/);
+    });
+
+    expect(new Set(arrowColumns).size).toBe(1);
+  });
 
   test("keeps desk props opaque over Drexler in sleeping mode", () => {
     const rendered = renderScene("sleeping", "office", statsCases[0]!, PET_SCENE_WIDTH);
@@ -353,11 +396,7 @@ describe("PetScene", () => {
   );
 });
 
-function renderCompact(
-  width: number,
-  stats: PetStats,
-  activity: PetActivity = "idle",
-): string {
+function renderCompact(width: number, stats: PetStats, activity: PetActivity = "idle"): string {
   return renderToString(
     React.createElement(CompactPetPanel, {
       stats,

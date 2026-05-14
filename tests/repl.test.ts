@@ -122,6 +122,29 @@ describe("handleLine", () => {
     expect(out.join("\n")).toMatch(/Trading tantrum/);
   });
 
+  test("interrupted stream discards partial assistant content and leaves user turn retryable", async () => {
+    const fetchFn: FetchFn = async () =>
+      new Response(
+        `data: ${JSON.stringify({
+          choices: [{ delta: { content: "partial memo" }, finish_reason: null }],
+        })}\n\n`,
+        {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        },
+      );
+    const { deps, conversation, out } = makeDeps(fetchFn);
+
+    await handleLine("retryable user turn", deps);
+
+    expect(conversation.snapshot()).toEqual([
+      { role: "system", content: "SYS" },
+      { role: "user", content: "retryable user turn" },
+    ]);
+    expect(out.join("\n")).toContain("partial response discarded");
+    expect(out.join("\n")).not.toContain("partial response saved");
+  });
+
   test("V3 fallback: 429 on primary triggers retry, history reflects only final assistant", async () => {
     let calls = 0;
     const fetchFn: FetchFn = async (_url, init) => {
@@ -184,9 +207,7 @@ describe("detectPersonaDrift", () => {
   });
 
   test("ignores 'I' inside LaTeX display math", () => {
-    expect(detectPersonaDrift("$$\\int I \\,dx$$ and Drexler continues.")).toBe(
-      false,
-    );
+    expect(detectPersonaDrift("$$\\int I \\,dx$$ and Drexler continues.")).toBe(false);
   });
 
   test("still flags 'I' next to math fences", () => {
@@ -211,9 +232,7 @@ describe("pickFallback", () => {
 describe("buildMessagesWithReminder", () => {
   test("does not inject reminder before first turn", () => {
     const conv = new Conversation("SYS", 50);
-    expect(buildMessagesWithReminder(conv).at(-1)?.content).not.toBe(
-      DRIFT_REMINDER,
-    );
+    expect(buildMessagesWithReminder(conv).at(-1)?.content).not.toBe(DRIFT_REMINDER);
   });
 
   test("injects reminder exactly on REMINDER_INTERVAL boundary", () => {
@@ -231,9 +250,7 @@ describe("buildMessagesWithReminder", () => {
     const conv = new Conversation("SYS", 50);
     conv.push("user", "q1");
     conv.push("assistant", "a1");
-    expect(buildMessagesWithReminder(conv).at(-1)?.content).not.toBe(
-      DRIFT_REMINDER,
-    );
+    expect(buildMessagesWithReminder(conv).at(-1)?.content).not.toBe(DRIFT_REMINDER);
   });
 
   test("keeps reminder cadence after conversation history trims", () => {
@@ -253,7 +270,7 @@ describe("buildMessagesWithReminder", () => {
 
 describe("drift-reminder injection", () => {
   test("system reminder appended every 5 user turns", async () => {
-    const requestBodies: any[] = [];
+    const requestBodies: Array<{ messages: Array<{ role: string; content: string }> }> = [];
     const fetchFn: FetchFn = async (_url, init) => {
       requestBodies.push(JSON.parse(String(init?.body ?? "{}")));
       return new Response(sseStream(["ok"]), {
@@ -272,7 +289,7 @@ describe("drift-reminder injection", () => {
   });
 
   test("no reminder on turns not divisible by 5", async () => {
-    const requestBodies: any[] = [];
+    const requestBodies: Array<{ messages: Array<{ role: string; content: string }> }> = [];
     const fetchFn: FetchFn = async (_url, init) => {
       requestBodies.push(JSON.parse(String(init?.body ?? "{}")));
       return new Response(sseStream(["ok"]), {
@@ -283,8 +300,7 @@ describe("drift-reminder injection", () => {
     const { deps } = makeDeps(fetchFn);
     await handleLine("q1", deps);
     await handleLine("q2", deps);
-    const lastMsg2 =
-      requestBodies[1].messages[requestBodies[1].messages.length - 1];
+    const lastMsg2 = requestBodies[1].messages[requestBodies[1].messages.length - 1];
     expect(lastMsg2.role).toBe("user");
   });
 });
@@ -306,9 +322,7 @@ describe("/regenerate flow", () => {
     await handleLine("/regenerate", deps);
     expect(conversation.snapshot().pop()?.content).toBe("second reply");
     // Only one user message in history despite two LLM calls
-    const userMsgs = conversation
-      .snapshot()
-      .filter((m) => m.role === "user");
+    const userMsgs = conversation.snapshot().filter((m) => m.role === "user");
     expect(userMsgs.length).toBe(1);
   });
 });

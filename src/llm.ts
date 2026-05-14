@@ -1,14 +1,11 @@
 import type { Message, OpenRouterRequestBody, StreamChunk } from "./types.ts";
+import { homedir } from "node:os";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 const MAX_TOKENS = 350;
 const TEMPERATURE = 0.95;
-const STOP_SEQUENCES = [
-  "Meeting adjourned.",
-  "Severance package incoming.",
-  "Not culture-fit.",
-];
+const STOP_SEQUENCES = ["Meeting adjourned.", "Severance package incoming.", "Not culture-fit."];
 const CONNECT_TIMEOUT_MS = 10_000;
 const IDLE_STREAM_TIMEOUT_MS = 30_000;
 const RETRY_DELAYS_MS = [250, 500, 1000] as const;
@@ -27,7 +24,9 @@ function jittered(baseMs: number): number {
 function combineSignals(user: AbortSignal | undefined, ...others: AbortSignal[]): AbortSignal {
   const all = user ? [user, ...others] : others;
   if (all.length === 1) return all[0]!;
-  if (typeof (AbortSignal as { any?: (signals: AbortSignal[]) => AbortSignal }).any === "function") {
+  if (
+    typeof (AbortSignal as { any?: (signals: AbortSignal[]) => AbortSignal }).any === "function"
+  ) {
     return (AbortSignal as { any: (signals: AbortSignal[]) => AbortSignal }).any(all);
   }
   // Manual fallback: combine via a fresh controller that forwards aborts.
@@ -64,14 +63,13 @@ function debugWarn(label: string, detail: string): void {
   if (process.env.DREXLER_DEBUG && process.env.DREXLER_DEBUG !== "0") {
     try {
       process.stderr.write(`[drexler ${label}] ${detail}\n`);
-    } catch {}
+    } catch {
+      // best-effort debug log; never crash on a closed stderr
+    }
   }
 }
 
-export type FetchFn = (
-  url: string | URL | Request,
-  init?: RequestInit,
-) => Promise<Response>;
+export type FetchFn = (url: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 export interface StreamOptions {
   apiKey: string;
@@ -93,35 +91,110 @@ export interface StreamResult {
   authFailure?: boolean;
 }
 
+// Telemetry: small FIFO ring of the last N stream attempts so `/debug`
+// can dump recent outcomes without keeping the full transcript in memory.
+// Module-scoped, in-memory only — never persisted to disk.
+export interface TelemetryFrame {
+  at: number;
+  model: string;
+  ok: boolean;
+  error?: string;
+  status?: string;
+  modelUsed?: string;
+  durationMs?: number;
+}
+
+const TELEMETRY_BUFFER_SIZE = 5;
+const MAX_TELEMETRY_ERROR_LEN = 500;
+const telemetryBuffer: TelemetryFrame[] = [];
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function sanitizeTelemetryText(input: string): string {
+  let out = input;
+  out = out.replace(/(authorization\s*[:=]\s*)(bearer\s+)?[^\s,}\]]+/gi, "$1[redacted]");
+  out = out.replace(/\bbearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]");
+  out = out.replace(/\bsk-or-[A-Za-z0-9_-]+/g, "sk-or-[redacted]");
+  for (const p of [process.env.HOME, process.env.USERPROFILE, homedir()]) {
+    if (p && p.length > 1) {
+      out = out.replace(new RegExp(escapeRegExp(p), "g"), "~");
+    }
+  }
+  const trimmed = out.trim();
+  if (
+    trimmed.length > 200 &&
+    ((trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+      (trimmed.startsWith("[") && trimmed.endsWith("]")))
+  ) {
+    out = `[redacted JSON body: ${trimmed.length} chars]`;
+  }
+  if (out.length > MAX_TELEMETRY_ERROR_LEN) {
+    out = `${out.slice(0, MAX_TELEMETRY_ERROR_LEN - 3)}...`;
+  }
+  return out;
+}
+
+export function recordTelemetry(frame: TelemetryFrame): void {
+  telemetryBuffer.push({
+    ...frame,
+    error: frame.error ? sanitizeTelemetryText(frame.error) : undefined,
+  });
+  if (telemetryBuffer.length > TELEMETRY_BUFFER_SIZE) {
+    telemetryBuffer.splice(0, telemetryBuffer.length - TELEMETRY_BUFFER_SIZE);
+  }
+}
+
+export function getRecentTelemetry(): TelemetryFrame[] {
+  return telemetryBuffer.map((frame) => ({ ...frame }));
+}
+
+export function clearTelemetry(): void {
+  telemetryBuffer.length = 0;
+}
+
 export async function streamChat(opts: StreamOptions): Promise<StreamResult> {
   const fetchFn = opts.fetchFn ?? fetch;
+  const startedAt = Date.now();
+  const finalize = (result: StreamResult, status: string): StreamResult => {
+    recordTelemetry({
+      at: startedAt,
+      model: opts.model,
+      ok: result.ok,
+      error: result.error,
+      status,
+      modelUsed: result.modelUsed,
+      durationMs: Date.now() - startedAt,
+    });
+    return result;
+  };
   const first = await attempt(opts.model, opts, fetchFn);
-  if (first.status !== "rate_limit") return toResult(first, opts.model, false);
+  if (first.status !== "rate_limit") {
+    return finalize(toResult(first, opts.model, false), first.status);
+  }
   if (!opts.fallbackModel || opts.fallbackModel === opts.model) {
-    return toResult(first, opts.model, false);
+    return finalize(toResult(first, opts.model, false), first.status);
   }
   const second = await attempt(opts.fallbackModel, opts, fetchFn);
   if (second.status !== "rate_limit") {
-    return toResult(second, opts.fallbackModel, true);
+    return finalize(toResult(second, opts.fallbackModel, true), second.status);
   }
   // Both 429 — brief pause, then one more shot at the primary so a
   // transient cross-model burst doesn't dead-end the user.
   try {
     await abortableDelay(POST_FALLBACK_429_DELAY_MS, opts.signal);
   } catch {
-    return toResult(second, opts.fallbackModel, true);
+    return finalize(toResult(second, opts.fallbackModel, true), second.status);
   }
   const third = await attempt(opts.model, opts, fetchFn);
-  if (third.status === "ok") return toResult(third, opts.model, false);
-  return toResult(third, opts.model, true);
+  if (third.status === "ok") {
+    return finalize(toResult(third, opts.model, false), third.status);
+  }
+  return finalize(toResult(third, opts.model, true), third.status);
 }
 
-type AttemptStatus =
-  | "ok"
-  | "rate_limit"
-  | "http_error"
-  | "stream_error"
-  | "auth_error";
+type AttemptStatus = "ok" | "rate_limit" | "http_error" | "stream_error" | "auth_error";
 
 interface AttemptOutcome {
   status: AttemptStatus;
@@ -163,7 +236,11 @@ async function attempt(
     });
   } catch (err) {
     const userAborted = opts.signal?.aborted === true;
-    if (!userAborted && err instanceof Error && /timeout|timed out/i.test(err.name + " " + err.message)) {
+    if (
+      !userAborted &&
+      err instanceof Error &&
+      /timeout|timed out/i.test(err.name + " " + err.message)
+    ) {
       return {
         status: "http_error",
         content: "",
@@ -185,7 +262,9 @@ async function attempt(
     let detail = "";
     try {
       detail = await res.text();
-    } catch {}
+    } catch {
+      // best-effort: response body unavailable, surface bare status
+    }
     return {
       status: "auth_error",
       content: "",
@@ -196,7 +275,9 @@ async function attempt(
   if (res.status >= 500 && res.status <= 599 && attemptNumber < MAX_5XX_ATTEMPTS) {
     try {
       await res.text();
-    } catch {}
+    } catch {
+      // best-effort: drain body before retry; ignore read failures
+    }
     // Exponential backoff with jitter — abortable. Delay before the
     // *next* attempt: 250ms before attempt #2, 500ms before attempt #3.
     const delayMs = jittered(RETRY_DELAYS_MS[attemptNumber - 1] ?? 1000);
@@ -216,7 +297,9 @@ async function attempt(
     let detail = "";
     try {
       detail = await res.text();
-    } catch {}
+    } catch {
+      // best-effort: response body unavailable, surface bare status
+    }
     return {
       status: "http_error",
       content: "",
@@ -239,19 +322,14 @@ async function attempt(
   return { status: "ok", content: parsed.content };
 }
 
-function toResult(
-  outcome: AttemptOutcome,
-  modelUsed: string,
-  fellBack: boolean,
-): StreamResult {
+function toResult(outcome: AttemptOutcome, modelUsed: string, fellBack: boolean): StreamResult {
   return {
     ok: outcome.status === "ok",
     content: outcome.content,
     modelUsed,
-    error: outcome.error,
+    error: outcome.error ? sanitizeTelemetryText(outcome.error) : undefined,
     fellBack,
-    interrupted:
-      outcome.status === "stream_error" && outcome.content.length > 0,
+    interrupted: outcome.status === "stream_error" && outcome.content.length > 0,
     authFailure: outcome.status === "auth_error",
   };
 }
@@ -371,6 +449,13 @@ export async function parseSSEStream(
     if (buf.length > 0) processLine(buf);
     return { content: acc, complete: doneSeen };
   } catch (err) {
+    if (!doneSeen) {
+      try {
+        await reader.cancel().catch(() => {});
+      } catch {
+        // best-effort cleanup
+      }
+    }
     return {
       content: acc,
       complete: false,
@@ -383,6 +468,8 @@ export async function parseSSEStream(
   } finally {
     try {
       reader.releaseLock();
-    } catch {}
+    } catch {
+      // best-effort: reader may already be released after stream completion
+    }
   }
 }

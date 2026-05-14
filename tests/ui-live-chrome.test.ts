@@ -70,8 +70,46 @@ function makeInteractiveStreams() {
   return { stdin, stdout, chunks };
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+// Event-driven wait: poll `predicate` at a fast cadence; resolve on first
+// truthy result, reject on timeout. Used to replace fixed-duration `delay`
+// calls that were really waiting on observable side-effects (captured
+// stdout chunks, fetch invocations).
+function waitFor<T>(
+  predicate: () => T | null | undefined | false,
+  {
+    timeoutMs = 2500,
+    intervalMs = 10,
+    label = "condition",
+  }: { timeoutMs?: number; intervalMs?: number; label?: string } = {},
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+    const tryOnce = () => {
+      let result: T | null | undefined | false;
+      try {
+        result = predicate();
+      } catch (err) {
+        clearInterval(handle);
+        reject(err);
+        return;
+      }
+      if (result) {
+        clearInterval(handle);
+        resolve(result as T);
+        return;
+      }
+      if (Date.now() - start >= timeoutMs) {
+        clearInterval(handle);
+        reject(new Error(`waitFor timeout: ${label}`));
+      }
+    };
+    const handle = setInterval(tryOnce, intervalMs);
+    tryOnce();
+  });
+}
+
+function captureRendered(chunks: string[]): string {
+  return chunks.join("").replace(ANSI_RE, "");
 }
 
 describe("live chrome width handling", () => {
@@ -94,7 +132,7 @@ describe("live chrome width handling", () => {
     const rendered = renderChrome(
       React.createElement(StreamingMessage, {
         content:
-          "```markdown\n1. Procure 80/20 beef.\n```\n\n```python\nprint(\"Synergy achieved.\")\n```",
+          '```markdown\n1. Procure 80/20 beef.\n```\n\n```python\nprint("Synergy achieved.")\n```',
         width,
       }),
     );
@@ -112,7 +150,7 @@ describe("live chrome width handling", () => {
   test("tiny streaming message starts with useful fenced content", () => {
     const rendered = renderChrome(
       React.createElement(StreamingMessage, {
-        content: "```python\nprint(\"fees\")\n```",
+        content: '```python\nprint("fees")\n```',
         width: 16,
       }),
     );
@@ -139,9 +177,7 @@ describe("live chrome width handling", () => {
 
   test("synergy event variants rotate from deterministic random input", () => {
     expect(pickSynergyEvent(() => 0).id).toBe(SYNERGY_EVENTS[0]?.id);
-    expect(pickSynergyEvent(() => 0.99).id).toBe(
-      SYNERGY_EVENTS[SYNERGY_EVENTS.length - 1]?.id,
-    );
+    expect(pickSynergyEvent(() => 0.99).id).toBe(SYNERGY_EVENTS[SYNERGY_EVENTS.length - 1]?.id);
   });
 
   test("synergy event renders a bounded animated event frame", () => {
@@ -229,12 +265,23 @@ describe("live chrome width handling", () => {
 
     try {
       stdin.write("/synergy");
-      await delay(50);
+      await instance.waitUntilRenderFlush();
       stdin.write("\r");
-      await delay(2300);
+
+      // The synergy animation prints "synergy complete" + the
+      // transcript line "SYNERGY EVENT:" only after the full
+      // 28-frame run plus 8-frame hold (~1.6s). Poll captured chunks
+      // for the final marker instead of sleeping a fixed 2.3s.
+      await waitFor(
+        () => {
+          const r = captureRendered(chunks);
+          return r.includes("synergy complete") && r.includes("SYNERGY EVENT:");
+        },
+        { timeoutMs: 3000, label: "synergy lifecycle complete" },
+      );
       await instance.waitUntilRenderFlush();
 
-      const rendered = chunks.join("").replace(ANSI_RE, "");
+      const rendered = captureRendered(chunks);
       expect(rendered).toContain("SYNERGY EVENT");
       expect(rendered).toContain("boardroom locked");
       expect(rendered).toContain("synergy complete");
@@ -282,31 +329,44 @@ describe("live chrome width handling", () => {
       },
     );
 
-    async function submit(command: string): Promise<string> {
+    // Each /pet variant flips the desk chrome locally without an LLM round
+    // trip, so the only thing the test needs to wait for is a render that
+    // contains the expected marker string. Replace fixed-duration delays
+    // with event-driven waits on captured stdout.
+    async function submit(command: string, expectedMarker: string): Promise<string> {
       stdin.write(command);
-      await delay(40);
       await instance.waitUntilRenderFlush();
       const mark = chunks.length;
       stdin.write("\r");
-      await delay(120);
+      await waitFor(
+        () => {
+          const r = chunks.slice(mark).join("").replace(ANSI_RE, "");
+          return r.includes(expectedMarker);
+        },
+        { timeoutMs: 1500, label: `submit(${command}) -> ${expectedMarker}` },
+      );
       await instance.waitUntilRenderFlush();
       return chunks.slice(mark).join("").replace(ANSI_RE, "");
     }
 
     try {
-      await delay(50);
-      await instance.waitUntilRenderFlush();
+      // Initial render: poll for the intro chrome so we are sure the App
+      // has mounted before we start typing slash commands.
+      await waitFor(() => captureRendered(chunks).includes("Drexler Deal Desk"), {
+        timeoutMs: 1500,
+        label: "initial chrome rendered",
+      });
 
-      const petOn = await submit("/pet");
+      const petOn = await submit("/pet", "Drexler Pet Desk");
       expect(petOn).toContain("Drexler Pet Desk");
       expect(petOn).toContain("Pet Stats");
       expect(petOn).not.toContain("╭─ Tips");
 
-      const petOnAgain = await submit("/pet on");
+      const petOnAgain = await submit("/pet on", "Drexler Pet Desk");
       expect(petOnAgain).toContain("Drexler Pet Desk");
       expect(petOnAgain).toContain("Pet Stats");
 
-      const petOff = await submit("/pet off");
+      const petOff = await submit("/pet off", "Drexler Deal Desk");
       expect(petOff).toContain("╭─ Tips");
       expect(petOff).toContain("Drexler Deal Desk");
       expect(petOff).not.toContain("Pet Stats");
@@ -344,10 +404,25 @@ describe("live chrome width handling", () => {
     );
 
     try {
-      await delay(700);
+      // The intro mascot advances frames every ~520ms; "Deal tape live"
+      // is the second boot note, so polling for both notes proves the
+      // animation actually advanced in-place rather than waiting a fixed
+      // 700ms (which was already a tight bound).
+      await waitFor(
+        () => {
+          const r = captureRendered(chunks);
+          return (
+            r.includes("◆ Briefcase boot") &&
+            r.includes("◆ Deal tape live") &&
+            r.includes("╭─ Tips") &&
+            r.includes("Drexler Deal Desk")
+          );
+        },
+        { timeoutMs: 2000, label: "intro mascot advanced past first frame" },
+      );
       await instance.waitUntilRenderFlush();
 
-      const rendered = chunks.join("").replace(ANSI_RE, "");
+      const rendered = captureRendered(chunks);
       expect(rendered).toContain("◆ Briefcase boot");
       expect(rendered).toContain("◆ Deal tape live");
       expect(rendered).toContain("▰▰");

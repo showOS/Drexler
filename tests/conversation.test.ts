@@ -167,4 +167,21 @@ describe("Conversation (V1, V2, V16)", () => {
     expect(userCount).toBeLessThan(c.userTurns);
     expect(c.userTurns).toBe(10);
   });
+
+  test("trim preserves latest complete pairs without orphaning an assistant", () => {
+    const c = new Conversation("SYS", 6);
+    for (let i = 1; i <= 6; i++) {
+      c.push("user", `u${i}`);
+      c.push("assistant", `a${i}`);
+    }
+
+    expect(c.snapshot().map((m) => `${m.role}:${m.content}`)).toEqual([
+      "system:SYS",
+      "user:u5",
+      "assistant:a5",
+      "user:u6",
+      "assistant:a6",
+    ]);
+    expect(c.userTurns).toBe(6);
+  });
 });

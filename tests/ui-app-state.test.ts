@@ -9,6 +9,7 @@ import { dispatch } from "../src/commands.ts";
 import { Conversation } from "../src/conversation.ts";
 import { loadSavedSession } from "../src/conversation/persist.ts";
 import type { FetchFn } from "../src/llm.ts";
+import { STREAM_ERROR } from "../src/sayings.ts";
 import { App } from "../src/ui/App.tsx";
 import {
   historyNavStep,
@@ -40,10 +41,7 @@ function renderAppWithStdout(
     (ctx as { stdout: NodeJS.WriteStream }).stdout = stdout;
     return React.createElement(App, props);
   }
-  return renderToString(
-    React.createElement(StdoutBackedApp),
-    { columns },
-  ).replace(ANSI_RE, "");
+  return renderToString(React.createElement(StdoutBackedApp), { columns }).replace(ANSI_RE, "");
 }
 
 function makeCtx() {
@@ -95,8 +93,42 @@ function makeInteractiveStreams() {
   return { stdin, stdout };
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+// Event-driven wait: poll `predicate` at a fast cadence; resolve on first
+// truthy result, reject on timeout. Used to replace fixed-duration `delay`
+// calls that were really waiting for an observable side-effect (a fetch,
+// a conversation update, a persisted session change).
+function waitFor<T>(
+  predicate: () => T | null | undefined | false,
+  {
+    timeoutMs = 2000,
+    intervalMs = 5,
+    label = "condition",
+  }: { timeoutMs?: number; intervalMs?: number; label?: string } = {},
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+    const tryOnce = () => {
+      let result: T | null | undefined | false;
+      try {
+        result = predicate();
+      } catch (err) {
+        clearInterval(handle);
+        reject(err);
+        return;
+      }
+      if (result) {
+        clearInterval(handle);
+        resolve(result as T);
+        return;
+      }
+      if (Date.now() - start >= timeoutMs) {
+        clearInterval(handle);
+        reject(new Error(`waitFor timeout: ${label}`));
+      }
+    };
+    const handle = setInterval(tryOnce, intervalMs);
+    tryOnce();
+  });
 }
 
 function streamResponse(content: string): Response {
@@ -104,6 +136,18 @@ function streamResponse(content: string): Response {
     choices: [{ delta: { content }, finish_reason: null }],
   });
   return new Response(`data: ${chunk}\n\ndata: [DONE]\n\n`, {
+    status: 200,
+    headers: { "content-type": "text/event-stream" },
+  });
+}
+
+function interruptedStreamResponse(content: string): Response {
+  // Emit one content delta, then close without [DONE] ⇒ streamChat returns
+  // { ok: false, interrupted: true, content }.
+  const chunk = JSON.stringify({
+    choices: [{ delta: { content }, finish_reason: null }],
+  });
+  return new Response(`data: ${chunk}\n\n`, {
     status: 200,
     headers: { "content-type": "text/event-stream" },
   });
@@ -223,12 +267,24 @@ describe("App state helpers", () => {
       process.env.HOME = home;
       delete process.env.XDG_STATE_HOME;
 
+      // Resolve when the App actually issues the OpenRouter fetch — the
+      // moment we know `hello` has been committed to the conversation
+      // and the stream is about to drain.
+      let fetchCalled!: () => void;
+      const fetchPromise = new Promise<void>((r) => {
+        fetchCalled = r;
+      });
+      const fetchFn: FetchFn = async () => {
+        fetchCalled();
+        return streamResponse("answer");
+      };
+
       const instance = render(
         React.createElement(App, {
           conversation: ctx.conversation,
           config: ctx.config,
           mood: "ruthless",
-          fetchFn: async () => streamResponse("answer"),
+          fetchFn,
         }),
         {
           stdin: stdin as unknown as NodeJS.ReadStream,
@@ -241,40 +297,248 @@ describe("App state helpers", () => {
       );
 
       try {
-        await delay(30);
+        // Type a user turn and submit. Wait for the fetch deferred to fire
+        // (event-driven) rather than polling the conversation length on a
+        // fixed-delay loop. Some Ink builds key off "data" boundaries to
+        // distinguish typed characters from Enter, so we keep the two
+        // writes separate but with no fixed wait between them.
         stdin.write("hello");
-        await delay(20);
+        await instance.waitUntilRenderFlush();
         stdin.write("\r");
-        for (let i = 0; i < 20 && ctx.conversation.length < 2; i++) {
-          await delay(20);
-        }
-        expect(ctx.conversation.length).toBeGreaterThanOrEqual(2);
+        await fetchPromise;
+        // Stream needs a render flush to commit the assistant message and
+        // the conversation length transition (user + assistant).
+        await waitFor(() => ctx.conversation.length >= 2, {
+          timeoutMs: 1000,
+          label: "conversation has user+assistant",
+        });
 
         stdin.write("/model 26b");
-        await delay(20);
+        await instance.waitUntilRenderFlush();
         stdin.write("\r");
-        await delay(80);
+        // Slash-command model switch is synchronous app-state; one render
+        // flush is enough before the unmount tears persistence down.
         await instance.waitUntilRenderFlush();
 
         instance.unmount();
         didUnmount = true;
 
-        let loaded = loadSavedSession();
-        for (let i = 0; i < 20 && loaded?.model !== MODEL_FALLBACK; i++) {
-          await delay(25);
-          loaded = loadSavedSession();
-        }
+        const loaded = await waitFor(
+          () => {
+            const s = loadSavedSession();
+            return s?.model === MODEL_FALLBACK ? s : null;
+          },
+          { timeoutMs: 1000, label: "persisted MODEL_FALLBACK" },
+        );
 
         expect(loaded).not.toBeNull();
         expect(loaded!.model).toBe(MODEL_FALLBACK);
-        expect(loaded!.messages.map((m) => m.content)).toEqual([
-          "hello",
-          "answer",
-        ]);
+        expect(loaded!.messages.map((m) => m.content)).toEqual(["hello", "answer"]);
       } finally {
         if (!didUnmount) instance.unmount();
       }
     } finally {
+      if (origHome !== undefined) process.env.HOME = origHome;
+      else delete process.env.HOME;
+      if (origXdg !== undefined) process.env.XDG_STATE_HOME = origXdg;
+      else delete process.env.XDG_STATE_HOME;
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("App drops partial assistant on stream interrupt and surfaces STREAM_ERROR (§V8)", async () => {
+    const origHome = process.env.HOME;
+    const origXdg = process.env.XDG_STATE_HOME;
+    const home = await mkdtemp(join(tmpdir(), "drexler-app-v8-"));
+    const { stdin } = makeInteractiveStreams();
+    const captured: string[] = [];
+    const stdout = new Writable({
+      write(chunk, _encoding, callback) {
+        captured.push(chunk.toString());
+        callback();
+      },
+    }) as Writable & {
+      columns: number;
+      rows: number;
+      isTTY: boolean;
+      cursorTo: () => void;
+      clearLine: () => void;
+      moveCursor: () => void;
+    };
+    stdout.columns = 96;
+    stdout.rows = 30;
+    stdout.isTTY = true;
+    stdout.cursorTo = () => undefined;
+    stdout.clearLine = () => undefined;
+    stdout.moveCursor = () => undefined;
+
+    const ctx = makeCtx();
+    let didUnmount = false;
+    try {
+      process.env.HOME = home;
+      delete process.env.XDG_STATE_HOME;
+
+      const instance = render(
+        React.createElement(App, {
+          conversation: ctx.conversation,
+          config: ctx.config,
+          mood: "ruthless",
+          fetchFn: async () => interruptedStreamResponse("partial..."),
+        }),
+        {
+          stdin: stdin as unknown as NodeJS.ReadStream,
+          stdout: stdout as unknown as NodeJS.WriteStream,
+          exitOnCtrlC: false,
+          interactive: true,
+          patchConsole: false,
+          maxFps: 60,
+        },
+      );
+
+      try {
+        await waitFor(() => captured.join("").length > 0, {
+          timeoutMs: 1000,
+          label: "initial render",
+        });
+        stdin.write("hello");
+        await waitFor(() => captured.join("").includes("hello"), {
+          timeoutMs: 1000,
+          label: "input echoed",
+        });
+        stdin.write("\r");
+        await waitFor(() => captured.join("").includes(STREAM_ERROR), {
+          timeoutMs: 3000,
+          label: "STREAM_ERROR rendered",
+        });
+
+        const allOutput = captured.join("");
+        expect(allOutput).toContain(STREAM_ERROR);
+        // V8: partial assistant text must not be persisted into history.
+        const messages = ctx.conversation.snapshot();
+        for (const m of messages) {
+          expect(m.role).not.toBe("assistant");
+          expect(m.content).not.toContain("partial...");
+        }
+      } finally {
+        instance.unmount();
+        didUnmount = true;
+      }
+    } finally {
+      if (!didUnmount) {
+        // unmount already handled
+      }
+      if (origHome !== undefined) process.env.HOME = origHome;
+      else delete process.env.HOME;
+      if (origXdg !== undefined) process.env.XDG_STATE_HOME = origXdg;
+      else delete process.env.XDG_STATE_HOME;
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("Esc after a partial stream discards assistant content and keeps retryable user turn", async () => {
+    const origHome = process.env.HOME;
+    const origXdg = process.env.XDG_STATE_HOME;
+    const home = await mkdtemp(join(tmpdir(), "drexler-app-cancel-"));
+    const { stdin } = makeInteractiveStreams();
+    const captured: string[] = [];
+    const stdout = new Writable({
+      write(chunk, _encoding, callback) {
+        captured.push(chunk.toString());
+        callback();
+      },
+    }) as Writable & {
+      columns: number;
+      rows: number;
+      isTTY: boolean;
+      cursorTo: () => void;
+      clearLine: () => void;
+      moveCursor: () => void;
+    };
+    stdout.columns = 96;
+    stdout.rows = 30;
+    stdout.isTTY = true;
+    stdout.cursorTo = () => undefined;
+    stdout.clearLine = () => undefined;
+    stdout.moveCursor = () => undefined;
+
+    const ctx = makeCtx();
+    let didUnmount = false;
+    try {
+      process.env.HOME = home;
+      delete process.env.XDG_STATE_HOME;
+
+      const fetchFn: FetchFn = async (_url, init) => {
+        const enc = new TextEncoder();
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              enc.encode(
+                `data: ${JSON.stringify({ choices: [{ delta: { content: "partial..." }, finish_reason: null }] })}\n\n`,
+              ),
+            );
+            init?.signal?.addEventListener(
+              "abort",
+              () => controller.error(new Error("aborted by test")),
+              { once: true },
+            );
+          },
+        });
+        return new Response(stream, {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      };
+
+      const instance = render(
+        React.createElement(App, {
+          conversation: ctx.conversation,
+          config: ctx.config,
+          mood: "ruthless",
+          fetchFn,
+        }),
+        {
+          stdin: stdin as unknown as NodeJS.ReadStream,
+          stdout: stdout as unknown as NodeJS.WriteStream,
+          exitOnCtrlC: false,
+          interactive: true,
+          patchConsole: false,
+          maxFps: 60,
+        },
+      );
+
+      try {
+        await waitFor(() => captured.join("").length > 0, {
+          timeoutMs: 1000,
+          label: "initial render",
+        });
+        stdin.write("hello");
+        await waitFor(() => captured.join("").includes("hello"), {
+          timeoutMs: 1000,
+          label: "input echoed",
+        });
+        stdin.write("\r");
+        await waitFor(() => captured.join("").includes("partial..."), {
+          timeoutMs: 1000,
+          label: "partial stream rendered",
+        });
+        stdin.write("\x1b");
+        await waitFor(() => captured.join("").includes("/retry available"), {
+          timeoutMs: 1000,
+          label: "cancel notice rendered",
+        });
+
+        const messages = ctx.conversation.snapshot();
+        expect(messages.some((m) => m.role === "user" && m.content === "hello")).toBe(true);
+        expect(messages.some((m) => m.role === "assistant")).toBe(false);
+        expect(messages.some((m) => m.content.includes("partial..."))).toBe(false);
+      } finally {
+        instance.unmount();
+        didUnmount = true;
+      }
+    } finally {
+      if (!didUnmount) {
+        // unmount already handled
+      }
       if (origHome !== undefined) process.env.HOME = origHome;
       else delete process.env.HOME;
       if (origXdg !== undefined) process.env.XDG_STATE_HOME = origXdg;
@@ -316,37 +580,34 @@ describe("App state helpers", () => {
   test.each([
     [90, 30],
     [100, 30],
-  ])(
-    "App does not render automatic pet chrome on %d-column terminals",
-    async (columns, rows) => {
-      const origHome = process.env.HOME;
-      const home = await mkdtemp(join(tmpdir(), "drexler-app-no-pet-"));
-      try {
-        process.env.HOME = home;
-        const ctx = makeCtx();
-        const rendered = renderAppWithStdout(
-          {
-            conversation: ctx.conversation,
-            config: ctx.config,
-            mood: "ruthless",
-          },
-          columns,
-          rows,
-        );
+  ])("App does not render automatic pet chrome on %d-column terminals", async (columns, rows) => {
+    const origHome = process.env.HOME;
+    const home = await mkdtemp(join(tmpdir(), "drexler-app-no-pet-"));
+    try {
+      process.env.HOME = home;
+      const ctx = makeCtx();
+      const rendered = renderAppWithStdout(
+        {
+          conversation: ctx.conversation,
+          config: ctx.config,
+          mood: "ruthless",
+        },
+        columns,
+        rows,
+      );
 
-        expect(rendered).toContain("Drexler Deal Desk");
-        expect(rendered).not.toContain("Drexler Pet Desk");
-        expect(rendered).not.toContain("pet ");
-        for (const row of rendered.split("\n")) {
-          expect(displayWidth(row)).toBeLessThanOrEqual(columns);
-        }
-      } finally {
-        if (origHome !== undefined) process.env.HOME = origHome;
-        else delete process.env.HOME;
-        await rm(home, { recursive: true, force: true });
+      expect(rendered).toContain("Drexler Deal Desk");
+      expect(rendered).not.toContain("Drexler Pet Desk");
+      expect(rendered).not.toContain("pet ");
+      for (const row of rendered.split("\n")) {
+        expect(displayWidth(row)).toBeLessThanOrEqual(columns);
       }
-    },
-  );
+    } finally {
+      if (origHome !== undefined) process.env.HOME = origHome;
+      else delete process.env.HOME;
+      await rm(home, { recursive: true, force: true });
+    }
+  });
 
   test("App does not render a one-line pet ticker on tiny terminals by default", async () => {
     const origHome = process.env.HOME;

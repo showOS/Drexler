@@ -61,11 +61,7 @@ export function loadSavedSession(): SavedSession | null {
   try {
     const raw = readFileSync(path, "utf-8");
     const parsed: unknown = JSON.parse(raw);
-    if (
-      parsed === null ||
-      typeof parsed !== "object" ||
-      Array.isArray(parsed)
-    ) {
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
       return null;
     }
     const obj = parsed as Partial<SavedSession>;
@@ -118,7 +114,9 @@ async function writeSessionAtomic(session: SavedSession): Promise<void> {
     } catch (err) {
       try {
         await unlink(tmp);
-      } catch {}
+      } catch {
+        // best-effort cleanup; tmp may already be gone
+      }
       throw err;
     }
   } catch {
@@ -145,9 +143,8 @@ export function buildSavedSession(
   // (which may have shifted with mood) is re-attached on resume from
   // the current process's systemPrompt.
   const body = snap.filter((m) => m.role !== "system");
-  const trimmed = body.length > MAX_SAVED_MESSAGES
-    ? body.slice(body.length - MAX_SAVED_MESSAGES)
-    : body;
+  const trimmed =
+    body.length > MAX_SAVED_MESSAGES ? body.slice(body.length - MAX_SAVED_MESSAGES) : body;
   return {
     version: SCHEMA_VERSION,
     savedAt: Date.now(),
@@ -185,9 +182,7 @@ export function describeSession(session: SavedSession): SessionPreview {
     messageCount: session.messages.length,
     lastUserSnippet: lastUser && lastUser.length >= MIN_PREVIEW_LEN ? lastUser : null,
     lastAssistantSnippet:
-      lastAssistant && lastAssistant.length >= MIN_PREVIEW_LEN
-        ? lastAssistant
-        : null,
+      lastAssistant && lastAssistant.length >= MIN_PREVIEW_LEN ? lastAssistant : null,
     model: session.model,
   };
 }

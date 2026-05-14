@@ -20,7 +20,7 @@ type Block =
   | { kind: "hr" }
   | { kind: "blank" };
 
-const BULLET_RE = /^(\s*)([*+\-]|\d+\.)\s+(.*)$/;
+const BULLET_RE = /^(\s*)([*+-]|\d+\.)\s+(.*)$/;
 const HEADING_RE = /^(#{1,6})\s+(.*)$/;
 const HR_RE = /^\s*([-*_])\1\1[-*_\s]*$/;
 const FENCE_RE = /^\s*(`{3,}|~{3,})(.*)$/;
@@ -37,7 +37,18 @@ function isFenceClose(line: string, marker: string): boolean {
   return true;
 }
 
+const inlineTokenCache = new Map<string, InlineToken[]>();
+const MAX_INLINE_TOKEN_CACHE = 1024;
+
 export function tokenizeInline(input: string): InlineToken[] {
+  const cached = inlineTokenCache.get(input);
+  if (cached !== undefined) {
+    // Bump to MRU
+    inlineTokenCache.delete(input);
+    inlineTokenCache.set(input, cached);
+    return cached;
+  }
+
   const tokens: InlineToken[] = [];
   let buf = "";
   let i = 0;
@@ -81,12 +92,17 @@ export function tokenizeInline(input: string): InlineToken[] {
       if (next !== undefined && next !== ch && next !== " " && next !== "\t") {
         let end = -1;
         for (let j = i + 1; j < input.length; j++) {
-          if (input[j] === ch && input[j - 1] !== " " && input[j + 1] !== ch && input[j - 1] !== ch) {
+          if (
+            input[j] === ch &&
+            input[j - 1] !== " " &&
+            input[j + 1] !== ch &&
+            input[j - 1] !== ch
+          ) {
             end = j;
             break;
           }
         }
-        if (end !== -1 && (prev === undefined || /\s|[(\[{]/.test(prev))) {
+        if (end !== -1 && (prev === undefined || /\s|[([{]/.test(prev))) {
           flushBuf();
           tokens.push({ text: input.slice(i + 1, end), italic: true });
           i = end + 1;
@@ -126,6 +142,12 @@ export function tokenizeInline(input: string): InlineToken[] {
     i += 1;
   }
   flushBuf();
+
+  if (inlineTokenCache.size >= MAX_INLINE_TOKEN_CACHE) {
+    const oldest = inlineTokenCache.keys().next().value;
+    if (oldest !== undefined) inlineTokenCache.delete(oldest);
+  }
+  inlineTokenCache.set(input, tokens);
   return tokens;
 }
 
@@ -223,14 +245,13 @@ export function parseBlocks(input: string): Block[] {
   return blocks;
 }
 
-function renderInline(
-  tokens: InlineToken[],
-  colors: { code: string; link: string },
-): ReactNode[] {
+function renderInline(tokens: InlineToken[], colors: { code: string; link: string }): ReactNode[] {
   return tokens.map((tok, idx) => {
     if (tok.code) {
       return (
         <Text key={idx} color={colors.code}>
+          {/* intentional U+2009 thin spaces for inline code visual padding */}
+          {/* eslint-disable-next-line no-irregular-whitespace */}
           {` ${tok.text} `}
         </Text>
       );
@@ -334,16 +355,8 @@ function MarkdownBodyInner({
             );
           case "code":
             return (
-              <Box
-                key={idx}
-                paddingLeft={paddingLeft}
-                flexDirection="column"
-              >
-                {block.lang ? (
-                  <Text color={dim}>
-                    [{block.lang.toLowerCase()}]
-                  </Text>
-                ) : null}
+              <Box key={idx} paddingLeft={paddingLeft} flexDirection="column">
+                {block.lang ? <Text color={dim}>[{block.lang.toLowerCase()}]</Text> : null}
                 {block.lines.map((ln, j) => (
                   <Box key={j}>
                     <Text color={code}>{"│ "}</Text>

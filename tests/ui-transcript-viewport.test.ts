@@ -4,6 +4,7 @@ import React from "react";
 import {
   estimateTranscriptRows,
   TranscriptViewport,
+  transcriptCodeTokenCacheSize,
   wrappedTranscriptLines,
   type TranscriptViewportItem,
 } from "../src/ui/TranscriptViewport.tsx";
@@ -13,9 +14,7 @@ import { THEMES } from "../src/ui/themes.ts";
 
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
 
-function renderViewport(
-  props: React.ComponentProps<typeof TranscriptViewport>,
-): string {
+function renderViewport(props: React.ComponentProps<typeof TranscriptViewport>): string {
   return renderToString(
     React.createElement(ThemeProvider, {
       value: THEMES.apollo,
@@ -70,9 +69,7 @@ describe("TranscriptViewport", () => {
     expect(rendered).not.toContain("response ledger");
     expect(rendered).toContain("Covenant cushion acceptable.");
     expect(rendered).toContain("╯");
-    const userBody = rendered
-      .split("\n")
-      .find((row) => row.includes("Need covenant readout."));
+    const userBody = rendered.split("\n").find((row) => row.includes("Need covenant readout."));
     const drexlerBody = rendered
       .split("\n")
       .find((row) => row.includes("Covenant cushion acceptable."));
@@ -96,6 +93,28 @@ describe("TranscriptViewport", () => {
     expect(rendered).toContain("YOU › memo 5");
     expect(rendered).toContain("DREXLER ◆ memo 6");
     expect(rendered).not.toContain("\nYOU\n");
+  });
+
+  test("renders system messages with section marker and normal body alignment", () => {
+    const rendered = renderViewport({
+      items: [{ id: "sys", role: "system", content: "Pet dashboard enabled." }],
+      maxRows: 4,
+      cols: 72,
+    });
+
+    expect(rendered).toContain("╭─ SYSTEM");
+    expect(rendered).toContain("│ § Pet dashboard enabled.");
+  });
+
+  test("renders compact system messages with section marker", () => {
+    const rendered = renderViewport({
+      items: [{ id: "sys", role: "system", content: "Pet dashboard enabled." }],
+      maxRows: 2,
+      cols: 42,
+      compact: true,
+    });
+
+    expect(rendered).toContain("SYSTEM § Pet dashboard enabled.");
   });
 
   test("wraps default item rendering to narrow columns", () => {
@@ -212,9 +231,7 @@ describe("TranscriptViewport", () => {
 
     expect(withTrailingBlanks.split("\n")).toHaveLength(clean.split("\n").length);
     expect(withTrailingBlanks).toContain("Drexler has one memo.");
-    expect(withInternalBlank.split("\n").length).toBeGreaterThan(
-      clean.split("\n").length,
-    );
+    expect(withInternalBlank.split("\n").length).toBeGreaterThan(clean.split("\n").length);
     expect(withInternalBlank).toContain("First memo.");
     expect(withInternalBlank).toContain("Second memo.");
   });
@@ -226,7 +243,7 @@ describe("TranscriptViewport", () => {
           id: "assistant-code",
           role: "assistant",
           content:
-            "Specify asset class.\n\n```python\nprint(\"Synergy achieved.\")\n```\n\nCode must deliver ROI.",
+            'Specify asset class.\n\n```python\nprint("Synergy achieved.")\n```\n\nCode must deliver ROI.',
         },
       ],
       maxRows: 12,
@@ -250,7 +267,7 @@ describe("TranscriptViewport", () => {
           id: "assistant-mixed-fences",
           role: "assistant",
           content:
-            "First memo\r\n~~~md\r\n- Raise fee\r\n~~~\r\nThen code\r\n```\r\nconst fee = \"absurd\";\r\n```",
+            'First memo\r\n~~~md\r\n- Raise fee\r\n~~~\r\nThen code\r\n```\r\nconst fee = "absurd";\r\n```',
         },
       ],
       maxRows: 14,
@@ -316,7 +333,7 @@ describe("TranscriptViewport", () => {
         {
           id: "assistant-tabbed-code",
           role: "assistant",
-          content: "```python\nif deal:\n\tprint(\"fees\")\n```",
+          content: '```python\nif deal:\n\tprint("fees")\n```',
         },
       ],
       maxRows: 8,
@@ -581,14 +598,30 @@ describe("wrappedTranscriptLines cache (P10)", () => {
       role: "assistant",
       content: "first memo",
     };
-    expect(renderViewport({ items: [item], maxRows: 8, cols: 72 })).toContain(
-      "first memo",
-    );
+    expect(renderViewport({ items: [item], maxRows: 8, cols: 72 })).toContain("first memo");
 
     (item as { content: string }).content = "second memo";
     const rendered = renderViewport({ items: [item], maxRows: 8, cols: 72 });
 
     expect(rendered).toContain("second memo");
     expect(rendered).not.toContain("first memo");
+  });
+
+  test("code token cache stays bounded across many rendered code lines", () => {
+    for (let i = 0; i < 320; i += 1) {
+      renderViewport({
+        items: [
+          {
+            id: `code-${i}`,
+            role: "assistant",
+            content: `\`\`\`ts\nconst fee${i} = ${i};\n\`\`\``,
+          },
+        ],
+        maxRows: 6,
+        cols: 72,
+      });
+    }
+
+    expect(transcriptCodeTokenCacheSize()).toBeLessThanOrEqual(256);
   });
 });

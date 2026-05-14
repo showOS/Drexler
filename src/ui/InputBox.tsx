@@ -81,13 +81,7 @@ function fitPlainText(chars: string[], cursor: number, maxWidth: number): string
   return out || " ";
 }
 
-function InputBoxInner({
-  value,
-  cursor,
-  disabled,
-  width,
-  disabledLabel,
-}: Props) {
+function InputBoxInner({ value, cursor, disabled, width, disabledLabel }: Props) {
   const t = useTheme();
   const chars = splitGraphemes(value);
   const safeCursor = clampCursor(value, cursor);

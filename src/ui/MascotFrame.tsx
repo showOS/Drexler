@@ -37,8 +37,8 @@ export function renderMascotLines(p: MascotState): string[] {
     p.eyes === "open"
       ? BRIEFCASE_FINAL[3]
       : p.eyes === "closed"
-      ? " ║   ─      ─   ║"
-      : " ║              ║";
+        ? " ║   ─      ─   ║"
+        : " ║              ║";
 
   if (!p.showLock) {
     lines[4] = " ║              ║";

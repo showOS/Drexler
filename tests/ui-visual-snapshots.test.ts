@@ -7,10 +7,7 @@ import { DealDeskHeader } from "../src/ui/DealDeskHeader.tsx";
 import { displayWidth } from "../src/ui/graphemes.ts";
 import { InputBox } from "../src/ui/InputBox.tsx";
 import { StatusBar } from "../src/ui/StatusBar.tsx";
-import {
-  TranscriptViewport,
-  type TranscriptViewportItem,
-} from "../src/ui/TranscriptViewport.tsx";
+import { TranscriptViewport, type TranscriptViewportItem } from "../src/ui/TranscriptViewport.tsx";
 import { ThemeProvider } from "../src/ui/ThemeContext.tsx";
 import { THEMES } from "../src/ui/themes.ts";
 

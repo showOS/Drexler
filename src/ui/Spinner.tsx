@@ -52,19 +52,11 @@ function SpinnerInner({ label, width = 80 }: Props) {
   const stageLabel = showStage ? ` · ${stage}` : "";
   const secondsLabel = seconds > 0 && safeWidth >= 34 ? ` · ${seconds}s` : "";
   const fixedWidth =
-    displayWidth(`${FRAMES[i]} WORKING ─ `) +
-    displayWidth(stageLabel) +
-    displayWidth(secondsLabel);
+    displayWidth(`${FRAMES[i]} WORKING ─ `) + displayWidth(stageLabel) + displayWidth(secondsLabel);
   const labelBudget = Math.max(1, innerWidth - fixedWidth);
 
   return (
-    <Box
-      borderStyle="round"
-      borderColor={t.primary}
-      paddingX={1}
-      width={safeWidth}
-      flexShrink={1}
-    >
+    <Box borderStyle="round" borderColor={t.primary} paddingX={1} width={safeWidth} flexShrink={1}>
       <Text color={t.primaryLight}>{FRAMES[i]} </Text>
       <Text color={t.primaryLight} bold>
         WORKING
@@ -78,6 +70,5 @@ function SpinnerInner({ label, width = 80 }: Props) {
     </Box>
   );
 }
-
 
 export const Spinner = memo(SpinnerInner);

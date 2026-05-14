@@ -41,3 +41,28 @@ export function pickGreeting(greetings: string[]): string {
   const i = Math.floor(Math.random() * greetings.length);
   return greetings[i] ?? greetings[0]!;
 }
+
+export interface LazyPersona {
+  system: () => Promise<string>;
+  openers: () => Promise<string[]>;
+  preload: () => void;
+}
+
+export function loadPersonaLazy(path: string): LazyPersona {
+  let inflight: Promise<PersonaData> | null = null;
+  const start = (): Promise<PersonaData> => {
+    if (!inflight) inflight = loadPersona(path);
+    return inflight;
+  };
+  return {
+    system: async () => (await start()).systemPrompt,
+    openers: async () => (await start()).greetings,
+    preload: () => {
+      // Fire-and-forget. Attach a noop catch so an early rejection
+      // before the first awaiter doesn't surface as an unhandled
+      // rejection; the real error is still thrown when system() /
+      // openers() awaits the same cached promise.
+      start().catch(() => {});
+    },
+  };
+}

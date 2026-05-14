@@ -1,5 +1,12 @@
-import { describe, expect, test } from "bun:test";
-import { parseSSEStream, streamChat } from "../src/llm.ts";
+import { beforeEach, describe, expect, test } from "bun:test";
+import {
+  clearTelemetry,
+  getRecentTelemetry,
+  parseSSEStream,
+  recordTelemetry,
+  sanitizeTelemetryText,
+  streamChat,
+} from "../src/llm.ts";
 import { MODEL_FALLBACK, MODEL_PRIMARY } from "../src/types.ts";
 
 function streamFromString(s: string): ReadableStream<Uint8Array> {
@@ -13,8 +20,9 @@ function streamFromString(s: string): ReadableStream<Uint8Array> {
 }
 
 function makeSSE(tokens: string[]): string {
-  const events = tokens.map((t) =>
-    `data: ${JSON.stringify({ choices: [{ delta: { content: t }, finish_reason: null }] })}\n\n`,
+  const events = tokens.map(
+    (t) =>
+      `data: ${JSON.stringify({ choices: [{ delta: { content: t }, finish_reason: null }] })}\n\n`,
   );
   events.push("data: [DONE]\n\n");
   return events.join("");
@@ -302,9 +310,9 @@ describe("streamChat (V3 fallback)", () => {
   });
 
   test("stop sequence array present in request body sent to fetch", async () => {
-    let capturedBody: any = null;
+    const captured: { body: Record<string, unknown> | null } = { body: null };
     const fetchFn: import("../src/llm.ts").FetchFn = async (_u, init) => {
-      capturedBody = JSON.parse(String(init?.body ?? "{}"));
+      captured.body = JSON.parse(String(init?.body ?? "{}"));
       return new Response(streamFromString(makeSSE(["ok"])), {
         status: 200,
         headers: { "content-type": "text/event-stream" },
@@ -317,8 +325,8 @@ describe("streamChat (V3 fallback)", () => {
       onToken: () => {},
       fetchFn,
     });
-    expect(Array.isArray(capturedBody.stop)).toBe(true);
-    expect(capturedBody.stop).toEqual([
+    expect(Array.isArray(captured.body?.stop)).toBe(true);
+    expect(captured.body?.stop).toEqual([
       "Meeting adjourned.",
       "Severance package incoming.",
       "Not culture-fit.",
@@ -362,7 +370,7 @@ describe("streamChat (V3 fallback)", () => {
   });
 
   test("request body includes max_tokens and temperature", async () => {
-    let body: any;
+    let body: Record<string, unknown> | undefined;
     const fetchFn: import("../src/llm.ts").FetchFn = async (_u, init) => {
       body = JSON.parse(String(init?.body ?? "{}"));
       return new Response(streamFromString(makeSSE(["ok"])), {
@@ -377,16 +385,16 @@ describe("streamChat (V3 fallback)", () => {
       onToken: () => {},
       fetchFn,
     });
-    expect(typeof body.max_tokens).toBe("number");
-    expect(body.max_tokens).toBeGreaterThan(0);
-    expect(typeof body.temperature).toBe("number");
-    expect(body.stream).toBe(true);
+    expect(typeof body?.max_tokens).toBe("number");
+    expect(body?.max_tokens as number).toBeGreaterThan(0);
+    expect(typeof body?.temperature).toBe("number");
+    expect(body?.stream).toBe(true);
   });
 
   test("request headers include Authorization Bearer + content-type + UA tags", async () => {
-    let headers: any;
+    let headers: Record<string, string> | undefined;
     const fetchFn: import("../src/llm.ts").FetchFn = async (_u, init) => {
-      headers = init?.headers;
+      headers = init?.headers as Record<string, string> | undefined;
       return new Response(streamFromString(makeSSE(["ok"])), {
         status: 200,
         headers: { "content-type": "text/event-stream" },
@@ -399,10 +407,10 @@ describe("streamChat (V3 fallback)", () => {
       onToken: () => {},
       fetchFn,
     });
-    expect(headers.Authorization).toBe("Bearer the-secret-key");
-    expect(headers["Content-Type"]).toBe("application/json");
-    expect(headers["HTTP-Referer"]).toMatch(/^https?:\/\//);
-    expect(headers["X-Title"]).toBe("Drexler CLI");
+    expect(headers?.Authorization).toBe("Bearer the-secret-key");
+    expect(headers?.["Content-Type"]).toBe("application/json");
+    expect(headers?.["HTTP-Referer"]).toMatch(/^https?:\/\//);
+    expect(headers?.["X-Title"]).toBe("Drexler CLI");
   });
 
   test("request POSTs to OpenRouter chat completions URL", async () => {
@@ -422,9 +430,7 @@ describe("streamChat (V3 fallback)", () => {
       onToken: () => {},
       fetchFn,
     });
-    expect(String(url)).toBe(
-      "https://openrouter.ai/api/v1/chat/completions",
-    );
+    expect(String(url)).toBe("https://openrouter.ai/api/v1/chat/completions");
   });
 
   test("AbortSignal forwarded to fetch (composed with connect timeout)", async () => {
@@ -456,7 +462,9 @@ describe("streamChat (V3 fallback)", () => {
 
   test("401 returns friendly key-rejected message", async () => {
     const fetchFn: import("../src/llm.ts").FetchFn = async () =>
-      new Response(`{"error":{"message":"Missing Authentication header","code":401}}`, { status: 401 });
+      new Response(`{"error":{"message":"Missing Authentication header","code":401}}`, {
+        status: 401,
+      });
     const result = await streamChat({
       apiKey: "k",
       model: MODEL_PRIMARY,
@@ -497,5 +505,104 @@ describe("streamChat (V3 fallback)", () => {
     });
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/aborted/i);
+  });
+});
+
+describe("telemetry ring buffer (§T13, V39)", () => {
+  beforeEach(() => {
+    clearTelemetry();
+  });
+
+  test("recordTelemetry pushes a frame retrievable via getRecentTelemetry", () => {
+    recordTelemetry({
+      at: 1_700_000_000_000,
+      model: MODEL_PRIMARY,
+      ok: true,
+      status: "ok",
+      modelUsed: MODEL_PRIMARY,
+      durationMs: 42,
+    });
+    const frames = getRecentTelemetry();
+    expect(frames).toHaveLength(1);
+    expect(frames[0]).toMatchObject({
+      model: MODEL_PRIMARY,
+      ok: true,
+      status: "ok",
+      durationMs: 42,
+    });
+  });
+
+  test("buffer trims to 5 frames FIFO", () => {
+    for (let i = 0; i < 8; i++) {
+      recordTelemetry({
+        at: i,
+        model: MODEL_PRIMARY,
+        ok: i % 2 === 0,
+        status: `s${i}`,
+      });
+    }
+    const frames = getRecentTelemetry();
+    expect(frames).toHaveLength(5);
+    // Oldest three (at 0,1,2) dropped; remaining is 3..7
+    expect(frames.map((f) => f.at)).toEqual([3, 4, 5, 6, 7]);
+  });
+
+  test("getRecentTelemetry returns a defensive copy", () => {
+    recordTelemetry({ at: 1, model: MODEL_PRIMARY, ok: true });
+    const snap = getRecentTelemetry();
+    snap.push({ at: 999, model: "fake", ok: false });
+    snap[0]!.model = "mutated";
+    expect(getRecentTelemetry()).toHaveLength(1);
+    expect(getRecentTelemetry()[0]!.model).toBe(MODEL_PRIMARY);
+  });
+
+  test("streamChat records a frame on http_error outcome", async () => {
+    const fetchFn: import("../src/llm.ts").FetchFn = async () => {
+      throw new Error("network down");
+    };
+    await streamChat({
+      apiKey: "k",
+      model: MODEL_PRIMARY,
+      messages: [{ role: "user", content: "hi" }],
+      onToken: () => {},
+      fetchFn,
+    });
+    const frames = getRecentTelemetry();
+    expect(frames.length).toBeGreaterThanOrEqual(1);
+    const last = frames[frames.length - 1]!;
+    expect(last.ok).toBe(false);
+    expect(last.model).toBe(MODEL_PRIMARY);
+    expect(last.status).toBe("http_error");
+    expect(typeof last.durationMs).toBe("number");
+    expect(last.error).toMatch(/network down/);
+  });
+
+  test("sanitizes secrets, home paths, and long JSON bodies", () => {
+    const origHome = process.env.HOME;
+    try {
+      process.env.HOME = "/Users/example";
+      expect(
+        sanitizeTelemetryText(
+          "Authorization: Bearer sk-or-v1-secret bearer abc.def /Users/example/project",
+        ),
+      ).toBe("Authorization: [redacted] Bearer [redacted] ~/project");
+      const body = JSON.stringify({ error: "x".repeat(260) });
+      expect(sanitizeTelemetryText(body)).toMatch(/^\[redacted JSON body:/);
+    } finally {
+      if (origHome !== undefined) process.env.HOME = origHome;
+      else delete process.env.HOME;
+    }
+  });
+
+  test("recordTelemetry stores sanitized errors only", () => {
+    recordTelemetry({
+      at: 1,
+      model: MODEL_PRIMARY,
+      ok: false,
+      error: "Bearer sk-or-v1-secret",
+    });
+    const error = getRecentTelemetry()[0]!.error ?? "";
+    expect(error).toContain("[redacted]");
+    expect(error).not.toContain("sk-or-v1-secret");
   });
 });

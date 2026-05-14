@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { existsSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  __setPetWriteImpl,
   accrueLifetimeDeals,
   actionCooldown,
   applyDecay,
@@ -13,6 +15,7 @@ import {
   applyRest,
   applyVibe,
   applyWork,
+  flushPetSaves,
   formatCooldownRemaining,
   formatTenure,
   getPetMood,
@@ -40,13 +43,24 @@ describe("pet state", () => {
   });
 
   afterEach(async () => {
+    // Drain any in-flight async saves so a deferred write from this
+    // test (e.g. loadPetState's dead-pet revive path) doesn't race a
+    // subsequent test's HOME setup. saveQueue is FIFO so awaiting any
+    // newly scheduled save awaits everything ahead of it.
+    await savePetState({
+      hunger: 0,
+      happiness: 0,
+      energy: 0,
+      deals: 0,
+      lastSaved: 0,
+    });
     if (origHome !== undefined) process.env.HOME = origHome;
     else delete process.env.HOME;
     await rm(dir, { recursive: true, force: true });
   });
 
   test("savePetState writes under the active HOME", async () => {
-    savePetState({
+    await savePetState({
       hunger: 70,
       happiness: 60,
       energy: 50,
@@ -383,21 +397,31 @@ describe("pet state", () => {
 
   test("petTenureMs measures since createdAt; 0 when missing", () => {
     const now = Date.now();
-    expect(petTenureMs({
-      hunger: 50,
-      happiness: 50,
-      energy: 50,
-      deals: 50,
-      lastSaved: now,
-      createdAt: now - 5_000,
-    }, now)).toBe(5_000);
-    expect(petTenureMs({
-      hunger: 50,
-      happiness: 50,
-      energy: 50,
-      deals: 50,
-      lastSaved: now,
-    }, now)).toBe(0);
+    expect(
+      petTenureMs(
+        {
+          hunger: 50,
+          happiness: 50,
+          energy: 50,
+          deals: 50,
+          lastSaved: now,
+          createdAt: now - 5_000,
+        },
+        now,
+      ),
+    ).toBe(5_000);
+    expect(
+      petTenureMs(
+        {
+          hunger: 50,
+          happiness: 50,
+          energy: 50,
+          deals: 50,
+          lastSaved: now,
+        },
+        now,
+      ),
+    ).toBe(0);
   });
 
   test("formatTenure renders d/h/m bands", () => {
@@ -410,7 +434,7 @@ describe("pet state", () => {
 
   test("savePetState + loadPetState round-trips name and createdAt", async () => {
     const created = Date.now() - 60_000;
-    savePetState({
+    await savePetState({
       hunger: 70,
       happiness: 60,
       energy: 50,
@@ -501,7 +525,7 @@ describe("pet state", () => {
     expect(formatCooldownRemaining(125_000)).toBe("2m 5s");
   });
 
-  test("lastActionAt persists across save/load round-trips", () => {
+  test("lastActionAt persists across save/load round-trips", async () => {
     const now = Date.now();
     const stats: PetStats = {
       hunger: 50,
@@ -511,7 +535,7 @@ describe("pet state", () => {
       lastSaved: now,
       lastActionAt: { feed: now - 30_000, work: now - 10_000 },
     };
-    savePetState(stats);
+    await savePetState(stats);
     const loaded = loadPetState();
     expect(loaded.lastActionAt?.feed).toBe(now - 30_000);
     expect(loaded.lastActionAt?.work).toBe(now - 10_000);
@@ -568,9 +592,9 @@ describe("pet state", () => {
     expect(accrueLifetimeDeals(base, "praise").lifetimeDeals).toBe(100);
   });
 
-  test("lifetimeDeals persists across save/load round-trips", () => {
+  test("lifetimeDeals persists across save/load round-trips", async () => {
     const now = Date.now();
-    savePetState({
+    await savePetState({
       hunger: 50,
       happiness: 50,
       energy: 50,
@@ -579,5 +603,221 @@ describe("pet state", () => {
       lifetimeDeals: 250,
     });
     expect(loadPetState().lifetimeDeals).toBe(250);
+  });
+
+  test("20 parallel savePetState calls land final state on disk", async () => {
+    const base: PetStats = {
+      hunger: 50,
+      happiness: 50,
+      energy: 50,
+      deals: 0,
+      lastSaved: Date.now(),
+    };
+    for (let i = 0; i < 20; i++) {
+      savePetState({ ...base, deals: i });
+    }
+    await flushPetSaves();
+    const raw = await readFile(join(dir, ".drexler", "pet.json"), "utf-8");
+    const parsed = JSON.parse(raw);
+    // FIFO queue lands the last scheduled call last on disk.
+    expect(parsed.deals).toBe(19);
+  });
+
+  test("live foreign lock returns locked and does not unlink or overwrite", async () => {
+    const petDirPath = join(dir, ".drexler");
+    await mkdir(petDirPath, { recursive: true });
+    const target = join(petDirPath, "pet.json");
+    await writeFile(
+      target,
+      JSON.stringify({
+        hunger: 11,
+        happiness: 22,
+        energy: 33,
+        deals: 44,
+        lastSaved: 1,
+      }),
+    );
+    const lockPath = `${target}.lock`;
+    const lock = {
+      pid: process.pid,
+      token: "foreign-token",
+      createdAt: Date.now(),
+      hostname: "other-host",
+    };
+    await writeFile(lockPath, JSON.stringify(lock));
+
+    const result = await savePetState({
+      hunger: 99,
+      happiness: 99,
+      energy: 99,
+      deals: 99,
+      lastSaved: 2,
+    });
+
+    expect(result).toMatchObject({ ok: false, reason: "locked" });
+    expect(existsSync(lockPath)).toBe(true);
+    const raw = await readFile(target, "utf-8");
+    const parsed = JSON.parse(raw);
+    expect(parsed.hunger).toBe(11);
+    expect(parsed.deals).toBe(44);
+  });
+
+  test("stale lock is removed and save retries once", async () => {
+    const petDirPath = join(dir, ".drexler");
+    await mkdir(petDirPath, { recursive: true });
+    const target = join(petDirPath, "pet.json");
+    await writeFile(
+      `${target}.lock`,
+      JSON.stringify({
+        pid: process.pid,
+        token: "stale-token",
+        createdAt: Date.now() - 60_000,
+        hostname: "other-host",
+      }),
+    );
+
+    const result = await savePetState({
+      hunger: 77,
+      happiness: 66,
+      energy: 55,
+      deals: 44,
+      lastSaved: 2,
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(existsSync(`${target}.lock`)).toBe(false);
+    expect(JSON.parse(await readFile(target, "utf-8")).hunger).toBe(77);
+  });
+
+  test("lockfile is cleaned up after a successful save", async () => {
+    await savePetState({
+      hunger: 60,
+      happiness: 60,
+      energy: 60,
+      deals: 60,
+      lastSaved: Date.now(),
+    });
+    const lockPath = join(dir, ".drexler", "pet.json.lock");
+    expect(existsSync(lockPath)).toBe(false);
+  });
+
+  test("tmp file cleaned up when rename fails (best-effort)", async () => {
+    const { readdirSync } = await import("node:fs");
+    const petDirPath = join(dir, ".drexler");
+    await mkdir(petDirPath, { recursive: true });
+    const target = join(petDirPath, "pet.json");
+    await mkdir(target, { recursive: true });
+    await writeFile(join(target, "sentinel"), "x");
+
+    const result = await savePetState({
+      hunger: 70,
+      happiness: 70,
+      energy: 70,
+      deals: 70,
+      lastSaved: Date.now(),
+    });
+    expect(result).toMatchObject({ ok: false, reason: "write_failed" });
+
+    const entries = readdirSync(petDirPath);
+    const tmps = entries.filter((e) => e.includes(".tmp."));
+    expect(tmps).toEqual([]);
+    const locks = entries.filter((e) => e.endsWith(".lock"));
+    expect(locks).toEqual([]);
+  });
+
+  test("flushPetSaves resolves immediately when the queue is empty", async () => {
+    const started = Date.now();
+    await flushPetSaves(2000);
+    expect(Date.now() - started).toBeLessThan(200);
+  });
+
+  test("flushPetSaves drains 5 parallel savePetState calls before timeout", async () => {
+    const stats: PetStats = {
+      hunger: 60,
+      happiness: 60,
+      energy: 60,
+      deals: 60,
+      lastSaved: Date.now(),
+    };
+    for (let i = 0; i < 5; i++) {
+      savePetState({ ...stats, deals: 60 + i });
+    }
+    const started = Date.now();
+    await flushPetSaves(2000);
+    const elapsed = Date.now() - started;
+    expect(elapsed).toBeLessThan(2000);
+    const raw = await readFile(join(dir, ".drexler", "pet.json"), "utf-8");
+    expect(JSON.parse(raw).deals).toBe(64);
+  });
+
+  test("flushPetSaves times out gracefully without unlinking a foreign lockfile", async () => {
+    const petDir = join(dir, ".drexler");
+    await mkdir(petDir, { recursive: true });
+    const lockPath = join(petDir, "pet.json.lock");
+    writeFileSync(
+      lockPath,
+      JSON.stringify({
+        pid: process.pid,
+        token: "foreign-token",
+        createdAt: Date.now(),
+        hostname: "other-host",
+      }),
+      "utf-8",
+    );
+    expect(existsSync(lockPath)).toBe(true);
+
+    __setPetWriteImpl(() => new Promise<void>(() => {}));
+    try {
+      savePetState({
+        hunger: 50,
+        happiness: 50,
+        energy: 50,
+        deals: 50,
+        lastSaved: Date.now(),
+      });
+
+      const started = Date.now();
+      const result = await flushPetSaves(50);
+      const elapsed = Date.now() - started;
+      expect(elapsed).toBeLessThan(500);
+      expect(result).toMatchObject({ ok: false, reason: "timeout" });
+      expect(existsSync(lockPath)).toBe(true);
+    } finally {
+      __setPetWriteImpl(null);
+    }
+  });
+
+  test("late abandoned queue generation cannot block a newer save", async () => {
+    const base: PetStats = {
+      hunger: 50,
+      happiness: 50,
+      energy: 50,
+      deals: 1,
+      lastSaved: Date.now(),
+    };
+    let releaseFirst!: () => void;
+    const firstWrite = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let calls = 0;
+    __setPetWriteImpl(async () => {
+      calls++;
+      if (calls === 1) await firstWrite;
+      return { ok: true };
+    });
+    try {
+      void savePetState({ ...base, deals: 1 });
+      const timeout = await flushPetSaves(20);
+      expect(timeout).toMatchObject({ ok: false, reason: "timeout" });
+      __setPetWriteImpl(null);
+      await savePetState({ ...base, deals: 2 });
+      releaseFirst();
+      await flushPetSaves(500);
+      const raw = await readFile(join(dir, ".drexler", "pet.json"), "utf-8");
+      expect(JSON.parse(raw).deals).toBe(2);
+    } finally {
+      releaseFirst();
+      __setPetWriteImpl(null);
+    }
   });
 });

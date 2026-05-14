@@ -3,15 +3,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import React from "react";
 import { render } from "ink";
-import {
-  ensureApiKey,
-  LaunchConfigError,
-  resolveConfig,
-  validateLaunchConfig,
-} from "./config.ts";
+import { ensureApiKey, LaunchConfigError, resolveConfig, validateLaunchConfig } from "./config.ts";
 import { Conversation } from "./conversation.ts";
 import { moodLine, pickMood } from "./mood.ts";
-import { loadPersona, pickGreeting } from "./persona.ts";
+import { loadPersonaLazy, pickGreeting } from "./persona.ts";
 import {
   banner,
   error,
@@ -22,6 +17,7 @@ import {
   typewriterBanner,
   welcomeBox,
 } from "./renderer.ts";
+import { flushPetSaves } from "./pet/petState.ts";
 import { startRepl } from "./repl.ts";
 import { App } from "./ui/App.tsx";
 import { promptForApiKeyWithInk } from "./ui/SetupPrompt.tsx";
@@ -30,9 +26,7 @@ import { getActiveTheme, selectTheme, setActiveTheme } from "./ui/themes.ts";
 
 function getVersion(): string {
   try {
-    const pkg = JSON.parse(
-      readFileSync(join(import.meta.dir, "..", "package.json"), "utf-8"),
-    );
+    const pkg = JSON.parse(readFileSync(join(import.meta.dir, "..", "package.json"), "utf-8"));
     return typeof pkg.version === "string" ? pkg.version : "0.0.0";
   } catch {
     return "0.0.0";
@@ -84,10 +78,17 @@ Slash commands inside REPL:
   /copy-last     alias for /copy
   /edit [n]      load a prior user message into the draft
   /setup         show config + API key source
+  /debug         dump last 5 sanitized stream telemetry frames
   /update        show upgrade instructions
   /auth <key>    replace API key in-session (no restart)
 
 Ctrl+C exits gracefully.`;
+
+let appGracefulExitHandler: (() => void) | null = null;
+
+function registerAppGracefulExitHandler(handler: (() => void) | null): void {
+  appGracefulExitHandler = handler;
+}
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
@@ -102,8 +103,8 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const isInteractive =
-    process.stdout.isTTY === true && process.stdin.isTTY === true;
+  const isInteractive = process.stdout.isTTY === true && process.stdin.isTTY === true;
+  installFatalHandlers();
 
   // 1. Validate non-secret config FIRST so a bogus --model or --persona
   //    fails fast before we ask the user for an API key.
@@ -113,9 +114,7 @@ async function main(): Promise<void> {
     if (e instanceof LaunchConfigError) {
       console.error(error(formatLaunchError(e)));
     } else {
-      console.error(
-        error(`Drexler config tantrum: ${e instanceof Error ? e.message : e}`),
-      );
+      console.error(error(`Drexler config tantrum: ${e instanceof Error ? e.message : e}`));
     }
     process.exit(1);
   }
@@ -134,9 +133,7 @@ async function main(): Promise<void> {
     if (e instanceof LaunchConfigError) {
       console.error(error(formatLaunchError(e)));
     } else {
-      console.error(
-        error(`Drexler config tantrum: ${e instanceof Error ? e.message : e}`),
-      );
+      console.error(error(`Drexler config tantrum: ${e instanceof Error ? e.message : e}`));
     }
     process.exit(1);
   }
@@ -147,31 +144,33 @@ async function main(): Promise<void> {
   setActiveTheme(themeName);
   resetMarkedTheme(); // ensure markdown picks up the freshly chosen theme
 
-  let persona;
+  // T12: lazy persona. Kick off the disk read immediately so it
+  // overlaps with mood/resume/intro setup, but don't await until the
+  // consumer (Conversation system prompt, greeting) actually needs it.
+  const persona = loadPersonaLazy(config.personaPath);
+  persona.preload();
+
+  const mood = pickMood();
+  let systemPrompt: string;
+  let greetings: string[];
   try {
-    persona = await loadPersona(config.personaPath);
+    [systemPrompt, greetings] = await Promise.all([persona.system(), persona.openers()]);
   } catch (e) {
     console.error(error(e instanceof Error ? e.message : String(e)));
     process.exit(1);
   }
+  const systemPromptWithMood = systemPrompt + moodLine(mood);
+  const greeting = pickGreeting(greetings);
 
-  const mood = pickMood();
-  const systemPromptWithMood = persona.systemPrompt + moodLine(mood);
-  const greeting = pickGreeting(persona.greetings);
-
-  const conversation = new Conversation(
-    systemPromptWithMood,
-    config.maxHistory,
-  );
+  const conversation = new Conversation(systemPromptWithMood, config.maxHistory);
 
   // --resume restores the prior session's user/assistant turns into the
   // freshly-built conversation. System prompt stays current (mood may
   // have changed), so we only rehydrate the body. Best-effort — a
   // missing or corrupt save file is a silent no-op.
   if (argv.includes("--resume")) {
-    const { loadSavedSession, describeSession, formatSessionAge } = await import(
-      "./conversation/persist.ts"
-    );
+    const { loadSavedSession, describeSession, formatSessionAge } =
+      await import("./conversation/persist.ts");
     const saved = loadSavedSession();
     if (saved) {
       for (const m of saved.messages) {
@@ -198,12 +197,7 @@ async function main(): Promise<void> {
       console.log("");
       await typewriterBanner();
       console.log(tagline());
-      console.log("");
     }
-
-    console.log("");
-    console.log("  " + infoLine());
-    console.log("");
 
     const { waitUntilExit } = render(
       React.createElement(ThemeProvider, {
@@ -214,16 +208,21 @@ async function main(): Promise<void> {
           mood,
           greeting,
           showIntroChrome: !skipIntro,
+          registerGracefulExitHandler: registerAppGracefulExitHandler,
         }),
       }),
       { exitOnCtrlC: false },
     );
     await waitUntilExit();
+    // Belt-and-braces: the unmount effect inside App already kicks off
+    // a flushPetSaves, but if waitUntilExit() resolves before that
+    // microtask settles, the pet queue may still have pending work.
+    // Await an explicit drain (timeout-capped) before main() returns.
+    await flushPetSaves();
     return;
   }
 
   // Non-TTY fallback: linear output, readline-based REPL.
-  installFatalHandlers();
   console.log("");
   if (!skipIntro) {
     console.log(banner());
@@ -240,6 +239,9 @@ async function main(): Promise<void> {
     config,
     print: (s) => console.log(s),
   });
+  // If startRepl returns normally (stdin EOF, not a process.exit path),
+  // drain any pending pet writes before the process unwinds.
+  await flushPetSaves();
 }
 
 function formatLaunchError(e: LaunchConfigError): string {
@@ -255,22 +257,54 @@ function formatLaunchError(e: LaunchConfigError): string {
   }
 }
 
-// Fatal handlers are installed only in the non-TTY path; the interactive
-// path lets Ink's signal-exit hooks run cleanup so the alt-screen restores.
+// Schedule a pet-save drain before exiting. We can't `await` inside a
+// synchronous signal/exception handler, so we kick off the flush, set a
+// hard cap, and call process.exit when whichever finishes first
+// resolves. The drain is best-effort: a stuck writer should not block
+// teardown longer than `flushPetSaves`'s own 2s timeout.
+function exitWithPetFlush(code: number): void {
+  let exited = false;
+  const done = (): void => {
+    if (exited) return;
+    exited = true;
+    process.exit(code);
+  };
+  // Hard cap matches flushPetSaves's default + small jitter so a hang
+  // in the timeout race itself can't strand the process.
+  const hardCap = setTimeout(done, 2_500);
+  if (typeof hardCap.unref === "function") hardCap.unref();
+  flushPetSaves().then(done, done);
+}
+
 function installFatalHandlers(): void {
   process.on("unhandledRejection", (reason) => {
-    const msg =
-      reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
+    const msg = reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
     console.error(error("Unhandled rejection:"), msg);
     process.exitCode = 1;
+    exitWithPetFlush(1);
   });
   process.on("uncaughtException", (err) => {
     console.error(error("Uncaught exception:"), err.stack ?? err.message);
     process.exitCode = 1;
+    exitWithPetFlush(1);
   });
+  // Non-Ink REPL path: readline's SIGINT handler in repl.ts calls
+  // process.exit(0) synchronously. Front-run it with a process-level
+  // handler so the pet save queue gets a chance to drain. SIGTERM is
+  // covered too — supervisors (systemd, pm2) prefer it for graceful
+  // shutdown.
+  const signalHandler = (): void => {
+    if (appGracefulExitHandler) {
+      appGracefulExitHandler();
+      return;
+    }
+    exitWithPetFlush(0);
+  };
+  process.on("SIGINT", signalHandler);
+  process.on("SIGTERM", signalHandler);
 }
 
 main().catch((e) => {
   console.error(error("Fatal:"), e);
-  process.exit(1);
+  exitWithPetFlush(1);
 });

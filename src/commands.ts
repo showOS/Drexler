@@ -11,26 +11,16 @@ import {
 import type { Conversation } from "./conversation.ts";
 import { error, resetMarkedTheme } from "./renderer.ts";
 import { THEME_NAMES, type Config, type ThemeName } from "./types.ts";
-import {
-  getActiveTheme,
-  isThemeName,
-  setActiveTheme,
-  THEMES,
-} from "./ui/themes.ts";
+import { getActiveTheme, isThemeName, setActiveTheme, THEMES } from "./ui/themes.ts";
 
 export type CommandAction =
   | { type: "continue"; persistConfig?: Partial<Config> }
   | { type: "exit"; message?: string }
   | { type: "regenerate"; instruction?: string; removedAssistant: boolean }
-  | { type: "draft"; value: string };
+  | { type: "draft"; value: string }
+  | { type: "debug" };
 
-export type CommandGroup =
-  | "directives"
-  | "themes"
-  | "models"
-  | "startup"
-  | "retry"
-  | "export";
+export type CommandGroup = "directives" | "themes" | "models" | "startup" | "retry" | "export";
 
 interface CommandContext {
   conversation: Conversation;
@@ -39,9 +29,7 @@ interface CommandContext {
   copyToClipboard?: (text: string) => ClipboardResult;
 }
 
-type ClipboardResult =
-  | { ok: true; command: string }
-  | { ok: false; reason: string };
+type ClipboardResult = { ok: true; command: string } | { ok: false; reason: string };
 
 const HELP_TEXT = `New memo to staff! Drexler permit following directives:
   /help          - this memo
@@ -75,7 +63,8 @@ const HELP_TEXT = `New memo to staff! Drexler permit following directives:
   /copy-last     - alias for /copy
   /setup         - show config + API key source
   /update        - show upgrade instructions
-  /auth <key>    - replace the API key in-session (no restart)`;
+  /auth <key>    - replace the API key in-session (no restart)
+  /debug         - dump last 5 stream telemetry frames`;
 
 const WHITESPACE_RE = /\s+/;
 
@@ -119,6 +108,7 @@ export const COMMAND_PALETTE: ReadonlyArray<SlashCommand> = [
   { name: "/setup", description: "Show config + key source", group: "directives" },
   { name: "/update", description: "Show upgrade instructions", group: "directives" },
   { name: "/auth", description: "Replace the API key in-session", group: "directives" },
+  { name: "/debug", description: "Dump last 5 stream telemetry frames", group: "directives" },
 ];
 
 const THEME_PALETTE_COPY: Record<
@@ -288,29 +278,21 @@ function filterArgumentPalette(input: string): ReadonlyArray<SlashCommand> {
     // Collapse the previous double-filter into a single pass — both
     // legs ended up checking the same lowercased prefix, so we did
     // 2× toLowerCase per item per keystroke. One pass, one lowercase.
-    return group.values.filter((item) =>
-      item.name.toLowerCase().startsWith(lower),
-    );
+    return group.values.filter((item) => item.name.toLowerCase().startsWith(lower));
   }
   return [];
 }
 
-export function filterPaletteByPrefix(
-  input: string,
-): ReadonlyArray<SlashCommand> {
+export function filterPaletteByPrefix(input: string): ReadonlyArray<SlashCommand> {
   if (!input.startsWith("/")) return [];
   const exactArgumentPalette = filterArgumentPalette(input);
   if (exactArgumentPalette.length > 0) return exactArgumentPalette;
   if (input.includes(" ")) return filterArgumentPalette(input);
   const prefix = input.toLowerCase();
-  return COMMAND_PALETTE.filter((c) =>
-    c.name.toLowerCase().startsWith(prefix),
-  );
+  return COMMAND_PALETTE.filter((c) => c.name.toLowerCase().startsWith(prefix));
 }
 
-const ARGUMENT_BASE_NAMES: ReadonlySet<string> = new Set(
-  ARGUMENT_PALETTE.map((g) => g.command),
-);
+const ARGUMENT_BASE_NAMES: ReadonlySet<string> = new Set(ARGUMENT_PALETTE.map((g) => g.command));
 
 /**
  * True if `name` is a bare command (no space) that has child argument
@@ -367,14 +349,11 @@ export function dispatch(input: string, ctx: CommandContext): CommandAction {
     case "exit":
       return {
         type: "exit",
-        message:
-          "Fine. Drexler have other meetings. More important ones. Meeting adjourned.",
+        message: "Fine. Drexler have other meetings. More important ones. Meeting adjourned.",
       };
 
     case "synergy":
-      ctx.print(
-        "SYNERGY EVENT: alignment protocol completed. Award: continued employment.",
-      );
+      ctx.print("SYNERGY EVENT: alignment protocol completed. Award: continued employment.");
       return { type: "continue" };
 
     case "pet":
@@ -457,10 +436,7 @@ export function dispatch(input: string, ctx: CommandContext): CommandAction {
       const target = resolveWriteTarget(pathArg, "drexler", ".md", ctx);
       if (!target) return { type: "continue" };
       try {
-        writeFileSync(
-          target,
-          formatConversationAsMarkdown(ctx.conversation, ctx.config),
-        );
+        writeFileSync(target, formatConversationAsMarkdown(ctx.conversation, ctx.config));
         ctx.print(`Drexler archive sealed: ${target}`);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -492,10 +468,11 @@ export function dispatch(input: string, ctx: CommandContext): CommandAction {
       handleUpdate(ctx);
       return { type: "continue" };
 
+    case "debug":
+      return { type: "debug" };
+
     default:
-      ctx.print(
-        "Drexler not recognize that corporate directive. Try /help.",
-      );
+      ctx.print("Drexler not recognize that corporate directive. Try /help.");
       return { type: "continue" };
   }
 }
@@ -522,9 +499,7 @@ function resolveWriteTarget(
   if (pathArg && !isAbsolute(pathArg)) {
     const cwdPrefix = cwd.endsWith(pathSep) ? cwd : cwd + pathSep;
     if (target !== cwd && !target.startsWith(cwdPrefix)) {
-      ctx.print(
-        error(`Invalid path: ${pathArg} (resolves outside current directory).`),
-      );
+      ctx.print(error(`Invalid path: ${pathArg} (resolves outside current directory).`));
       return null;
     }
   }
@@ -533,9 +508,7 @@ function resolveWriteTarget(
     return null;
   }
   if (existsSync(target)) {
-    ctx.print(
-      error(`File exists: ${target}. Refuse to overwrite. Use a different path.`),
-    );
+    ctx.print(error(`File exists: ${target}. Refuse to overwrite. Use a different path.`));
     return null;
   }
   return target;
@@ -551,10 +524,7 @@ function exportMetadata(conv: Conversation, config: Config): string[] {
   ];
 }
 
-function formatConversationAsMarkdown(
-  conv: Conversation,
-  config: Config,
-): string {
+function formatConversationAsMarkdown(conv: Conversation, config: Config): string {
   const snap = conv.snapshot();
   const lines: string[] = [
     `# Drexler Conversation`,
@@ -574,11 +544,7 @@ function formatConversationAsMarkdown(
 
 function formatConversationAsText(conv: Conversation, config: Config): string {
   const snap = conv.snapshot();
-  const lines: string[] = [
-    "Drexler Conversation",
-    ...exportMetadata(conv, config),
-    "",
-  ];
+  const lines: string[] = ["Drexler Conversation", ...exportMetadata(conv, config), ""];
   for (const m of snap) {
     if (m.role === "system") continue;
     const heading = m.role === "user" ? "You" : "Drexler";
@@ -889,9 +855,7 @@ function handleCopyLast(args: string[], ctx: CommandContext): void {
 
   const result = (ctx.copyToClipboard ?? copyTextToClipboard)(target.content);
   if (result.ok) {
-    const label = args.length === 0
-      ? "last response"
-      : `message ${target.index}`;
+    const label = args.length === 0 ? "last response" : `message ${target.index}`;
     ctx.print(`Drexler copied ${label} to clipboard via ${result.command}.`);
     return;
   }
@@ -1064,11 +1028,7 @@ function handleTheme(args: string[], ctx: CommandContext): CommandAction {
 
   const requested = args[0]?.toLowerCase();
   if (!isThemeName(requested)) {
-    ctx.print(
-      error(
-        `Unknown theme: "${args[0] ?? ""}". Use ${THEME_NAMES.join(", ")}.`,
-      ),
-    );
+    ctx.print(error(`Unknown theme: "${args[0] ?? ""}". Use ${THEME_NAMES.join(", ")}.`));
     return { type: "continue" };
   }
 

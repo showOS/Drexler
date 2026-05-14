@@ -16,9 +16,7 @@ describe("tokenizeInline", () => {
   });
 
   test("parses bold with double-underscores", () => {
-    expect(tokenizeInline("__strong__")).toEqual([
-      { text: "strong", bold: true },
-    ]);
+    expect(tokenizeInline("__strong__")).toEqual([{ text: "strong", bold: true }]);
   });
 
   test("parses inline code", () => {
@@ -36,17 +34,13 @@ describe("tokenizeInline", () => {
   });
 
   test("parses link with parens in URL (wikipedia-style)", () => {
-    expect(
-      tokenizeInline("[wiki](https://en.wikipedia.org/wiki/Foo_(bar))"),
-    ).toEqual([
+    expect(tokenizeInline("[wiki](https://en.wikipedia.org/wiki/Foo_(bar))")).toEqual([
       { text: "wiki", link: "https://en.wikipedia.org/wiki/Foo_(bar)" },
     ]);
   });
 
   test("treats unmatched marker as literal", () => {
-    expect(tokenizeInline("a ** unfinished")).toEqual([
-      { text: "a ** unfinished" },
-    ]);
+    expect(tokenizeInline("a ** unfinished")).toEqual([{ text: "a ** unfinished" }]);
   });
 
   test("preserves bold across nested italic markers", () => {
@@ -103,9 +97,7 @@ describe("parseBlocks", () => {
   });
 
   test("preserves non-markdown fence marker style for streaming render", () => {
-    const normalized = normalizeAssistantMarkdownRenderContent(
-      "~~~python\nprint('fees')\n~~~",
-    );
+    const normalized = normalizeAssistantMarkdownRenderContent("~~~python\nprint('fees')\n~~~");
     expect(normalized).toBe("~~~\nprint('fees')\n~~~");
     expect(parseBlocks(normalized)[0]).toMatchObject({
       kind: "code",

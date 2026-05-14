@@ -103,6 +103,7 @@ Case-insensitive. Local-only. Never sent to model. Never appended to history.
 | `/vibe` | pet: choose own adventure |
 | `/name [name]` | view or set pet name |
 | `/profile` | print pet personnel file |
+| `/debug` | dump last 5 telemetry frames (per V39) |
 
 Palette opens on `/`. Argument choosers: `/theme`, `/startup`, `/retry`, `/export`, `/model`.
 
@@ -128,7 +129,7 @@ Palette opens on `/`. Argument choosers: `/theme`, `/startup`, `/retry`, `/expor
 - V5 — `--persona` resolves to regular `.md`. Symlinks + non-md rejected.
 - V6 — Unknown slash prints in-character local error. No model call.
 - V7 — Empty input prints local nudge. No model call.
-- V8 — Stream error ⇒ no partial assistant text appended to history.
+- V8 — Stream error ⇒ no partial assistant text appended to history. User-visible "stream interrupted" notice surfaced in REPL + Ink UI. `/retry` re-rolls failed turn.
 - V9 — SIGINT closes active work, exits clean.
 - V10 — ESC cancels active model response without quitting. `/synergy` owns input until done; ESC does not cancel it.
 - V11 — Startup greeting selected from persona session openers.
@@ -153,12 +154,37 @@ Palette opens on `/`. Argument choosers: `/theme`, `/startup`, `/retry`, `/expor
 - V30 — `lifetimeDeals` independent of volatile `deals` stat. Decay + spam do not roll back rank.
 - V31 — Slash command palette filtered by prefix. Argument-parent commands open chooser.
 - V32 — Markdown rendering supports code-block syntax via `cli-highlight` (Dracula-inspired palette).
+- V33 — Pet save serialized via async FIFO queue. Concurrent `savePetState` calls run sequentially; never overlap rename. Cross-instance writes guarded by an owned exclusive-create lockfile (`pet.json.lock`, `fs.openSync(..., 'wx')`) containing `pid`, `token`, `createdAt`, and `hostname`; contention returns a structured locked result (best-effort).
+- V34 — Lint + format gates: `bun lint` + `bun format:check` pass in CI before publish. ESLint flat config + Prettier check. Ink JSX prop allowlist documented.
+- V35 — `petState.saveQueue` MUST drain before process exit (SIGINT/SIGTERM/Ink unmount). Pending writes awaited with timeout ≤ 2s; on timeout the queue generation advances so late abandoned writes cannot supersede newer saves. Lock release is token-owned only: `flushPetSaves()` MUST NOT delete a foreign lock. Dead-pid or TTL-expired locks may be removed and retried once.
+- V36 — `prepublishOnly` runs `lint` in addition to `test` + `typecheck`. CI publish workflow matches.
+- V37 — CI runs `bun run test:coverage`, producing `coverage/lcov.info`; the lcov file is uploaded as a required workflow artifact.
+- V38 — All React hook deps arrays exhaustive (no `react-hooks/exhaustive-deps` warnings). Lint baseline = 0 warnings.
+- V39 — UI surfaces sanitized, length-capped `result.error` from `src/llm.ts` to user on non-OK outcomes; `/debug` slash command dumps last N in-memory telemetry frames (default 5). Telemetry/debug output MUST redact authorization headers, bearer tokens, `sk-or-*` keys, local home paths, and long JSON bodies.
+- V40 — devDependencies use `^` semver; Bun lockfile provides install-time determinism. (WU-J reviewed exact-pin vs caret; caret retained.)
 
 ## §T Tasks
 
 | id | status | task | cites |
 |---|---|---|---|
-| T1 | . | ? Resolve in-flight edits: `src/ui/PetPanel.tsx`, `tests/mascot.test.ts`, `tests/pet-panel.test.ts` | V17,V21 |
+| T1 | x | Resolve in-flight edits: `src/ui/PetPanel.tsx` market-board panel row refactor | V17,V21 |
+| T2 | x | Add ESLint flat config + Prettier + CI step | V34 |
+| T3 | x | Pet save FIFO queue + cross-instance lockfile | V33 |
+| T4 | x | Fix Ink UI §V8 violation; surface STREAM_ERROR in App.tsx | V8 |
+| T5 | x | App.tsx hook deps exhaustive | V38 |
+| T6 | x | Drain `saveQueue` on SIGINT/SIGTERM/unmount (≤2s timeout) | V35 |
+| T7 | x | `prepublishOnly` also runs `bun run lint` + `format:check` | V36 |
+| T8 | x | Split `src/ui/PetPanel.tsx` into `src/ui/pet/{MarketBoard,AsciiClock,MascotScene,CompactPetPanel,shared}` (barrel re-export) | V21 |
+| T9 | x | Format pass: Prettier across src + tests; strict format:check | V34 |
+| T10 | x | Lint baseline 30 → 0 warnings | V38 |
+| T11 | x | Test speedup: event-driven assertions in `tests/ui-app-state.test.ts` + `tests/ui-live-chrome.test.ts` (no polling) | — |
+| T12 | x | Persona lazy-load via `loadPersonaLazy` + preload | — |
+| T13 | x | Telemetry: surface `result.error` in UI; `/debug` slash dumps last 5 frames | V39 |
+| T14 | x | `CONTRIBUTING.md`: Bun-only dev loop, SPEC discipline, branch naming | — |
+| T15 | x | CI: `bun test --coverage` artifact upload | V37 |
+| T16 | x | Bundle audit (WU-J): chalk + cli-highlight kept; marked/marked-terminal still wire renderMarkdown (tested) — backlog: drop if renderMarkdown removed | — |
+| T17 | x | Stream render throttle (WU-K): 33ms setTimeout on streamTimerRef gates setStreaming; aligns w/ Ink default 30 FPS — verified, no action | V22 |
+| T18 | x | devDependencies pin (WU-J): caret retained; Bun lockfile determines install-time tree | V40 |
 
 ## §B Bugs
 

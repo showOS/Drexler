@@ -10,9 +10,7 @@ export class Conversation {
     public readonly maxHistory: number,
   ) {
     if (maxHistory < 3) {
-      throw new Error(
-        "maxHistory must be >= 3 (system + user + assistant turn).",
-      );
+      throw new Error("maxHistory must be >= 3 (system + user + assistant turn).");
     }
     this.system = { role: "system", content: systemPrompt };
     this.messages = [this.system];
@@ -25,12 +23,13 @@ export class Conversation {
   }
 
   private trim(): void {
-    while (this.messages.length > this.maxHistory) {
-      this.messages.splice(1, 1);
-      if (this.messages[1]?.role === "assistant") {
-        this.messages.splice(1, 1);
-      }
-    }
+    const excess = this.messages.length - this.maxHistory;
+    if (excess <= 0) return;
+
+    const history = this.messages.slice(1);
+    let keepFrom = Math.min(history.length, excess);
+    if (history[keepFrom]?.role === "assistant") keepFrom += 1;
+    this.messages = [this.system, ...history.slice(keepFrom)];
   }
 
   clear(): void {
