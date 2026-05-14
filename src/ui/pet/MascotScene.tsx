@@ -208,12 +208,15 @@ function mascotStateForActivity(activity: PetActivity, frame: number): MascotSta
 function titleLine(width: number, stats: PetStats): string {
   const label = " DREXLER OFFICE ";
   const worst = pickWorstStat(stats);
-  const readout = ` ${worst.key} ${Math.round(worst.value)}% `;
-  const row = centerText("─".repeat(width), label);
+  const readout = ` ${worst.key.toUpperCase()} ${Math.round(worst.value)}% `;
+  const leftCap = width >= 72 ? "╭" : "─";
+  const rightCap = width >= 72 ? "╮" : "─";
+  let row = `${leftCap}${"─".repeat(Math.max(0, width - 2))}${rightCap}`;
+  row = centerText(row, label);
   return place(
     row,
-    fitDisplayText(readout, Math.max(1, width - 2)),
-    Math.max(0, width - displayWidth(readout) - 1),
+    fitDisplayText(readout, Math.max(1, width - 3)),
+    Math.max(1, width - displayWidth(readout) - 2),
   );
 }
 
@@ -287,7 +290,24 @@ function fileCabinetLines(frame: number): string[] {
 
 function wallRailLine(width: number, activity: PetActivity, frame: number): string {
   const trim = activity === "working" && frame % 2 === 0 ? "─╴╴─" : "────";
-  return centerText("─".repeat(width), trim);
+  const label = activity === "working" ? " LIVE TAPE " : " COVENANT WALL ";
+  const base = centerText("─".repeat(width), trim);
+  if (width < 76) return base;
+  const left = Math.max(2, Math.floor(width * 0.16) - Math.floor(displayWidth(label) / 2));
+  const right = Math.max(left + displayWidth(label) + 4, Math.floor(width * 0.84) - 5);
+  return place(place(base, label, left), " LEDGER ", Math.min(width - 9, right));
+}
+
+function rearWallLine(width: number, frame: number): string {
+  const inner = Math.max(1, width - 2);
+  const tape = frame % 2 === 0 ? "tape ok" : "pipe ok";
+  let row = blankRow(inner);
+  if (width >= 88) {
+    row = place(row, "╭──── archive ────╮", 2);
+    row = placeRight(row, "╭──── watch ────╮", 2);
+  }
+  if (width < 88) row = centerText(row, tape);
+  return ` ${row} `;
 }
 
 function deskJoinLine(
@@ -307,6 +327,15 @@ function deskJoinLine(
 
 function deskContent(width: number, text = ""): string {
   return `│${padDisplayText(text, Math.max(1, width - 2))}│`;
+}
+
+function deskSurfaceLine(width: number, frame: number): string {
+  const inner = Math.max(1, width - 2);
+  const inlay = frame % 2 === 0 ? "....." : ".. ..";
+  let row = blankRow(inner);
+  row = place(row, inlay, Math.max(1, Math.floor(inner * 0.18)));
+  row = place(row, inlay, Math.max(1, Math.floor(inner * 0.78)));
+  return `│${row}│`;
 }
 
 function deskDrawerLine(width: number): string {
@@ -345,9 +374,9 @@ function deskBaseLines(width: number, stats: PetStats, activity: PetActivity): s
   const readout = width < 64 ? `PIPE ${pipe}%` : `PIPE ${pipe}%  COV ${covenants}  ${close}`;
   const lines = [
     `╭${"─".repeat(inner)}╮`,
+    deskSurfaceLine(width, pipe),
     deskContent(width),
-    deskContent(width),
-    deskContent(width),
+    deskSurfaceLine(width, pipe + 1),
     deskDrawerLine(width),
     deskJoinLine(width, "├", "┬", "┬", "┤"),
     deskFasciaLine(width, fascia, readout),
@@ -514,6 +543,19 @@ function buildOfficeScene(
       "secondaryLine",
     ),
   );
+
+  if (layout !== "compact") {
+    sprites.push(
+      makeSprite(
+        "wall:rear-readout",
+        7,
+        metrics.stageX,
+        R_BOARD_TOP - 1,
+        [rearWallLine(metrics.stageWidth, frame)],
+        "background",
+      ),
+    );
+  }
 
   if (layout !== "compact") {
     sprites.push(

@@ -104,13 +104,20 @@ Case-insensitive. Local-only. Never sent to model. Never appended to history.
 | `/name [name]` | view or set pet name |
 | `/profile` | print pet personnel file |
 | `/debug` | dump last 5 telemetry frames (per V39) |
+| `/respond <1\|2\|3>` | answer active event (V41,V42) |
+| `/deals` | list active deals (V43) |
+| `/trade <ticker> <buy\|sell>` | RTH market mini-game (V44) |
+| `/buy <coffee\|pastry\|charter>` | spend deals for inventory item (V48) |
+| `/use <coffee\|pastry\|charter>` | consume inventory item (V48) |
+| `/graveyard` | list past pet lives (V47) |
+| `/review` | re-show today's daily review (V49) |
 
-Palette opens on `/`. Argument choosers: `/theme`, `/startup`, `/retry`, `/export`, `/model`.
+Palette opens on `/`. Argument choosers: `/theme`, `/startup`, `/retry`, `/export`, `/model`, `/respond`, `/trade`, `/buy`, `/use`.
 
 ### Pet state — `src/pet/petState.ts`
 
 - File: `~/.drexler/pet.json` (atomic temp+rename, swallow errors).
-- Stats: `hunger`, `happiness`, `energy`, `deals` ∈ [0,100]. Plus `lastSaved`, `dead?`, `name?`, `createdAt?`, `lastActionAt?`, `lifetimeDeals?`.
+- Stats: `hunger`, `happiness`, `energy`, `deals` ∈ [0,100]. Plus `lastSaved`, `dead?`, `name?`, `createdAt?`, `lastActionAt?`, `lifetimeDeals?`, `activeDeals?`, `actionHistory?`, `inventory?`, `tradeSession?`, `lastReviewAt?`.
 - Decay per hour: hunger 15, happiness 8, energy 10, deals 5. Applied over `now − lastSaved`.
 - Cooldown per action: `PET_COOLDOWN_MS = 90_000` ms.
 - Action reducers: `applyFeed`, `applyPlay`, `applyWork`, `applyPraise`, `applyRest`, `applyVibe`.
@@ -119,6 +126,68 @@ Palette opens on `/`. Argument choosers: `/theme`, `/startup`, `/retry`, `/expor
 - Rank thresholds (lifetime deals): intern 0, analyst 200, associate 400, vp 600, md 800.
 - Rank increments per action: feed 2, play 1, work 8, vibe 3. `rest`/`praise` no rank gain.
 - Name: NFKC normalize, strip `\p{Cf}`, allow `\p{L}\p{N} ._'-`, collapse ws, trim, slice 16.
+
+### Event system — `src/pet/events.ts`
+
+- Encounter pool: timed pop-ups in pet HUD. Types: pitch, takeover, coffee_machine, audit, mentor, comp_committee.
+- Each event = `{id, kind, choices: [{key, label, stat_delta}], expiresAt}`. Choices 2–3.
+- Spawn cadence: random in [6m, 18m]. Pet mode on, no active event, not busy streaming.
+- Response: `/respond 1|2|3` or matching hotkey. 30s window. Late = auto-expire neutral.
+- Outcome applies stat delta (±30 max), narrated via system addItem.
+
+### Active Deals — `src/pet/deals.ts`
+
+- Quest objects persisted in `pet.json.activeDeals[]`. Concurrent cap 2.
+- Shape: `{id, name, requirements: [{action, count}], deadline, started, progress, reward}`.
+- Spawn on `/work` w/ probability when no slot full; or via certain event outcomes.
+- Tick checks deadline + requirements at every decay cycle and after each action.
+- Completion = `lifetimeDeals += reward`. Failure = `happiness -= 10`, removed.
+
+### Market trade — `src/pet/trade.ts`
+
+- `/trade <AAPL|MSFT|NVDA> <buy|sell>` once per RTH session (09:30–16:00 local).
+- Hidden 4-bit seed rotates per session; resolution = `(seed ^ tickerCode ^ sideBit) & 1`.
+- Win: `+15 deals, +10 happiness, +5 lifetimeDeals`. Loss: `-15 deals, -5 happiness`.
+- Off-hours = in-character reject ("after hours, partner").
+- Stored in `pet.json.tradeSession: {date, seed, used}`.
+
+### Synergy combos — `src/pet/synergy.ts`
+
+- Ring buffer `actionHistory: [{action, at}]` length 4, append on every action.
+- Recognized patterns within 5m window:
+  - `work→play→praise` = +15 happiness, +15 energy, +10 deals.
+  - `feed→work→work` = +20 deals.
+  - `rest→work→praise` = +10 lifetimeDeals.
+- Detection on every action commit. Consumed entries cleared so same prefix doesn't double-fire.
+
+### Persona injection — `src/llm.ts` / `src/conversation/system.ts`
+
+- When pet mode on, append pet status string to system prompt content (not new message).
+- Format: `\n\nPET STATUS: name=<n> mood=<mood> hunger=<n>% happy=<n>% energy=<n>% rank=<rank>`. Cap 200 chars.
+- Updated per model call; Drexler persona told to acknowledge mood subtly.
+
+### Graveyard — `src/pet/graveyard.ts`
+
+- File: `~/.drexler/graveyard.json`. Array of `{name, rank, tenure, cause, diedAt}`.
+- Capped 50, FIFO trim. Atomic temp+rename.
+- Written on death transition before respawn reset. Respawn halves `lifetimeDeals` (not zero).
+- `/graveyard` slash prints last 10 entries in transcript card.
+
+### Inventory — `src/pet/inventory.ts`
+
+- `pet.json.inventory: {coffee, pastry, charter}` ∈ ℤ≥0.
+- Cost (decremented from volatile `deals`): coffee 20, pastry 15, charter 30.
+- Effects on `/use`:
+  - coffee → `energy += 30` (clamp), bypass `rest` cooldown.
+  - pastry → `hunger += 30`, clears `feed` cooldown.
+  - charter → grants a second `/trade` this session.
+
+### Daily review — `src/pet/review.ts`
+
+- Anchored to local-calendar day via `lastReviewAt`.
+- On launch (or `/pet on`), if no review today AND prior 24h has ≥1 action → render summary card.
+- Card contents: yesterday deals closed, events survived, mood arc (delta), Drexler one-liner.
+- `/review` re-prints today's card.
 
 ## §V Invariants
 
@@ -162,6 +231,16 @@ Palette opens on `/`. Argument choosers: `/theme`, `/startup`, `/retry`, `/expor
 - V38 — All React hook deps arrays exhaustive (no `react-hooks/exhaustive-deps` warnings). Lint baseline = 0 warnings.
 - V39 — UI surfaces sanitized, length-capped `result.error` from `src/llm.ts` to user on non-OK outcomes; `/debug` slash command dumps last N in-memory telemetry frames (default 5). Telemetry/debug output MUST redact authorization headers, bearer tokens, `sk-or-*` keys, local home paths, and long JSON bodies.
 - V40 — devDependencies use `^` semver; Bun lockfile provides install-time determinism. (WU-J reviewed exact-pin vs caret; caret retained.)
+- V41 — Event spawn: gap ≥6m, ≤1 active at a time. Spawn only when `petMode` on AND not streaming AND not in `/synergy`. Auto-expire at 30s ⇒ no stat change.
+- V42 — Event response: 30s wall-clock. `/respond` outside window or w/ invalid choice = local notice, no stat change. Stat delta clamped ±30; final stats clamped [0,100] (§V25). ESC cancels event w/ `happiness -= 5`.
+- V43 — Active deals persisted in `pet.json.activeDeals`. Max concurrent 2. Deadline = absolute ms. Expired deals removed at next decay tick; completion adds `reward` to `lifetimeDeals` only (§V30). Failure never decreases rank.
+- V44 — `/trade`: gated by RTH 09:30–16:00 local. Once per session via `tradeSession.used`. Seed deterministic per `(date, ticker, side)`; same input ⇒ same outcome. Off-hours and post-use ⇒ local notice, no state change.
+- V45 — Synergy: ring buffer `actionHistory` length 4, append per action. Pattern match within 5m end-to-end window. Bonus applied once per recognized window; matched entries cleared. Buffer never grows past 4.
+- V46 — Persona injection: pet summary appended to system message content (index 0), not new message (§V1). Summary ≤200 chars, sanitized (no API keys, no paths). Pet mode off ⇒ no addendum. Same redaction rules as §V39.
+- V47 — Graveyard: file `~/.drexler/graveyard.json`, atomic temp+rename, capped 50 entries FIFO. Death writes entry BEFORE respawn reset overwrites `name`. Respawn halves `lifetimeDeals`, not zero. Reads tolerate missing/corrupt file (empty array fallback).
+- V48 — Inventory: `pet.json.inventory` ∈ ℤ≥0 for {coffee,pastry,charter}. `/buy` rejects if `deals < cost`. `/use` rejects if count = 0. Effects clamp per §V25. Cost decrement only from volatile `deals`; never touches `lifetimeDeals`.
+- V49 — Daily review: shown at most once per local-calendar day, gated by `lastReviewAt` < today-midnight-local. Skipped when prior 24h has zero `actionHistory` entries. Renders as transcript card (V17), never blocks input.
+- V50 — All new slash commands honor §V6 (in-character unknown), §V7 (empty nudge), §V22 (input lock during stream/synergy), §V31 (prefix filter + arg chooser).
 
 ## §T Tasks
 
@@ -185,6 +264,15 @@ Palette opens on `/`. Argument choosers: `/theme`, `/startup`, `/retry`, `/expor
 | T16 | x | Bundle audit (WU-J): chalk + cli-highlight kept; marked/marked-terminal still wire renderMarkdown (tested) — backlog: drop if renderMarkdown removed | — |
 | T17 | x | Stream render throttle (WU-K): 33ms setTimeout on streamTimerRef gates setStreaming; aligns w/ Ink default 30 FPS — verified, no action | V22 |
 | T18 | x | devDependencies pin (WU-J): caret retained; Bun lockfile determines install-time tree | V40 |
+| T19 | x | Event system: `src/pet/events.ts` schema, scheduler, `/respond` cmd, HUD overlay, ESC cancel | V41,V42,V50 |
+| T20 | x | Active Deals: `src/pet/deals.ts` schema, deadline tracker, `/deals` cmd, completion/failure paths | V43,V50 |
+| T21 | x | Market trade: `src/pet/trade.ts` seed+resolve, `/trade` cmd, RTH gate, once-per-session enforce | V44,V50 |
+| T22 | x | Synergy combos: `src/pet/synergy.ts` ring buffer + detection + bonus reducer; wire into action commit | V45 |
+| T23 | x | Persona injection: append sanitized pet summary to system prompt content per turn | V46 |
+| T24 | x | Graveyard: `src/pet/graveyard.ts` schema, on-death write, `/graveyard` cmd, FIFO trim | V47 |
+| T25 | x | Inventory: schema in `pet.json`, `/buy` + `/use` cmds, item effects, cost/clamp gates | V48,V50 |
+| T26 | x | Daily review: `src/pet/review.ts` `lastReviewAt`, render card on launch + `/review` cmd | V49,V50 |
+| T27 | x | Tests: unit + integration coverage for T19–T26; deterministic clock + RNG injection | V41–V50 |
 
 ## §B Bugs
 

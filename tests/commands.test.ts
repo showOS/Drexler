@@ -860,7 +860,7 @@ describe("filterPaletteByPrefix", () => {
 
   test("theme command appears in palette", () => {
     const out = filterPaletteByPrefix("/t");
-    expect(out).toMatchObject([{ name: "/theme", description: "Show or switch theme" }]);
+    expect(out.map((c) => c.name)).toEqual(["/trade", "/theme"]);
   });
 
   test("exact constrained commands open their argument chooser smoothly", () => {
@@ -885,7 +885,14 @@ describe("filterPaletteByPrefix", () => {
 
   test("redo command appears in palette", () => {
     const out = filterPaletteByPrefix("/re");
-    expect(out.map((c) => c.name)).toEqual(["/rest", "/regenerate", "/redo", "/retry"]);
+    expect(out.map((c) => c.name)).toEqual([
+      "/rest",
+      "/respond",
+      "/review",
+      "/regenerate",
+      "/redo",
+      "/retry",
+    ]);
   });
 
   test("pet command appears in palette", () => {

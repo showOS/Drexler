@@ -14,7 +14,6 @@ import {
   resetMarkedTheme,
   tagline,
   termCols,
-  typewriterBanner,
   welcomeBox,
 } from "./renderer.ts";
 import { flushPetSaves } from "./pet/petState.ts";
@@ -193,11 +192,25 @@ async function main(): Promise<void> {
   const skipIntro = config.noIntro === true || config.fast === true;
 
   if (isInteractive) {
-    if (!skipIntro) {
-      console.log("");
-      await typewriterBanner();
-      console.log(tagline());
+    if (process.stdout.isTTY) {
+      // Push the pre-Ink banner/tagline/resume notice (and any older
+      // terminal scrollback) up so Ink mounts at the top of the
+      // viewport. We can't reposition the Ink frame mid-flight without
+      // fighting Ink's log-update cache (which memoizes the last frame
+      // and skips writes when output is unchanged), so we anchor at the
+      // top from the start instead. The scrollback wipe at intro
+      // completion below then removes the now-invisible pre-Ink content
+      // so scrolling up reveals nothing.
+      const viewportRows = process.stdout.rows ?? 24;
+      process.stdout.write("\n".repeat(viewportRows) + "\x1b[H");
     }
+
+    const clearScreenForIntroOutro = () => {
+      // Drexler is already anchored at the top of the viewport from the
+      // pre-mount newline push above. Wipe scrollback only — the Ink
+      // frame in the viewport stays put.
+      process.stdout.write("\x1b[3J");
+    };
 
     const { waitUntilExit } = render(
       React.createElement(ThemeProvider, {
@@ -209,6 +222,7 @@ async function main(): Promise<void> {
           greeting,
           showIntroChrome: !skipIntro,
           registerGracefulExitHandler: registerAppGracefulExitHandler,
+          clearScreenForIntroOutro,
         }),
       }),
       { exitOnCtrlC: false },

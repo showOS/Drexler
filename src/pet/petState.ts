@@ -30,6 +30,34 @@ export type PetActivity =
   | "praised"
   | "vibing";
 
+export interface ActionHistoryEntry {
+  action: PetActionKey;
+  at: number;
+}
+
+export interface ActiveDeal {
+  id: string;
+  name: string;
+  requirements: ReadonlyArray<{ action: PetActionKey; count: number }>;
+  deadline: number;
+  started: number;
+  progress: Partial<Record<PetActionKey, number>>;
+  reward: number;
+}
+
+export interface PetInventory {
+  coffee: number;
+  pastry: number;
+  charter: number;
+}
+
+export interface TradeSessionRecord {
+  date: string;
+  seed: number;
+  used: boolean;
+  bonusAvailable?: boolean;
+}
+
 export interface PetStats {
   hunger: number;
   happiness: number;
@@ -41,6 +69,56 @@ export interface PetStats {
   createdAt?: number;
   lastActionAt?: Partial<Record<PetActionKey, number>>;
   lifetimeDeals?: number;
+  activeDeals?: ActiveDeal[];
+  actionHistory?: ActionHistoryEntry[];
+  inventory?: PetInventory;
+  tradeSession?: TradeSessionRecord;
+  lastReviewAt?: number;
+  reviewCounters?: ReviewCounters;
+}
+
+export interface ReviewCounters {
+  date: string;
+  dealsClosed: number;
+  eventsSurvived: number;
+  startHappiness: number;
+  startEnergy: number;
+}
+
+export const ACTION_HISTORY_LIMIT = 4;
+export const INVENTORY_KEYS = ["coffee", "pastry", "charter"] as const;
+export type InventoryKey = (typeof INVENTORY_KEYS)[number];
+export const INVENTORY_COSTS: Readonly<Record<InventoryKey, number>> = {
+  coffee: 20,
+  pastry: 15,
+  charter: 30,
+};
+
+export function emptyInventory(): PetInventory {
+  return { coffee: 0, pastry: 0, charter: 0 };
+}
+
+export function normalizeInventory(input: unknown): PetInventory {
+  const base = emptyInventory();
+  if (!input || typeof input !== "object") return base;
+  for (const key of INVENTORY_KEYS) {
+    const v = (input as Record<string, unknown>)[key];
+    if (typeof v === "number" && Number.isFinite(v) && v >= 0) {
+      base[key] = Math.floor(v);
+    }
+  }
+  return base;
+}
+
+export function appendActionHistory(
+  stats: PetStats,
+  action: PetActionKey,
+  now: number = Date.now(),
+): PetStats {
+  const prior = stats.actionHistory ?? [];
+  const next = [...prior, { action, at: now }];
+  while (next.length > ACTION_HISTORY_LIMIT) next.shift();
+  return { ...stats, actionHistory: next };
 }
 
 export type PetSaveResult =
@@ -163,6 +241,115 @@ function safeTimestamp(value: unknown, fallback: number = Date.now()): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
+const ACTION_KEY_SET: ReadonlySet<PetActionKey> = new Set<PetActionKey>([
+  "feed",
+  "play",
+  "work",
+  "praise",
+  "rest",
+  "vibe",
+]);
+
+function isPetActionKey(value: unknown): value is PetActionKey {
+  return typeof value === "string" && ACTION_KEY_SET.has(value as PetActionKey);
+}
+
+function parseActionHistory(input: unknown): ActionHistoryEntry[] | undefined {
+  if (!Array.isArray(input)) return undefined;
+  const out: ActionHistoryEntry[] = [];
+  for (const item of input) {
+    if (item && typeof item === "object") {
+      const action = (item as Record<string, unknown>).action;
+      const at = (item as Record<string, unknown>).at;
+      if (isPetActionKey(action) && typeof at === "number" && Number.isFinite(at)) {
+        out.push({ action, at });
+      }
+    }
+    if (out.length >= ACTION_HISTORY_LIMIT) break;
+  }
+  return out.length > 0 ? out : undefined;
+}
+
+function parseActiveDeals(input: unknown): ActiveDeal[] | undefined {
+  if (!Array.isArray(input)) return undefined;
+  const out: ActiveDeal[] = [];
+  for (const item of input) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as Record<string, unknown>;
+    if (typeof o.id !== "string" || typeof o.name !== "string") continue;
+    if (typeof o.deadline !== "number" || !Number.isFinite(o.deadline)) continue;
+    if (typeof o.started !== "number" || !Number.isFinite(o.started)) continue;
+    if (typeof o.reward !== "number" || !Number.isFinite(o.reward)) continue;
+    if (!Array.isArray(o.requirements)) continue;
+    const reqs: { action: PetActionKey; count: number }[] = [];
+    for (const r of o.requirements) {
+      if (!r || typeof r !== "object") continue;
+      const rr = r as Record<string, unknown>;
+      if (isPetActionKey(rr.action) && typeof rr.count === "number" && rr.count > 0) {
+        reqs.push({ action: rr.action, count: Math.floor(rr.count) });
+      }
+    }
+    if (reqs.length === 0) continue;
+    const progress: ActiveDeal["progress"] = {};
+    if (o.progress && typeof o.progress === "object") {
+      for (const key of ACTION_KEY_SET) {
+        const v = (o.progress as Record<string, unknown>)[key];
+        if (typeof v === "number" && Number.isFinite(v) && v >= 0) {
+          progress[key] = Math.floor(v);
+        }
+      }
+    }
+    out.push({
+      id: o.id,
+      name: o.name,
+      requirements: reqs,
+      deadline: o.deadline,
+      started: o.started,
+      progress,
+      reward: Math.max(0, Math.floor(o.reward)),
+    });
+  }
+  return out.length > 0 ? out : undefined;
+}
+
+function parseTradeSession(input: unknown): TradeSessionRecord | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const o = input as Record<string, unknown>;
+  if (typeof o.date !== "string") return undefined;
+  if (typeof o.seed !== "number" || !Number.isFinite(o.seed)) return undefined;
+  if (typeof o.used !== "boolean") return undefined;
+  const record: TradeSessionRecord = {
+    date: o.date,
+    seed: o.seed,
+    used: o.used,
+  };
+  if (typeof o.bonusAvailable === "boolean") record.bonusAvailable = o.bonusAvailable;
+  return record;
+}
+
+function parseReviewCounters(input: unknown): ReviewCounters | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const o = input as Record<string, unknown>;
+  if (typeof o.date !== "string") return undefined;
+  const dealsClosed =
+    typeof o.dealsClosed === "number" ? Math.max(0, Math.floor(o.dealsClosed)) : 0;
+  const eventsSurvived =
+    typeof o.eventsSurvived === "number" ? Math.max(0, Math.floor(o.eventsSurvived)) : 0;
+  const startHappiness =
+    typeof o.startHappiness === "number" && Number.isFinite(o.startHappiness)
+      ? o.startHappiness
+      : 0;
+  const startEnergy =
+    typeof o.startEnergy === "number" && Number.isFinite(o.startEnergy) ? o.startEnergy : 0;
+  return {
+    date: o.date,
+    dealsClosed,
+    eventsSurvived,
+    startHappiness,
+    startEnergy,
+  };
+}
+
 // Decay over (now - stats.lastSaved). Works the same on a 1-minute
 // tick during an active session and on resume after a multi-hour OS
 // suspend — both cases compute the exact delta since the timestamp
@@ -203,13 +390,25 @@ export function loadPetState(): PetStats {
       const raw = readFileSync(target, "utf8");
       const parsed = JSON.parse(raw) as Partial<PetStats>;
       if (parsed.dead === true) {
-        // Drexler died — reset to halfway on next startup
-        const revived = {
+        // Drexler died — reset to halfway, keep identity (name) and
+        // halve lifetimeDeals so rank degrades but doesn't reset to 0
+        // (V47). Death cause is now logged in the graveyard before we
+        // overwrite this record.
+        const priorLifetime =
+          typeof parsed.lifetimeDeals === "number" && Number.isFinite(parsed.lifetimeDeals)
+            ? parsed.lifetimeDeals
+            : 0;
+        const revived: PetStats = {
           ...defaultStats(),
           hunger: 50,
           happiness: 50,
           energy: 50,
           deals: 25,
+          lifetimeDeals: Math.max(0, Math.floor(priorLifetime / 2)),
+          name:
+            typeof parsed.name === "string" && parsed.name.length > 0
+              ? sanitizePetName(parsed.name)
+              : undefined,
         };
         savePetState(revived);
         return revived;
@@ -245,6 +444,15 @@ export function loadPetState(): PetStats {
           parsed.lifetimeDeals >= 0
             ? parsed.lifetimeDeals
             : undefined,
+        activeDeals: parseActiveDeals(parsed.activeDeals),
+        actionHistory: parseActionHistory(parsed.actionHistory),
+        inventory: parsed.inventory ? normalizeInventory(parsed.inventory) : undefined,
+        tradeSession: parseTradeSession(parsed.tradeSession),
+        lastReviewAt:
+          typeof parsed.lastReviewAt === "number" && Number.isFinite(parsed.lastReviewAt)
+            ? parsed.lastReviewAt
+            : undefined,
+        reviewCounters: parseReviewCounters(parsed.reviewCounters),
       };
       return applyDecay(stats, now);
     }

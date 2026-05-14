@@ -11,6 +11,7 @@ import {
   applyRest,
   applyVibe,
   applyWork,
+  appendActionHistory,
   flushPetSaves,
   formatCooldownRemaining,
   formatTenure,
@@ -27,6 +28,38 @@ import {
   type PetActivity,
   type PetStats,
 } from "../pet/petState.ts";
+import {
+  applyEventCancel,
+  applyEventChoice,
+  applyEventExpire,
+  defaultScheduler as defaultEventScheduler,
+  isEventExpired,
+  spawnEvent,
+  type EventScheduler,
+  type PetEvent,
+} from "../pet/events.ts";
+import {
+  defaultDealScheduler,
+  formatDeal,
+  listDeals,
+  maybeOfferDeal,
+  tickDeals,
+  type DealScheduler,
+} from "../pet/deals.ts";
+import { detectSynergy } from "../pet/synergy.ts";
+import { attemptTrade, parseSide, parseTicker, type Ticker } from "../pet/trade.ts";
+import { buyItem, parseInventoryItem, useItem as consumeInventoryItem } from "../pet/inventory.ts";
+import { appendGraveyardEntry, buildGraveyardEntry, renderGraveyard } from "../pet/graveyard.ts";
+import {
+  bumpDealsClosed,
+  bumpEventsSurvived,
+  buildReviewSnapshot,
+  ensureReviewCounters,
+  evaluateReviewGate,
+  formatReview,
+  markReviewShown,
+} from "../pet/review.ts";
+import { buildPetSummary, injectPetSummary } from "../pet/personaSummary.ts";
 import { DeathScreen } from "./DeathScreen.tsx";
 import {
   CompactPetPanel,
@@ -46,7 +79,7 @@ import { isValidApiKey, saveConfig } from "../config.ts";
 import type { Conversation } from "../conversation.ts";
 import { buildSavedSession, saveSession } from "../conversation/persist.ts";
 import { getRecentTelemetry, streamChat, type FetchFn } from "../llm.ts";
-import { pickLayout } from "../renderer.ts";
+import { banner as fullBanner, pickLayout, tagline } from "../renderer.ts";
 import { buildMessagesWithReminder, detectPersonaDrift, pickFallback } from "../repl.ts";
 import { EMPTY_NUDGE, SIGINT_MSG, STREAM_ERROR, THINKING_LINES, WITTICISMS } from "../sayings.ts";
 import { type Config } from "../types.ts";
@@ -219,6 +252,7 @@ interface AppProps {
   showIntroChrome?: boolean;
   introInitiallyDone?: boolean;
   registerGracefulExitHandler?: (handler: (() => void) | null) => void;
+  clearScreenForIntroOutro?: () => void;
 }
 
 interface ChromePaneProps {
@@ -241,6 +275,25 @@ interface ChromePaneProps {
   dealDeskHeader: ReactNode;
   dealDesk: (width: number) => ReactNode;
 }
+
+const IntroChrome = memo(function IntroChrome() {
+  const allRows = useMemo(() => fullBanner().split("\n"), []);
+  const taglineText = useMemo(() => tagline(), []);
+  const [shownRows, setShownRows] = useState(0);
+  useEffect(() => {
+    if (shownRows >= allRows.length) return;
+    const handle = setTimeout(() => setShownRows((n) => Math.min(n + 1, allRows.length)), 60);
+    return () => clearTimeout(handle);
+  }, [shownRows, allRows.length]);
+  return (
+    <Box flexDirection="column" marginBottom={1}>
+      {allRows.slice(0, shownRows).map((line, i) => (
+        <Text key={i}>{line}</Text>
+      ))}
+      {shownRows >= allRows.length && <Text>{taglineText}</Text>}
+    </Box>
+  );
+});
 
 const ChromePane = memo(function ChromePane({
   showFullDashboard,
@@ -311,6 +364,7 @@ export function App({
   showIntroChrome = false,
   introInitiallyDone = false,
   registerGracefulExitHandler,
+  clearScreenForIntroOutro,
 }: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -443,15 +497,14 @@ export function App({
   const [paletteIdx, setPaletteIdx] = useState(0);
   const [scrollOffset, setScrollOffset] = useState(0);
   const handleIntroComplete = useCallback(() => {
-    // Wipe the pre-Ink banner/tagline/resume lines BEFORE flipping introDone
-    // so Ink's next paint lands on a cleared screen with chrome at the top.
-    // Doing this in a post-commit effect would erase the freshly drawn frame
-    // and leave the terminal blank until the next render.
-    if (stdout) {
-      stdout.write("\x1b[3J\x1b[2J\x1b[H");
-    }
+    // Reset Ink's log-update cache via instance.clear() AND wipe the pre-Ink
+    // banner/tagline/resume lines before flipping introDone. Writing the clear
+    // escape via useStdout() alone leaves log-update's previousOutput stale —
+    // the post-flip frame is near-identical to the last intro frame so
+    // log-update's diff check skips the write and the terminal stays blank.
+    clearScreenForIntroOutro?.();
     setIntroDone(true);
-  }, [stdout]);
+  }, [clearScreenForIntroOutro]);
   const intro = useIntroAnimation(chromeWidth, introActive, handleIntroComplete);
 
   const [petStats, setPetStats] = useState<PetStats>(() => loadPetState());
@@ -459,11 +512,19 @@ export function App({
   const [isDead, setIsDead] = useState(false);
   const [deathReason, setDeathReason] = useState("energy");
   const [deathVariant, setDeathVariant] = useState(0);
+  const [activeEvent, setActiveEvent] = useState<PetEvent | null>(null);
   const petStatsRef = useRef<PetStats>(petStats);
   const petActivityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const petDecayTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const explicitPetSavePendingRef = useRef(false);
   const lastPetSaveNoticeAtRef = useRef(0);
+  const eventSpawnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const eventExpireTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastEventEndedAtRef = useRef(0);
+  const dealSchedulerRef = useRef<DealScheduler>(defaultDealScheduler());
+  const eventSchedulerRef = useRef<EventScheduler>(defaultEventScheduler());
+  const activeEventRef = useRef<PetEvent | null>(null);
+  const dailyReviewShownThisLaunchRef = useRef(false);
 
   const petEnv: Environment = "office";
 
@@ -540,17 +601,45 @@ export function App({
   }, []);
   const applyPetAction = useCallback(
     (action: PetActionKey, mutator: (stats: PetStats) => PetStats) => {
-      // Run the mutator inside React's setState reducer so we always
-      // operate on the latest committed stats. Returning a value from
-      // the reducer is the only race-free way to compose with a
-      // concurrent decay tick — `() => precomputed` would silently
-      // overwrite anything the decay setInterval just committed.
+      // Precompute the next state from the latest committed stats (mirror'd
+      // in petStatsRef) so narration can fire exactly once per click.
+      // applyDecay is folded in so any decay that has accumulated since the
+      // last 1-minute tick is captured before this action lands; the worst
+      // case interleave with a concurrent decay tick is sub-millisecond and
+      // applyDecay returns same identity when there's no movement.
+      const now = Date.now();
+      const decayed = applyDecay(petStatsRef.current, now);
+      let next: PetStats = mutator(decayed);
+      next = stampAction(next, action, now);
+      next = accrueLifetimeDeals(next, action);
+      next = appendActionHistory(next, action, now);
+      next = ensureReviewCounters(next, now);
+      const tick = tickDeals(next, action, now);
+      next = tick.stats;
+      const narration: string[] = [];
+      if (action === "work") {
+        const offer = maybeOfferDeal(next, now, dealSchedulerRef.current);
+        next = offer.stats;
+        if (offer.offered) {
+          narration.push(`New deal logged: ${formatDeal(offer.offered, now)}.`);
+        }
+      }
+      const synergy = detectSynergy(next, now);
+      next = synergy.stats;
+      if (synergy.matched && synergy.message) narration.push(synergy.message);
+      if (tick.completed.length > 0) next = bumpDealsClosed(next, tick.completed.length);
+      for (const d of tick.completed) {
+        narration.push(`Deal closed: ${d.name}. +${d.reward} lifetime deals.`);
+      }
+      for (const d of tick.expired) {
+        narration.push(`Deal expired: ${d.name}. Pipeline scrubbed.`);
+      }
       explicitPetSavePendingRef.current = true;
-      updatePetStats((stats, now) =>
-        accrueLifetimeDeals(stampAction(mutator(stats), action, now), action),
-      );
+      petStatsRef.current = { ...next, lastSaved: now };
+      setPetStats(() => ({ ...next, lastSaved: now }));
+      for (const line of narration) addItem("system", line);
     },
-    [updatePetStats],
+    [addItem],
   );
 
   // Surface rank promotions as a system memo. Driven off committed
@@ -627,6 +716,97 @@ export function App({
     };
   }, [updatePetStats]);
 
+  // Event scheduler — schedules a random-gap spawn while pet mode is on
+  // and no event is active. Only spawns when the user isn't streaming or
+  // inside a synergy animation (V41). Cleared whenever petMode toggles
+  // off or an event becomes active.
+  useEffect(() => {
+    if (eventSpawnTimerRef.current !== null) {
+      clearTimeout(eventSpawnTimerRef.current);
+      eventSpawnTimerRef.current = null;
+    }
+    if (!petMode || isDead || activeEvent !== null) return;
+    const now = Date.now();
+    const gap = eventSchedulerRef.current.pickGap();
+    const earliest = lastEventEndedAtRef.current + gap;
+    const delay = Math.max(15_000, earliest - now);
+    const handle = setTimeout(() => {
+      eventSpawnTimerRef.current = null;
+      if (!petModeRef.current) return;
+      if (requestInFlightRef.current || synergyActiveRef.current) {
+        // Defer one minute and try again on the next render.
+        lastEventEndedAtRef.current = Date.now() - gap + 60_000;
+        return;
+      }
+      const event = spawnEvent(Date.now(), eventSchedulerRef.current);
+      activeEventRef.current = event;
+      setActiveEvent(event);
+      addItem(
+        "system",
+        [`EVENT: ${event.prompt}`, ...event.choices.map((c) => `  ${c.key}. ${c.label}`)].join(
+          "\n",
+        ),
+      );
+    }, delay);
+    eventSpawnTimerRef.current = handle;
+    return () => {
+      clearTimeout(handle);
+      if (eventSpawnTimerRef.current === handle) eventSpawnTimerRef.current = null;
+    };
+  }, [petMode, isDead, activeEvent, addItem]);
+
+  // Event expiration — fires when the 30s window passes without a
+  // /respond. Applies the neutral expire outcome per V42.
+  useEffect(() => {
+    if (eventExpireTimerRef.current !== null) {
+      clearTimeout(eventExpireTimerRef.current);
+      eventExpireTimerRef.current = null;
+    }
+    if (!activeEvent) return;
+    const ms = Math.max(0, activeEvent.expiresAt - Date.now());
+    const handle = setTimeout(() => {
+      eventExpireTimerRef.current = null;
+      const event = activeEventRef.current;
+      if (!event || !isEventExpired(event)) return;
+      const { stats: next, message } = applyEventExpire(petStatsRef.current);
+      petStatsRef.current = next;
+      addItem("system", message);
+      activeEventRef.current = null;
+      setActiveEvent(null);
+      lastEventEndedAtRef.current = Date.now();
+    }, ms);
+    eventExpireTimerRef.current = handle;
+    return () => {
+      clearTimeout(handle);
+      if (eventExpireTimerRef.current === handle) eventExpireTimerRef.current = null;
+    };
+  }, [activeEvent, addItem]);
+
+  // Daily review — runs once per local-calendar day on first eligible
+  // render after `/pet on` (or boot if already on). Skipped when there's
+  // no prior activity in the last 24h (V49). After display the new
+  // counters are reset so today's actions count fresh.
+  useEffect(() => {
+    if (!petMode || isDead) return;
+    if (dailyReviewShownThisLaunchRef.current) return;
+    const now = Date.now();
+    const gate = evaluateReviewGate(petStatsRef.current, now);
+    if (!gate.shouldShow) {
+      if (gate.reason === "already_shown" || gate.reason === "no_activity") {
+        dailyReviewShownThisLaunchRef.current = true;
+      }
+      return;
+    }
+    const snap = buildReviewSnapshot({ stats: petStatsRef.current, now });
+    addItem("system", formatReview(snap));
+    dailyReviewShownThisLaunchRef.current = true;
+    const advanced = markReviewShown(petStatsRef.current, now);
+    const reset = ensureReviewCounters({ ...advanced, reviewCounters: undefined }, now);
+    explicitPetSavePendingRef.current = true;
+    petStatsRef.current = { ...reset, lastSaved: now };
+    setPetStats(() => ({ ...reset, lastSaved: now }));
+  }, [petMode, isDead, addItem]);
+
   // Death detection
   useEffect(() => {
     if (isDead || !isPetDead(petStats)) return;
@@ -635,6 +815,13 @@ export function App({
     setDeathReason(reason);
     setDeathVariant(Math.floor(Math.random() * 5));
     setIsDead(true);
+    // Record this life in the graveyard BEFORE the respawn reset writes
+    // over `name` + lifetimeDeals on next load (V47).
+    try {
+      appendGraveyardEntry(buildGraveyardEntry(petStats, reason));
+    } catch {
+      // Graveyard write is best-effort; failure must not block death flow.
+    }
     const deadStats = { ...petStats, dead: true };
     petStatsRef.current = deadStats;
     savePetState(deadStats);
@@ -824,16 +1011,19 @@ export function App({
         let result: Awaited<ReturnType<typeof streamChat>> | undefined;
         let caughtErr: unknown = null;
         try {
+          const baseMessages = instruction
+            ? [
+                ...buildMessagesWithReminder(conversation),
+                { role: "system" as const, content: instruction },
+              ]
+            : buildMessagesWithReminder(conversation);
+          const petSummary = petModeRef.current ? buildPetSummary(petStatsRef.current) : null;
+          const composedMessages = injectPetSummary(baseMessages, petSummary);
           result = await streamChat({
             apiKey,
             model,
             fallbackModel: pickFallback(model),
-            messages: instruction
-              ? [
-                  ...buildMessagesWithReminder(conversation),
-                  { role: "system", content: instruction },
-                ]
-              : buildMessagesWithReminder(conversation),
+            messages: composedMessages,
             onToken: (t) => {
               if (!mountedRef.current || exitingRef.current) return;
               const isFirst = firstToken;
@@ -1142,6 +1332,126 @@ export function App({
         addItem("system", lines.join("\n"));
         return;
       }
+      if (slashCommand === "/respond") {
+        const event = activeEventRef.current;
+        if (!event) {
+          addItem("system", "Drexler has no pending event to respond to.");
+          return;
+        }
+        const arg = lower.slice("/respond".length).trim();
+        const now = Date.now();
+        if (arg.length === 0 || !/^[1-3]$/.test(arg)) {
+          addItem("system", "Usage: /respond 1|2|3 — pick a choice for the active event.");
+          return;
+        }
+        const result = applyEventChoice(petStatsRef.current, event, arg, now);
+        if (!result) {
+          addItem("system", "Choice rejected (window closed or unknown option).");
+          return;
+        }
+        const reviewBumped = bumpEventsSurvived(result.stats);
+        explicitPetSavePendingRef.current = true;
+        petStatsRef.current = { ...reviewBumped, lastSaved: now };
+        setPetStats(() => ({ ...reviewBumped, lastSaved: now }));
+        addItem("system", result.message);
+        if (eventExpireTimerRef.current !== null) {
+          clearTimeout(eventExpireTimerRef.current);
+          eventExpireTimerRef.current = null;
+        }
+        activeEventRef.current = null;
+        setActiveEvent(null);
+        lastEventEndedAtRef.current = now;
+        return;
+      }
+      if (slashCommand === "/deals") {
+        const lines = listDeals(petStatsRef.current);
+        if (lines.length === 0) {
+          addItem("system", "Drexler's pipeline is empty. Run /work to seed a deal.");
+          return;
+        }
+        addItem("system", ["Active deals:", ...lines.map((l) => `  ${l}`)].join("\n"));
+        return;
+      }
+      if (slashCommand === "/trade") {
+        if (isDead) {
+          addItem("system", "Drexler can't trade from HR.");
+          return;
+        }
+        const parts = line.split(/\s+/).slice(1);
+        const ticker = parts[0] ? parseTicker(parts[0]) : null;
+        const side = parts[1] ? parseSide(parts[1]) : null;
+        if (!ticker || !side) {
+          addItem("system", "Usage: /trade <AAPL|MSFT|NVDA> <buy|sell>");
+          return;
+        }
+        const outcome = attemptTrade(petStatsRef.current, ticker as Ticker, side, {
+          now: Date.now(),
+        });
+        if (!outcome.ok) {
+          addItem("system", outcome.message);
+          return;
+        }
+        explicitPetSavePendingRef.current = true;
+        const stamped = { ...outcome.stats, lastSaved: Date.now() };
+        petStatsRef.current = stamped;
+        setPetStats(() => stamped);
+        addItem("system", outcome.message);
+        return;
+      }
+      if (slashCommand === "/buy") {
+        const arg = lower.slice("/buy".length).trim();
+        const item = parseInventoryItem(arg);
+        if (!item) {
+          addItem("system", "Usage: /buy <coffee|pastry|charter>");
+          return;
+        }
+        const r = buyItem(petStatsRef.current, item);
+        addItem("system", r.message);
+        if (r.ok) {
+          explicitPetSavePendingRef.current = true;
+          const stamped = { ...r.stats, lastSaved: Date.now() };
+          petStatsRef.current = stamped;
+          setPetStats(() => stamped);
+        }
+        return;
+      }
+      if (slashCommand === "/use") {
+        const arg = lower.slice("/use".length).trim();
+        const item = parseInventoryItem(arg);
+        if (!item) {
+          addItem("system", "Usage: /use <coffee|pastry|charter>");
+          return;
+        }
+        const r = consumeInventoryItem(petStatsRef.current, item);
+        addItem("system", r.message);
+        if (r.ok) {
+          let next: PetStats = r.stats;
+          const clear = r.sideEffects?.clearCooldown;
+          if (clear && next.lastActionAt) {
+            const stripped = { ...next.lastActionAt };
+            delete stripped[clear];
+            next = {
+              ...next,
+              lastActionAt: Object.keys(stripped).length > 0 ? stripped : undefined,
+            };
+          }
+          explicitPetSavePendingRef.current = true;
+          const stamped = { ...next, lastSaved: Date.now() };
+          petStatsRef.current = stamped;
+          setPetStats(() => stamped);
+        }
+        return;
+      }
+      if (slashCommand === "/graveyard") {
+        addItem("system", renderGraveyard());
+        return;
+      }
+      if (slashCommand === "/review") {
+        const now = Date.now();
+        const snap = buildReviewSnapshot({ stats: petStatsRef.current, now });
+        addItem("system", formatReview(snap));
+        return;
+      }
 
       let captured = "";
       const mutableConfig: Config = { ...config, model };
@@ -1303,6 +1613,52 @@ export function App({
       );
       return;
     }
+    // Active event ESC cancels with a small happiness hit (V42). The
+    // hotkeys 1/2/3 mirror `/respond` so the user can answer without
+    // typing the slash.
+    if (activeEventRef.current && !synergyActiveRef.current && synergyEvent === null) {
+      if (key.escape) {
+        const event = activeEventRef.current;
+        const now = Date.now();
+        const { stats: next, message } = applyEventCancel(petStatsRef.current);
+        explicitPetSavePendingRef.current = true;
+        const stamped = { ...next, lastSaved: now };
+        petStatsRef.current = stamped;
+        setPetStats(() => stamped);
+        addItem("system", message);
+        if (eventExpireTimerRef.current !== null) {
+          clearTimeout(eventExpireTimerRef.current);
+          eventExpireTimerRef.current = null;
+        }
+        activeEventRef.current = null;
+        setActiveEvent(null);
+        lastEventEndedAtRef.current = now;
+        void event;
+        return;
+      }
+      if (!key.ctrl && !key.meta && (char === "1" || char === "2" || char === "3")) {
+        const event = activeEventRef.current;
+        const now = Date.now();
+        const result = applyEventChoice(petStatsRef.current, event, char, now);
+        if (result) {
+          const reviewBumped = bumpEventsSurvived(result.stats);
+          explicitPetSavePendingRef.current = true;
+          const stamped = { ...reviewBumped, lastSaved: now };
+          petStatsRef.current = stamped;
+          setPetStats(() => stamped);
+          addItem("system", result.message);
+          if (eventExpireTimerRef.current !== null) {
+            clearTimeout(eventExpireTimerRef.current);
+            eventExpireTimerRef.current = null;
+          }
+          activeEventRef.current = null;
+          setActiveEvent(null);
+          lastEventEndedAtRef.current = now;
+        }
+        return;
+      }
+    }
+
     const busy =
       requestInFlightRef.current ||
       synergyActiveRef.current ||
@@ -1577,6 +1933,7 @@ export function App({
   return (
     <ThemeProvider value={activeTheme}>
       <Box flexDirection="column">
+        {introActive ? <IntroChrome /> : null}
         <ChromePane
           showFullDashboard={showFullDashboard}
           showFallbackPetPanel={showFallbackPetPanel}

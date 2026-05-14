@@ -44,6 +44,13 @@ export const COMMAND_HINTS: Record<string, string> = {
   "/vibe": "let Drexler pick the move",
   "/name": "/name Bartholomew",
   "/profile": "print personnel file",
+  "/respond": "/respond 1 (event hotkeys 1/2/3)",
+  "/deals": "list active pipeline deals",
+  "/trade": "/trade AAPL buy (RTH only)",
+  "/buy": "/buy coffee · /buy pastry · /buy charter",
+  "/use": "/use coffee · /use pastry · /use charter",
+  "/graveyard": "past Drexler obituaries",
+  "/review": "today's daily review card",
 };
 
 const ARGUMENT_TITLES: Record<string, { title: string; hint: string }> = {

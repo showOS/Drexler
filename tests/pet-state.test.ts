@@ -141,6 +141,28 @@ describe("pet state", () => {
     expect(isPetDead(stats)).toBe(false);
   });
 
+  test("respawn halves lifetimeDeals and keeps name (V47)", async () => {
+    const petDir = join(dir, ".drexler");
+    await mkdir(petDir, { recursive: true });
+    await writeFile(
+      join(petDir, "pet.json"),
+      JSON.stringify({
+        hunger: 0,
+        happiness: 0,
+        energy: 0,
+        deals: 0,
+        lastSaved: Date.now(),
+        dead: true,
+        name: "Buffett",
+        lifetimeDeals: 600,
+      }),
+    );
+
+    const stats = loadPetState();
+    expect(stats.name).toBe("Buffett");
+    expect(stats.lifetimeDeals).toBe(300);
+  });
+
   test("pet actions and decay stay within stat bounds", () => {
     const low = {
       hunger: 95,

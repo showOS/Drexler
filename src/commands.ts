@@ -45,6 +45,13 @@ const HELP_TEXT = `New memo to staff! Drexler permit following directives:
   /vibe          - let Drexler choose his own adventure
   /name [name]   - view or assign Drexler's pet name
   /profile       - print Drexler's personnel file
+  /respond <n>   - answer the active event with choice 1/2/3
+  /deals         - list active deals in pipeline
+  /trade <t> <s> - market mini-game (ticker buy|sell, RTH only)
+  /buy <item>    - spend deals for coffee, pastry, or charter
+  /use <item>    - consume coffee, pastry, or charter
+  /graveyard     - list recent past Drexler lives
+  /review        - re-show today's daily review card
   /model         - show or switch model (e.g. /model 26b)
   /theme         - show or switch theme (${THEME_NAMES.join(", ")})
   /startup       - persist startup mode (fast, no-intro, normal)
@@ -89,6 +96,13 @@ export const COMMAND_PALETTE: ReadonlyArray<SlashCommand> = [
   { name: "/vibe", description: "Drexler chooses his own adventure", group: "directives" },
   { name: "/name", description: "Issue or view Drexler's pet name", group: "directives" },
   { name: "/profile", description: "Print Drexler's personnel file", group: "directives" },
+  { name: "/respond", description: "Answer the active pet event", group: "directives" },
+  { name: "/deals", description: "List active deals in pipeline", group: "directives" },
+  { name: "/trade", description: "RTH market mini-game", group: "directives" },
+  { name: "/buy", description: "Buy a desk consumable", group: "directives" },
+  { name: "/use", description: "Use a desk consumable", group: "directives" },
+  { name: "/graveyard", description: "Past Drexler lives", group: "directives" },
+  { name: "/review", description: "Re-show today's review card", group: "directives" },
   { name: "/model", description: "Show or switch model", group: "models" },
   { name: "/theme", description: "Show or switch theme", group: "themes" },
   { name: "/startup", description: "Persist startup mode", group: "startup" },
@@ -366,6 +380,13 @@ export function dispatch(input: string, ctx: CommandContext): CommandAction {
     case "name":
     case "profile":
     case "auth":
+    case "respond":
+    case "deals":
+    case "trade":
+    case "buy":
+    case "use":
+    case "graveyard":
+    case "review":
       ctx.print(
         "Drexler pet directives require the interactive deal desk. Launch Drexler in a TTY.",
       );
