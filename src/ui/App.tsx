@@ -122,6 +122,7 @@ import {
   splitBracketedPaste,
   unquoteDroppedPath,
 } from "../attach/intake.ts";
+import { pushRecent } from "../attach/recent.ts";
 import type { AttachmentChip } from "./InputBox.tsx";
 
 // V60/T43 — single helper that composes the four sources that scale
@@ -2183,6 +2184,7 @@ export function App({
           addItem("system", placed.reason);
           return;
         }
+        pushRecent(path);
         addItem(
           "system",
           `Attached ${r.value.filename} (${formatBytesShort(r.value.sizeBytes)}) ${attShortSha(r.value)}. ESC to clear.`,
@@ -2355,6 +2357,7 @@ export function App({
               addItem("system", placed.reason);
               break;
             }
+            pushRecent(p);
             added += 1;
           }
           if (added > 0) {
@@ -2373,6 +2376,7 @@ export function App({
         if (r.ok) {
           const placed = tryAttach(r.value);
           if (placed.ok) {
+            pushRecent(candidate);
             addItem(
               "system",
               `Attached ${r.value.filename} (${formatBytesShort(r.value.sizeBytes)}) ${attShortSha(r.value)}. Type a message and Enter, or ESC to clear.`,
