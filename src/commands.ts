@@ -84,7 +84,11 @@ const HELP_TEXT = `New memo to staff! Drexler permit following directives:
   /setup         - show config + API key source
   /update        - show upgrade instructions
   /auth <key>    - replace the API key in-session (no restart)
-  /debug         - dump last 5 stream telemetry frames`;
+  /debug         - dump last 5 stream telemetry frames
+  /attach <path> - stage a file as attachment for next send
+  /attach remove <n> - drop the n-th pending attachment
+  /paste         - capture next paste as attachment (vs inline)
+  /attachments   - list pending attachments`;
 
 const WHITESPACE_RE = /\s+/;
 

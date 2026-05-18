@@ -159,6 +159,24 @@ Keyboard notes:
 | `/save [path]` | archive conversation as markdown                 |
 | `/save-last [path]` | save Drexler's last response only          |
 | `/copy-last`   | copy Drexler's latest response to the clipboard  |
+| `/attach <path>` | stage a file (text or image) for the next send |
+| `/attach remove <n>` | drop the n-th pending attachment             |
+| `/paste`       | capture the next paste as an attachment (vs inline) |
+| `/attachments` | list pending attachments; ESC clears              |
+
+---
+
+### Attachments
+
+Drag a file onto the prompt, paste binary/large content, or type `/attach ~/Downloads/spec.png`.
+A chip strip renders above the InputBox showing each pending attachment (filename, size, sha256 prefix).
+
+- **Sources**: drag/drop (single absolute path, or N≥2 newline-separated paths), bracketed paste, `/attach <path>`, or `/paste` (next paste captured).
+- **Caps**: text ≤ 256 KiB · image ≤ 4 MiB · total ≤ 8 MiB · max 4 attachments per turn.
+- **Path safety**: regular files only. Symlinks, FIFOs, traversal, and any path under `~/.ssh`, `~/.aws`, `~/.config/drexler`, or `.env*` are rejected.
+- **Image attachments** need a vision-capable model. `MODEL_CAPS` ships with `openai/gpt-4o`, `anthropic/claude-3.5-sonnet`, `google/gemini-2.5-pro`, the Llama vision models, etc. Gemma aliases (`31b`, `26b`) are text-only — drop an image on one and Drexler refuses pre-flight with zero HTTP issued.
+- **In-memory only**: nothing is persisted to disk by Drexler. `/save`, `/export`, and transcript history all replace attachment payloads with `[attachment: <name> (<size>) sha256:<8>]` placeholders.
+- **Large pastes**: the `PasteIntakePrompt` modal asks `Enter` to attach, `i` to insert as text, `ESC` to discard.
 
 ---
 

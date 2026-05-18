@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.38
+
+- **Attachments**: drag-and-drop, paste, and `/attach` file/image upload into the prompt.
+  - **Slash commands**: `/attach <path>` stages a file; `/attach remove <n>` drops the n-th chip; `/paste` arms the next paste as an attachment; `/attachments` lists pending chips. Chip strip renders above the InputBox; ESC clears.
+  - **Sources**: drag/drop (single absolute path or N≥2 newline-separated paths), bracketed paste (auto-detect via `\x1b[?2004h`), or explicit slash. Large/binary pastes raise a `PasteIntakePrompt` modal — Enter attaches, `i` inserts as text, ESC discards.
+  - **Caps**: text ≤ 256 KiB/file, image ≤ 4 MiB/file, total ≤ 8 MiB/message, ≤ 4 attachments per message.
+  - **Path safety**: regular files only; symlinks, FIFOs, traversal, and `~/.ssh`/`~/.aws`/`~/.config/drexler`/`.env*` all rejected.
+  - **Multimodal wire**: image attachments switch the request body to OpenAI content-array form (`{type:'text'}` + `{type:'image_url'}`). Vision-capable model required — `MODEL_CAPS` registry pre-flights and refuses with zero HTTP when an image hits a text-only model (Gemma aliases `31b`/`26b` text-only).
+  - **In-memory only**: attachments never persist to `pet.json`, config, or transcript files. Exports emit `[attachment: <name> (<size>) sha256:<8>]` placeholders. Image bytes never written to disk by Drexler.
+  - **Recent files**: cap-10 ring buffer at `~/.drexler/attach-recent.json`. Empty-cache and stale-path filtered at chooser render time.
+  - **/history token estimate**: floor of 85 tokens per sent image folded into `approximateTokens()` via `Conversation.imageTokenBudget`.
+
 ## 0.2.36
 
 - **Pet-mode reliability pass**: fixed event scheduling, deal expiration, perk wiring, daily challenge rewards, durable achievement progress, pet-state validation, mini-game timeouts, and achievement/graveyard write locking.

@@ -466,7 +466,7 @@ Palette opens on `/`. Argument choosers: `/theme`, `/startup`, `/retry`, `/expor
 | T59 | x | `src/ui/attach/PasteIntakePrompt.tsx` + App.tsx `pendingPaste` state + early useInput branch. Large/binary pastes route to modal; user picks Enter (attach), `i` (insert as text), ESC (discard). `/paste`-armed payloads bypass modal (intent declared). Modal owns input + disables InputBox per §V22 while open. Ctrl+C still triggers exit. | V70 |
 | T60 | x | `Conversation.addImageAttachments(count)` + `imageTokenBudget` accumulator folded into `approximateTokens()`. Per-image floor = `IMAGE_TOKEN_FLOOR = 85`. Cleared on `Conversation.clear()`. onSubmit increments after each user-message push when image attachments are present. Text attachments already counted via fenced block char-length. | V69 |
 | T61 | x | `tests/attach-hardening.test.ts`: FIFO rejection (loader V68), concurrent attach race (parallel loadAttachment + buffer-loader produce distinct shas), recent-files cache round-trip / dedupe / cap / stale-path filter / missing-file tolerance (V77), bracketed-paste toggle non-TTY no-op (V74). 852 / 0 fail. | V68,V77,V74 |
-| T62 | . | Docs + ship: `/help` text adds attach/paste/attachments + remove sub-cmd; README usage section; CHANGELOG entry; version bump 0.2.37 → 0.2.38; final test/lint/format/typecheck gate. | — |
+| T62 | x | `/help` text adds attach/paste/attachments + remove sub-cmd; README Attachments section + chip strip + caps + path safety + vision-model note; CHANGELOG 0.2.38 entry; package.json bumped 0.2.37 → 0.2.38. Final gate: 852 tests / 0 fail, typecheck + lint + format clean. | — |
 
 ## §B Bugs
 
