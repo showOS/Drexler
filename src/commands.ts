@@ -13,6 +13,7 @@ import { error, resetMarkedTheme } from "./renderer.ts";
 import { THEME_NAMES, type Config, type ThemeName } from "./types.ts";
 import { getActiveTheme, isThemeName, setActiveTheme, THEMES } from "./ui/themes.ts";
 import { sanitizeAttachmentBlocks } from "./attach/sanitize.ts";
+import { loadRecentValid } from "./attach/recent.ts";
 
 export type CommandAction =
   | { type: "continue"; persistConfig?: Partial<Config> }
@@ -378,9 +379,35 @@ const ARGUMENT_PALETTE: ReadonlyArray<{
   },
 ];
 
+function recentAttachEntries(): ReadonlyArray<SlashCommand> {
+  try {
+    const paths = loadRecentValid();
+    return paths.slice(0, 6).map((p) => ({
+      name: `/attach ${p}`,
+      description: basenameOf(p),
+      hint: "recent file",
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function basenameOf(p: string): string {
+  const m = p.match(/[^/\\]+$/);
+  return m ? m[0]! : p;
+}
+
+function valuesForGroup(group: (typeof ARGUMENT_PALETTE)[number]): ReadonlyArray<SlashCommand> {
+  if (group.command === "/attach") {
+    return [...recentAttachEntries(), ...group.values];
+  }
+  return group.values;
+}
+
 function filterArgumentPalette(input: string): ReadonlyArray<SlashCommand> {
   const lower = input.toLowerCase();
   for (const group of ARGUMENT_PALETTE) {
+    const values = valuesForGroup(group);
     if (lower === group.command) {
       return [
         {
@@ -388,7 +415,7 @@ function filterArgumentPalette(input: string): ReadonlyArray<SlashCommand> {
           description: group.baseDescription,
           hint: group.baseHint,
         },
-        ...group.values,
+        ...values,
       ];
     }
     const prefix = `${group.command} `;
@@ -396,7 +423,7 @@ function filterArgumentPalette(input: string): ReadonlyArray<SlashCommand> {
     // Collapse the previous double-filter into a single pass — both
     // legs ended up checking the same lowercased prefix, so we did
     // 2× toLowerCase per item per keystroke. One pass, one lowercase.
-    return group.values.filter((item) => item.name.toLowerCase().startsWith(lower));
+    return values.filter((item) => item.name.toLowerCase().startsWith(lower));
   }
   return [];
 }
