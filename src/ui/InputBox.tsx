@@ -3,12 +3,30 @@ import { memo } from "react";
 import { clampCursor, displayWidth, splitGraphemes } from "./graphemes.ts";
 import { useTheme } from "./ThemeContext.tsx";
 
+export interface AttachmentChip {
+  filename: string;
+  sizeBytes: number;
+  kind: "text" | "image";
+  shortSha: string;
+}
+
 interface Props {
   value: string;
   cursor: number;
   disabled: boolean;
   width: number;
   disabledLabel?: string;
+  attachments?: readonly AttachmentChip[];
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n}B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)}KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+function chipIcon(kind: AttachmentChip["kind"]): string {
+  return kind === "image" ? "▣" : "▤";
 }
 
 const PROMPT_WIDTH = 2;
@@ -81,7 +99,7 @@ function fitPlainText(chars: string[], cursor: number, maxWidth: number): string
   return out || " ";
 }
 
-function InputBoxInner({ value, cursor, disabled, width, disabledLabel }: Props) {
+function InputBoxInner({ value, cursor, disabled, width, disabledLabel, attachments }: Props) {
   const t = useTheme();
   const chars = splitGraphemes(value);
   const safeCursor = clampCursor(value, cursor);
@@ -94,6 +112,18 @@ function InputBoxInner({ value, cursor, disabled, width, disabledLabel }: Props)
   const before = visible.slice(0, visibleCursor).join("");
   const at = visible[visibleCursor] ?? " ";
   const after = visible.slice(visibleCursor + 1).join("");
+  const chips = attachments ?? [];
+  const hasChips = chips.length > 0;
+
+  const chipStrip = hasChips ? (
+    <Box width={boxWidth} flexDirection="row" flexWrap="wrap">
+      {chips.map((c, i) => (
+        <Text key={`${c.shortSha}-${i}`} color={t.primaryDim}>
+          {`${chipIcon(c.kind)} ${c.filename} (${formatBytes(c.sizeBytes)}) ${c.shortSha}  `}
+        </Text>
+      ))}
+    </Box>
+  ) : null;
 
   if (boxWidth < FRAMED_MIN_WIDTH) {
     const plainBudget = Math.max(1, boxWidth - PROMPT_WIDTH);
@@ -101,43 +131,49 @@ function InputBoxInner({ value, cursor, disabled, width, disabledLabel }: Props)
       ? disabledText.slice(0, plainBudget)
       : fitPlainText(chars, safeCursor, plainBudget);
     return (
-      <Box width={boxWidth} flexShrink={1}>
-        <Text color={t.primaryLight} bold wrap="truncate">
-          ❯{" "}
-        </Text>
-        <Text color={disabled ? t.dim : t.text} wrap="truncate">
-          {plain}
-        </Text>
+      <Box flexDirection="column" width={boxWidth}>
+        {chipStrip}
+        <Box width={boxWidth} flexShrink={1}>
+          <Text color={t.primaryLight} bold wrap="truncate">
+            ❯{" "}
+          </Text>
+          <Text color={disabled ? t.dim : t.text} wrap="truncate">
+            {plain}
+          </Text>
+        </Box>
       </Box>
     );
   }
 
   return (
-    <Box
-      borderStyle="round"
-      borderColor={disabled ? t.primaryDim : t.primary}
-      paddingX={1}
-      width={boxWidth}
-      flexShrink={1}
-    >
-      <Text color={t.primaryLight} bold>
-        ❯{" "}
-      </Text>
-      {disabled ? (
-        <Text color={t.dim} wrap="truncate">
-          {disabledText}
+    <Box flexDirection="column" width={boxWidth}>
+      {chipStrip}
+      <Box
+        borderStyle="round"
+        borderColor={disabled ? t.primaryDim : t.primary}
+        paddingX={1}
+        width={boxWidth}
+        flexShrink={1}
+      >
+        <Text color={t.primaryLight} bold>
+          ❯{" "}
         </Text>
-      ) : (
-        <>
-          {window.leftOverflow ? <Text color={t.primaryDim}>…</Text> : null}
-          <Text color={t.text}>{before}</Text>
-          <Text inverse color={t.text}>
-            {at}
+        {disabled ? (
+          <Text color={t.dim} wrap="truncate">
+            {disabledText}
           </Text>
-          <Text color={t.text}>{after}</Text>
-          {window.rightOverflow ? <Text color={t.primaryDim}>…</Text> : null}
-        </>
-      )}
+        ) : (
+          <>
+            {window.leftOverflow ? <Text color={t.primaryDim}>…</Text> : null}
+            <Text color={t.text}>{before}</Text>
+            <Text inverse color={t.text}>
+              {at}
+            </Text>
+            <Text color={t.text}>{after}</Text>
+            {window.rightOverflow ? <Text color={t.primaryDim}>…</Text> : null}
+          </>
+        )}
+      </Box>
     </Box>
   );
 }
