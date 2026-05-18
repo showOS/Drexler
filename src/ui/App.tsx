@@ -128,6 +128,7 @@ import {
   enableBracketedPaste,
   installBracketedPasteSignalHandlers,
 } from "../attach/bracketedPaste.ts";
+import { PasteIntakePrompt } from "./attach/PasteIntakePrompt.tsx";
 import type { AttachmentChip } from "./InputBox.tsx";
 
 // V60/T43 — single helper that composes the four sources that scale
@@ -557,6 +558,12 @@ export function App({
   const [pendingAttachments, setPendingAttachments] = useState<readonly Attachment[]>([]);
   const pendingAttachmentsRef = useRef<readonly Attachment[]>(pendingAttachments);
   const pasteArmedRef = useRef(false);
+  const [pendingPaste, setPendingPaste] = useState<{
+    data: string;
+    sizeBytes: number;
+    reasons: readonly ("too_large" | "binary")[];
+  } | null>(null);
+  const pendingPasteRef = useRef<typeof pendingPaste>(null);
 
   const draftRef = useRef(draft);
   const updateDraft = useCallback(
@@ -613,6 +620,34 @@ export function App({
       return { ok: true };
     },
     [setAttachments, formatBytesShort],
+  );
+
+  const updatePendingPaste = useCallback((next: typeof pendingPaste) => {
+    pendingPasteRef.current = next;
+    setPendingPaste(next);
+  }, []);
+
+  // §V70 — commit a paste payload as a text attachment.
+  const commitPasteAttach = useCallback(
+    (data: string): void => {
+      const buf = Buffer.from(data, "utf-8");
+      const filename = `paste-${Date.now()}.txt`;
+      const r = loadAttachmentFromBuffer(buf, filename, "text/plain");
+      if (!r.ok) {
+        addItem("system", `Paste rejected: ${r.error.message}`);
+        return;
+      }
+      const placed = tryAttach(r.value);
+      if (!placed.ok) {
+        addItem("system", placed.reason);
+        return;
+      }
+      addItem(
+        "system",
+        `Pasted ${formatBytesShort(r.value.sizeBytes)} attached as ${r.value.filename} ${attShortSha(r.value)}. ESC to clear.`,
+      );
+    },
+    [addItem, formatBytesShort, tryAttach],
   );
   const [streaming, setStreaming] = useState<string | null>(null);
   const [thinking, setThinking] = useState<string | null>(null);
@@ -2439,6 +2474,39 @@ export function App({
   );
 
   useInput((char, key) => {
+    // §V70 — Paste intake modal owns input until resolved. Enter attaches,
+    // ESC discards, `i` inserts as plain text. Ctrl+C still escapes.
+    if (pendingPasteRef.current !== null) {
+      if (key.ctrl && char === "c") {
+        triggerExit(SIGINT_MSG);
+        return;
+      }
+      const paste = pendingPasteRef.current;
+      if (key.return) {
+        updatePendingPaste(null);
+        commitPasteAttach(paste.data);
+        return;
+      }
+      if (key.escape) {
+        updatePendingPaste(null);
+        addItem("system", `Paste discarded (${formatBytesShort(paste.sizeBytes)}).`);
+        return;
+      }
+      if (!key.ctrl && !key.meta && char === "i") {
+        updatePendingPaste(null);
+        const normalized = paste.data.replace(/\r\n?/g, "\n");
+        // eslint-disable-next-line no-control-regex
+        const filtered = normalized.replace(/[\x00-\x09\x0b-\x1f]/g, "");
+        if (filtered.length > 0) {
+          updateDraft((prev) =>
+            insertAtCursor(prev.value, clampCursor(prev.value, prev.cursor), filtered),
+          );
+        }
+        return;
+      }
+      // Swallow other keys while modal is open (§V22).
+      return;
+    }
     // Scroll keys are always live — they only mutate scrollOffset and never
     // commit input, so we let the user review history during streaming.
     if (key.pageUp) {
@@ -2828,25 +2896,20 @@ export function App({
 
       for (const ch of effectiveChunks) {
         if (ch.kind === "paste") {
-          const shouldAttach = armed || ch.reasons.length > 0;
-          if (shouldAttach) {
-            const buf = Buffer.from(ch.data, "utf-8");
-            const filename = `paste-${Date.now()}.txt`;
-            const r = loadAttachmentFromBuffer(buf, filename, "text/plain");
-            if (!r.ok) {
-              addItem("system", `Paste rejected: ${r.error.message}`);
+          const shouldHandlePaste = armed || ch.reasons.length > 0;
+          if (shouldHandlePaste) {
+            // §V70 — /paste-armed bypasses modal; user intent already
+            // declared. Otherwise queue payload + show modal.
+            if (armed) {
+              commitPasteAttach(ch.data);
+              pasteArmedRef.current = false;
             } else {
-              const placed = tryAttach(r.value);
-              if (placed.ok) {
-                addItem(
-                  "system",
-                  `Pasted ${formatBytesShort(r.value.sizeBytes)} attached as ${r.value.filename} ${attShortSha(r.value)}. ESC to clear.`,
-                );
-              } else {
-                addItem("system", placed.reason);
-              }
+              updatePendingPaste({
+                data: ch.data,
+                sizeBytes: Buffer.byteLength(ch.data, "utf-8"),
+                reasons: ch.reasons,
+              });
             }
-            if (armed) pasteArmedRef.current = false;
             continue;
           }
         }
@@ -3052,11 +3115,20 @@ export function App({
                       <Text>{"  Pick 1/2/3  ·  ESC to abandon"}</Text>
                     </Box>
                   )}
+                  {pendingPaste !== null && (
+                    <PasteIntakePrompt
+                      sizeBytes={pendingPaste.sizeBytes}
+                      reasons={pendingPaste.reasons}
+                      width={contentInputWidth}
+                    />
+                  )}
                   <Box flexDirection="column">
                     <InputBox
                       value={input}
                       cursor={cursor}
-                      disabled={isBusy || pitchActive || activeNegotiate !== null}
+                      disabled={
+                        isBusy || pitchActive || activeNegotiate !== null || pendingPaste !== null
+                      }
                       disabledLabel={
                         synergyEvent !== null
                           ? "(Synergy event running... boardroom locked)"
@@ -3064,7 +3136,9 @@ export function App({
                             ? "(Pitch active — Enter at peak, ESC to abort)"
                             : activeNegotiate !== null
                               ? "(Negotiate active — pick 1/2/3, ESC to abandon)"
-                              : undefined
+                              : pendingPaste !== null
+                                ? "(Paste intake — Enter attach · i insert · ESC discard)"
+                                : undefined
                       }
                       width={contentInputWidth}
                       attachments={pendingAttachments.map<AttachmentChip>((a) => ({

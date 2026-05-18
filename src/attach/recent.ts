@@ -51,16 +51,12 @@ export function loadRecent(): string[] {
 
 export function pushRecent(absPath: string): void {
   if (!absPath || absPath.length === 0) return;
-  withJsonFileLock<RecentFile>(
-    recentPath(),
-    { version: 1, paths: [] },
-    (current) => {
-      const existing = parseRecent(current);
-      const filtered = existing.filter((p) => p !== absPath);
-      const next = [absPath, ...filtered].slice(0, MAX_RECENT_ENTRIES);
-      return { version: 1, paths: next };
-    },
-  );
+  withJsonFileLock<RecentFile>(recentPath(), { version: 1, paths: [] }, (current) => {
+    const existing = parseRecent(current);
+    const filtered = existing.filter((p) => p !== absPath);
+    const next = [absPath, ...filtered].slice(0, MAX_RECENT_ENTRIES);
+    return { version: 1, paths: next };
+  });
 }
 
 // Filter the cache to entries whose path still resolves to a regular
