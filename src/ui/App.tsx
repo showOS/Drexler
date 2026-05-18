@@ -2445,6 +2445,10 @@ export function App({
         .join("\n\n");
       addItem("user", synthesized);
       conversation.push("user", synthesized);
+      const imageCount = attachments.filter((a) => a.kind === "image").length;
+      if (imageCount > 0) {
+        conversation.addImageAttachments(imageCount);
+      }
       setMsgCount(conversation.length);
       const attachmentsForSend = attachments.length > 0 ? [...attachments] : undefined;
       clearAttachments();

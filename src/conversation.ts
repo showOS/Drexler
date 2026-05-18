@@ -1,9 +1,16 @@
 import type { Message, Role } from "./types.ts";
 
+// §V69 — conservative OpenAI vision-floor token estimate per image
+// attachment (low-detail tile). Real cost depends on image dimensions
+// and detail mode; 85 tokens is the documented minimum so this estimate
+// stays a floor, never an over-count.
+export const IMAGE_TOKEN_FLOOR = 85;
+
 export class Conversation {
   private messages: Message[];
   private readonly system: Message;
   private userTurnCount = 0;
+  private imageTokenBudget = 0;
 
   constructor(
     systemPrompt: string,
@@ -35,6 +42,14 @@ export class Conversation {
   clear(): void {
     this.messages = [this.system];
     this.userTurnCount = 0;
+    this.imageTokenBudget = 0;
+  }
+
+  // §V69 — accrue floor-token cost for each image attachment sent.
+  // Pure additive: decay/respawn semantics live on the pet, not here.
+  addImageAttachments(count: number): void {
+    if (count <= 0) return;
+    this.imageTokenBudget += count * IMAGE_TOKEN_FLOOR;
   }
 
   popLastAssistant(): boolean {
@@ -83,6 +98,6 @@ export class Conversation {
   approximateTokens(): number {
     let chars = 0;
     for (const m of this.messages) chars += m.content.length;
-    return Math.ceil(chars / 4);
+    return Math.ceil(chars / 4) + this.imageTokenBudget;
   }
 }
