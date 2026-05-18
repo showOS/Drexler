@@ -123,6 +123,11 @@ import {
   unquoteDroppedPath,
 } from "../attach/intake.ts";
 import { pushRecent } from "../attach/recent.ts";
+import {
+  disableBracketedPaste,
+  enableBracketedPaste,
+  installBracketedPasteSignalHandlers,
+} from "../attach/bracketedPaste.ts";
 import type { AttachmentChip } from "./InputBox.tsx";
 
 // V60/T43 — single helper that composes the four sources that scale
@@ -2861,6 +2866,9 @@ export function App({
 
   useEffect(() => {
     mountedRef.current = true;
+    // §V74 — explicit bracketed-paste mode on/off across Ink lifecycle.
+    enableBracketedPaste();
+    const removeSignalHandlers = installBracketedPasteSignalHandlers();
     // Capture timer refs themselves (stable across renders); reading
     // `.current` at cleanup time is intentional — we clear whatever
     // timer is live at unmount, not a snapshot from mount when refs
@@ -2877,6 +2885,8 @@ export function App({
     return () => {
       mounted.current = false;
       abort.current?.abort();
+      disableBracketedPaste();
+      removeSignalHandlers();
       if (persistDebouncer.hasPending()) {
         // Flush any pending debounced write so the next launch sees
         // the latest turn; best-effort, the promise is fire-and-forget.
