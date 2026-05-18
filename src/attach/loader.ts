@@ -182,7 +182,10 @@ export async function loadAttachment(
   const probablyImage = IMAGE_EXTENSIONS.has(ext);
   const probablyText = TEXT_EXTENSIONS.has(ext);
   if (!probablyImage && !probablyText) {
-    return { ok: false, error: err("ext_not_allowed", `extension ${ext || "<none>"} not allowed`, absPath) };
+    return {
+      ok: false,
+      error: err("ext_not_allowed", `extension ${ext || "<none>"} not allowed`, absPath),
+    };
   }
 
   // Cap pre-read by extension hint, then re-verify after sniff.
@@ -203,10 +206,16 @@ export async function loadAttachment(
     return { ok: false, error: err("mime_not_allowed", "mime sniff rejected", absPath) };
   }
   if (sniffed.kind === "image" && !IMAGE_MIMES.has(sniffed.mime)) {
-    return { ok: false, error: err("mime_not_allowed", `image mime ${sniffed.mime} not allowed`, absPath) };
+    return {
+      ok: false,
+      error: err("mime_not_allowed", `image mime ${sniffed.mime} not allowed`, absPath),
+    };
   }
   if (sniffed.kind === "text" && !isTextMime(sniffed.mime)) {
-    return { ok: false, error: err("mime_not_allowed", `text mime ${sniffed.mime} not allowed`, absPath) };
+    return {
+      ok: false,
+      error: err("mime_not_allowed", `text mime ${sniffed.mime} not allowed`, absPath),
+    };
   }
 
   const cap = capForKind(sniffed.kind);
