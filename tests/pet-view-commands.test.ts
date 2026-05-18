@@ -88,6 +88,23 @@ describe("handlePetViewSlash (V67)", () => {
     expect(r.lines[0]).toContain("No daily challenge");
   });
 
+  test("/agenda renders agenda summary", () => {
+    const r = recorder();
+    handlePetViewSlash("/agenda", {
+      stats: baseStats(),
+      now: Date.parse("2026-05-18T17:00:00Z"),
+      addItem: r.addItem,
+    });
+    expect(r.lines[0]).toContain("Agenda");
+    expect(r.lines[0]).toContain("Next:");
+  });
+
+  test("/boss renders boss detail", () => {
+    const r = recorder();
+    handlePetViewSlash("/boss", { stats: baseStats(), now: 0, addItem: r.addItem });
+    expect(r.lines[0]).toContain("No active boss");
+  });
+
   test("/log renders empty notification log", () => {
     const r = recorder();
     handlePetViewSlash("/log", { stats: baseStats(), now: 0, addItem: r.addItem });

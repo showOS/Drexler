@@ -9,6 +9,8 @@ import {
   type PetActivity,
   type PetStats,
 } from "../pet/petState.ts";
+import { agendaHint } from "../pet/agenda.ts";
+import { listDeals } from "../pet/deals.ts";
 import { STARTUP_TIPS } from "../startupTips.ts";
 import { MascotFrame, MASCOT_WIDTH, type MascotState } from "./MascotFrame.tsx";
 import { displayWidth, fitDisplayText } from "./graphemes.ts";
@@ -900,6 +902,11 @@ const PetStatsReadout = memo(function PetStatsReadoutView({
     ),
   );
   const memoText = `memo ${getPetStatusMessage(stats, 0)}`;
+  const hintText = agendaHint(stats);
+  const dealText =
+    (stats.activeDeals?.length ?? 0) > 0
+      ? `deals ${listDeals(stats)[0] ?? "active"}`
+      : "deals none · /work to seed";
 
   if (panelWidth < PET_STATS_MIN_WIDTH) {
     return (
@@ -944,6 +951,8 @@ const PetStatsReadout = memo(function PetStatsReadoutView({
       <PetDashboardStatBar label="hunger" value={stats.hunger} width={panelWidth} />
       <PetDashboardStatBar label="energy" value={stats.energy} width={panelWidth} />
       <PetDashboardStatBar label="deals" value={stats.deals} width={panelWidth} />
+      <PetStatsBodyLine text={hintText} width={panelWidth} color={t.primaryLight} />
+      <PetStatsBodyLine text={dealText} width={panelWidth} color={t.dim} />
       <PetStatsBodyLine text={memoText} width={panelWidth} color={t.dim} />
       <Text color={t.primary}>{titledPanelBottom(panelWidth)}</Text>
     </Box>
@@ -986,6 +995,7 @@ const PetStatsMiniReadout = memo(function PetStatsMiniReadoutView({
     `energy ${Math.round(stats.energy)}%`,
     `deals ${Math.round(stats.deals)}%`,
   ].join(" · ");
+  const hintText = agendaHint(stats);
 
   return (
     <Box flexDirection="column" width={panelWidth}>
@@ -1003,6 +1013,7 @@ const PetStatsMiniReadout = memo(function PetStatsMiniReadoutView({
         color={t.primaryLight}
       />
       <PetStatsBodyLine text={statsLine} width={panelWidth} color={t.text} />
+      <PetStatsBodyLine text={hintText} width={panelWidth} color={t.dim} />
       <Text color={t.primary}>{titledPanelBottom(panelWidth)}</Text>
     </Box>
   );

@@ -46,8 +46,10 @@ const HELP_TEXT = `New memo to staff! Drexler permit following directives:
   /vibe          - let Drexler choose his own adventure
   /name [name]   - view or assign Drexler's pet name
   /profile       - print Drexler's personnel file
+  /agenda        - show today's pet mandates
   /respond <n>   - answer the active event with choice 1/2/3
   /deals         - list active deals in pipeline
+  /boss          - show active boss encounter
   /trade <t> <s> - market mini-game (ticker buy|sell, RTH only)
   /buy <item>    - spend deals for coffee, pastry, or charter
   /use <item>    - consume coffee, pastry, or charter
@@ -57,7 +59,7 @@ const HELP_TEXT = `New memo to staff! Drexler permit following directives:
   /perks         - list earned + available perks
   /perk <id>     - spend a promotion point on a perk
   /streak        - show current daily streak
-  /challenge     - show today's challenge progress
+  /challenge     - show today's agenda progress
   /log           - print recent in-session pet notifications
   /pitch         - timing mini-game (Enter at the peak)
   /negotiate     - text-choice mini-game (1/2/3)
@@ -106,8 +108,10 @@ export const COMMAND_PALETTE: ReadonlyArray<SlashCommand> = [
   { name: "/vibe", description: "Drexler chooses his own adventure", group: "directives" },
   { name: "/name", description: "Issue or view Drexler's pet name", group: "directives" },
   { name: "/profile", description: "Print Drexler's personnel file", group: "directives" },
+  { name: "/agenda", description: "Show today's pet mandates", group: "directives" },
   { name: "/respond", description: "Answer the active pet event", group: "directives" },
   { name: "/deals", description: "List active deals in pipeline", group: "directives" },
+  { name: "/boss", description: "Show active boss encounter", group: "directives" },
   { name: "/trade", description: "RTH market mini-game", group: "directives" },
   { name: "/buy", description: "Buy a desk consumable", group: "directives" },
   { name: "/use", description: "Use a desk consumable", group: "directives" },
@@ -117,7 +121,7 @@ export const COMMAND_PALETTE: ReadonlyArray<SlashCommand> = [
   { name: "/perks", description: "List earned + available perks", group: "directives" },
   { name: "/perk", description: "Spend a promotion point", group: "directives" },
   { name: "/streak", description: "Show current daily streak", group: "directives" },
-  { name: "/challenge", description: "Show today's challenge", group: "directives" },
+  { name: "/challenge", description: "Show today's agenda", group: "directives" },
   { name: "/log", description: "Recent pet notifications", group: "directives" },
   { name: "/pitch", description: "Timing mini-game", group: "directives" },
   { name: "/negotiate", description: "Text-choice mini-game", group: "directives" },
@@ -358,6 +362,20 @@ const ARGUMENT_PALETTE: ReadonlyArray<{
       { name: "/archetype operator", description: "Operator", hint: "rest/decay profile" },
     ],
   },
+  {
+    command: "/attach",
+    baseDescription: "Attach chooser",
+    baseHint: "recent files + remove",
+    // Recent-file entries injected at render time by ATTACH_RECENT_PROVIDER
+    // (see filterArgumentPalette → src/attach/recent.ts). Static values cover
+    // the four remove slots (MAX_ATTACHMENTS).
+    values: [
+      { name: "/attach remove 1", description: "Remove chip 1", hint: "drop pending attachment" },
+      { name: "/attach remove 2", description: "Remove chip 2", hint: "drop pending attachment" },
+      { name: "/attach remove 3", description: "Remove chip 3", hint: "drop pending attachment" },
+      { name: "/attach remove 4", description: "Remove chip 4", hint: "drop pending attachment" },
+    ],
+  },
 ];
 
 function filterArgumentPalette(input: string): ReadonlyArray<SlashCommand> {
@@ -477,7 +495,9 @@ export function dispatch(input: string, ctx: CommandContext): CommandAction {
     case "perks":
     case "perk":
     case "streak":
+    case "agenda":
     case "challenge":
+    case "boss":
     case "log":
     case "pitch":
     case "negotiate":

@@ -74,6 +74,13 @@ export function startBoss(stats: PetStats, def: BossDef, now: number): BossStart
   };
 }
 
+export function bossNeedsAudit(stats: PetStats, now: number = Date.now()): boolean {
+  const record = stats.boss;
+  if (!record || now >= record.deadline) return false;
+  const def = getBossDef(record.id);
+  return def?.steps[record.step]?.kind === "audit_response";
+}
+
 export interface BossAdvanceResult {
   stats: PetStats;
   advanced: boolean;
@@ -131,11 +138,18 @@ export function advanceBoss(
       message: `${def.title} closed. +${def.reward} lifetime deals. Bonus respect.`,
     };
   }
+  const upcoming = def.steps[nextStep]!;
   const advanced: PetStats = {
     ...stats,
-    boss: { ...record, step: nextStep },
+    boss: {
+      ...record,
+      step: nextStep,
+      forcedAuditAt:
+        upcoming.kind === "audit_response"
+          ? Math.min(now + 60_000, Math.max(now, record.deadline - 30_000))
+          : record.forcedAuditAt,
+    },
   };
-  const upcoming = def.steps[nextStep]!;
   return {
     stats: advanced,
     advanced: true,

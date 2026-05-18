@@ -13,6 +13,8 @@ import {
   renderAchievements,
   unlockAchievement,
 } from "../../pet/achievements.ts";
+import { renderAgenda, renderDailyAgenda } from "../../pet/agenda.ts";
+import { renderBoss } from "../../pet/boss.ts";
 import { listDeals } from "../../pet/deals.ts";
 import { loadGraveyard, renderGraveyard } from "../../pet/graveyard.ts";
 import { formatNotificationLog } from "../../pet/notificationLog.ts";
@@ -41,8 +43,19 @@ export function handlePetViewSlash(slashCommand: string, ctx: PetViewContext): b
       ctx.addItem("system", renderStreak(ctx.stats));
       return true;
 
+    case "/agenda":
+      ctx.addItem("system", renderAgenda(ctx.stats, ctx.now));
+      return true;
+
     case "/challenge":
-      ctx.addItem("system", renderChallenge(ctx.stats));
+      ctx.addItem(
+        "system",
+        ctx.stats.agenda ? renderDailyAgenda(ctx.stats, ctx.now) : renderChallenge(ctx.stats),
+      );
+      return true;
+
+    case "/boss":
+      ctx.addItem("system", renderBoss(ctx.stats, ctx.now));
       return true;
 
     case "/log":

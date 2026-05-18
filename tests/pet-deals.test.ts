@@ -6,6 +6,7 @@ import {
   listDeals,
   maybeOfferDeal,
   resetDealCounter,
+  shouldGuaranteeDailyDeal,
   spawnDeal,
   tickDeals,
 } from "../src/pet/deals.ts";
@@ -42,6 +43,7 @@ describe("active deals", () => {
     expect(deal.deadline).toBeGreaterThan(1_000_000);
     expect(deal.reward).toBeGreaterThan(0);
     expect(deal.requirements.length).toBeGreaterThan(0);
+    expect(deal.deadline - 1_000_000).toBe(24 * 60 * 60_000);
   });
 
   test("maybeOfferDeal respects concurrent cap", () => {
@@ -88,6 +90,36 @@ describe("active deals", () => {
     const stats = baseStats();
     const { offered } = maybeOfferDeal(stats, 0, scheduler);
     expect(offered).toBeNull();
+  });
+
+  test("maybeOfferDeal can force first daily deal despite spawn roll", () => {
+    const scheduler = { ...defaultDealScheduler(fixedRng([0])), shouldSpawn: () => false };
+    const { offered } = maybeOfferDeal(baseStats(), 0, scheduler, MAX_ACTIVE_DEALS, true);
+    expect(offered).not.toBeNull();
+  });
+
+  test("shouldGuaranteeDailyDeal only applies to first empty-pipeline work of local day", () => {
+    const now = Date.parse("2026-05-18T17:00:00Z");
+    expect(shouldGuaranteeDailyDeal(baseStats(), now)).toBe(true);
+    expect(shouldGuaranteeDailyDeal(baseStats({ lastActionAt: { work: now } }), now)).toBe(false);
+    expect(
+      shouldGuaranteeDailyDeal(
+        baseStats({
+          activeDeals: [
+            {
+              id: "d1",
+              name: "A",
+              requirements: [{ action: "work", count: 1 }],
+              deadline: now + 1_000,
+              started: now,
+              progress: {},
+              reward: 1,
+            },
+          ],
+        }),
+        now,
+      ),
+    ).toBe(false);
   });
 
   test("maybeOfferDeal appends when slot free + rolls in", () => {

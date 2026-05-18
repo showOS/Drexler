@@ -1,4 +1,5 @@
 import type { ActiveDeal, PetActionKey, PetStats } from "./petState.ts";
+import { localDateStamp } from "./trade.ts";
 
 export const MAX_ACTIVE_DEALS = 2;
 export const DEAL_SPAWN_PROB_ON_WORK = 0.35;
@@ -19,7 +20,7 @@ export const DEAL_POOL: ReadonlyArray<DealTemplate> = [
       { action: "work", count: 3 },
       { action: "praise", count: 1 },
     ],
-    durationMs: 2 * 60 * 60_000,
+    durationMs: 24 * 60 * 60_000,
     reward: 50,
   },
   {
@@ -28,7 +29,7 @@ export const DEAL_POOL: ReadonlyArray<DealTemplate> = [
       { action: "work", count: 2 },
       { action: "feed", count: 1 },
     ],
-    durationMs: 90 * 60_000,
+    durationMs: 36 * 60 * 60_000,
     reward: 35,
   },
   {
@@ -37,7 +38,7 @@ export const DEAL_POOL: ReadonlyArray<DealTemplate> = [
       { action: "play", count: 2 },
       { action: "work", count: 2 },
     ],
-    durationMs: 3 * 60 * 60_000,
+    durationMs: 48 * 60 * 60_000,
     reward: 60,
   },
   {
@@ -46,7 +47,7 @@ export const DEAL_POOL: ReadonlyArray<DealTemplate> = [
       { action: "work", count: 1 },
       { action: "vibe", count: 1 },
     ],
-    durationMs: 45 * 60_000,
+    durationMs: 72 * 60 * 60_000,
     reward: 20,
   },
 ];
@@ -95,16 +96,23 @@ export function maybeOfferDeal(
   now: number,
   scheduler: DealScheduler,
   cap: number = MAX_ACTIVE_DEALS,
+  force: boolean = false,
 ): { stats: PetStats; offered: ActiveDeal | null } {
   const safeCap = Math.max(0, Math.floor(cap));
   const current = stats.activeDeals ?? [];
   if (current.length >= safeCap) return { stats, offered: null };
-  if (!scheduler.shouldSpawn()) return { stats, offered: null };
+  if (!force && !scheduler.shouldSpawn()) return { stats, offered: null };
   const deal = spawnDeal(now, scheduler);
   return {
     stats: { ...stats, activeDeals: [...current, deal] },
     offered: deal,
   };
+}
+
+export function shouldGuaranteeDailyDeal(stats: PetStats, now: number): boolean {
+  if ((stats.activeDeals?.length ?? 0) > 0) return false;
+  const lastWork = stats.lastActionAt?.work;
+  return typeof lastWork !== "number" || localDateStamp(lastWork) !== localDateStamp(now);
 }
 
 function requirementsMet(deal: ActiveDeal): boolean {

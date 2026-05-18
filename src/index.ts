@@ -60,6 +60,8 @@ Slash commands inside REPL:
   /vibe          let Drexler choose his own adventure
   /name [name]   view or assign Drexler's pet name
   /profile       print Drexler's personnel file
+  /agenda        show today's pet mandates
+  /boss          show active boss encounter
   /model [id]    show or switch model
   /theme [name]  show or switch theme; append save to persist
   /startup [mode] persist startup mode: fast, no-intro, normal

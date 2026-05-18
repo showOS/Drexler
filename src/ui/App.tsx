@@ -38,6 +38,7 @@ import {
   applyEventChoice,
   applyEventExpire,
   defaultScheduler as defaultEventScheduler,
+  EVENT_POOL,
   isEventExpired,
   spawnEvent,
   type EventScheduler,
@@ -47,6 +48,7 @@ import {
   defaultDealScheduler,
   formatDeal,
   maybeOfferDeal,
+  shouldGuaranteeDailyDeal,
   tickDeals,
   type DealScheduler,
 } from "../pet/deals.ts";
@@ -101,7 +103,8 @@ import {
   resolvePitch,
   type NegotiateScenario,
 } from "../pet/minigames.ts";
-import { BOSS_QUARTERLY, advanceBoss, startBoss } from "../pet/boss.ts";
+import { BOSS_QUARTERLY, advanceBoss, bossNeedsAudit, startBoss } from "../pet/boss.ts";
+import { bumpAgenda, bumpAgendaForAction, ensureAgenda } from "../pet/agenda.ts";
 import { defaultRng, pickInt } from "../pet/rng.ts";
 import { handlePetViewSlash } from "./pet/petViewCommands.ts";
 import type { Attachment } from "../attach/types.ts";
@@ -733,6 +736,9 @@ export function App({
     [addItem],
   );
   const eventGapFrom = useCallback((stats: PetStats, now: number) => {
+    if (bossNeedsAudit(stats, now) && typeof stats.boss?.forcedAuditAt === "number") {
+      return Math.max(0, stats.boss.forcedAuditAt - now);
+    }
     const effective = Math.round(
       eventSchedulerRef.current.pickGap() * worldEventGapMultiplier(stats, now),
     );
@@ -802,8 +808,13 @@ export function App({
       // Coming online: roll today's daily challenge and consider spawning
       // a world event. Both are idempotent within the day.
       const now = Date.now();
-      const dc = ensureDailyChallenge(petStatsRef.current, now);
-      let nextStats = dc.stats;
+      const agenda = ensureAgenda(petStatsRef.current, now);
+      let nextStats = agenda.stats;
+      if (agenda.dailyFresh && nextStats.agenda) {
+        addItem("system", "Today's agenda ready. Run /agenda for mandates and next action.");
+      }
+      const dc = ensureDailyChallenge(nextStats, now);
+      nextStats = dc.stats;
       if (dc.freshly && nextStats.dailyChallenge) {
         const msg = `Today's challenge: ${nextStats.dailyChallenge.kind} (target ${nextStats.dailyChallenge.target}).`;
         appendNotification("challenge", msg, now);
@@ -851,6 +862,7 @@ export function App({
       const archetype = archetypeMultipliers(petStatsRef.current);
       const decayMult = composeDecayMultiplier(petStatsRef.current, now);
       const decayed = applyDecay(petStatsRef.current, now, decayMult);
+      const guaranteeDailyDeal = action === "work" && shouldGuaranteeDailyDeal(decayed, now);
       let next: PetStats = mutator(decayed);
       if (action === "feed") {
         const mealMult = perkFeedMultiplier(decayed);
@@ -880,7 +892,7 @@ export function App({
         }
       }
       next = stampAction(next, action, now);
-      next = accrueLifetimeDeals(next, action);
+      next = accrueLifetimeDeals(next, action, now);
       next = appendActionHistory(next, action, now);
       next = ensureReviewCounters(next, now);
       const tick = tickDeals(next, action, now);
@@ -888,7 +900,13 @@ export function App({
       const narration: string[] = [];
       const offerCap = perkPipelineCap(next, 2);
       if (action === "work" && (next.activeDeals?.length ?? 0) < offerCap) {
-        const offer = maybeOfferDeal(next, now, dealSchedulerRef.current, offerCap);
+        const offer = maybeOfferDeal(
+          next,
+          now,
+          dealSchedulerRef.current,
+          offerCap,
+          guaranteeDailyDeal,
+        );
         next = offer.stats;
         if (offer.offered) {
           const msg = `New deal logged: ${formatDeal(offer.offered, now)}.`;
@@ -925,6 +943,13 @@ export function App({
           },
         };
         next = bumpDailyChallenge(next, "close_deals_2", tick.completed.length, now).stats;
+        const agendaBump = bumpAgenda(next, "close_deal", tick.completed.length, now);
+        next = agendaBump.stats;
+        for (const item of agendaBump.completed) {
+          const msg = `Agenda mandate complete: ${item.label}.`;
+          narration.push(msg);
+          appendNotification("challenge", msg, now);
+        }
       }
       for (const d of tick.completed) {
         const msg = `Deal closed: ${d.name}. +${d.reward} lifetime deals.`;
@@ -957,6 +982,13 @@ export function App({
         narration.push(msg);
         appendNotification("challenge", msg, now);
       }
+      const agendaAction = bumpAgendaForAction(next, action, now);
+      next = agendaAction.stats;
+      for (const item of agendaAction.completed) {
+        const msg = `Agenda mandate complete: ${item.label}.`;
+        narration.push(msg);
+        appendNotification("challenge", msg, now);
+      }
 
       // Boss step triggers.
       if (action === "work" || action === "praise") {
@@ -970,6 +1002,11 @@ export function App({
           unlockBadge("boss_quarterly", narration, now);
         }
         next = bossRes.stats;
+        if (bossRes.advanced) {
+          const agendaBump = bumpAgenda(next, "boss_step", 1, now);
+          next = agendaBump.stats;
+          if (bossNeedsAudit(next, now)) scheduleNextEventFrom(now, next);
+        }
       }
       next = recordHealthyProgress(next, now);
       evaluateProgressBadges(next, narration, now);
@@ -993,7 +1030,7 @@ export function App({
         unlockBadge("perk_collector", [], now, false);
       }
     },
-    [addItem, evaluateProgressBadges, unlockBadge],
+    [addItem, evaluateProgressBadges, scheduleNextEventFrom, unlockBadge],
   );
 
   // Surface rank promotions as a system memo. Driven off committed
@@ -1172,7 +1209,14 @@ export function App({
         setEventScheduleNonce((n) => n + 1);
         return;
       }
-      const event = spawnEvent(Date.now(), eventSchedulerRef.current);
+      const spawnAt = Date.now();
+      const scheduler = bossNeedsAudit(petStatsRef.current, spawnAt)
+        ? {
+            ...eventSchedulerRef.current,
+            pickEvent: () => EVENT_POOL.find((e) => e.kind === "audit") ?? EVENT_POOL[0]!,
+          }
+        : eventSchedulerRef.current;
+      const event = spawnEvent(spawnAt, scheduler);
       nextEventDueAtRef.current = null;
       activeEventRef.current = event;
       setActiveEvent(event);
@@ -1810,6 +1854,9 @@ export function App({
           const bossRes = advanceBoss(reviewBumped, "audit_response", now);
           reviewBumped = bossRes.stats;
           if (bossRes.message) addItem("system", bossRes.message);
+          if (bossRes.advanced) {
+            reviewBumped = bumpAgenda(reviewBumped, "boss_step", 1, now).stats;
+          }
         }
         // Daily challenge: survive_2_events tally.
         const dcBump = bumpDailyChallenge(reviewBumped, "survive_2_events", 1, now);
@@ -1894,6 +1941,14 @@ export function App({
             setPetStats(() => ({ ...bumped.stats, lastSaved: now }));
           }
           evaluateProgressBadges(petStatsRef.current, [], now);
+          const agendaTrade = bumpAgenda(petStatsRef.current, "win_trade", 1, now);
+          if (agendaTrade.completed.length > 0) {
+            addItem("system", `Agenda mandate complete: ${agendaTrade.completed[0]!.label}.`);
+          }
+          if (agendaTrade.stats !== petStatsRef.current) {
+            petStatsRef.current = { ...agendaTrade.stats, lastSaved: now };
+            setPetStats(() => ({ ...agendaTrade.stats, lastSaved: now }));
+          }
           // Boss step trigger.
           const bossRes = advanceBoss(petStatsRef.current, "trade_win", now);
           if (bossRes.message) addItem("system", bossRes.message);
@@ -1901,6 +1956,7 @@ export function App({
             const bossed = { ...bossRes.stats, lastSaved: now };
             petStatsRef.current = bossed;
             setPetStats(() => bossed);
+            if (bossRes.advanced && bossNeedsAudit(bossed, now)) scheduleNextEventFrom(now, bossed);
           }
         }
         return;
@@ -2091,7 +2147,28 @@ export function App({
       if (slashCommand === "/attach") {
         const arg = line.slice("/attach".length).trim();
         if (arg.length === 0) {
-          addItem("system", "Usage: /attach <path>");
+          addItem("system", "Usage: /attach <path>  ·  /attach remove <n>");
+          return;
+        }
+        // §V75 — remove sub-command. `/attach remove <n>` (1-based).
+        const removeMatch = arg.match(/^remove\s+(\d+)\s*$/i);
+        if (removeMatch) {
+          const n = Number.parseInt(removeMatch[1]!, 10);
+          const current = pendingAttachmentsRef.current;
+          if (current.length === 0) {
+            addItem("system", "No attachments to remove.");
+            return;
+          }
+          if (!Number.isFinite(n) || n < 1 || n > current.length) {
+            addItem("system", `No attachment at index ${n}. ${current.length} pending.`);
+            return;
+          }
+          const removed = current[n - 1]!;
+          setAttachments(current.filter((_, i) => i !== n - 1));
+          addItem(
+            "system",
+            `Removed ${removed.filename} (${formatBytesShort(removed.sizeBytes)}).`,
+          );
           return;
         }
         const path = unquoteDroppedPath(arg);
@@ -2220,6 +2297,7 @@ export function App({
       removeLastAssistantItem,
       runLLM,
       runSynergyEvent,
+      setAttachments,
       setDashboardPetMode,
       scheduleNextEventFrom,
       triggerExit,
@@ -2490,6 +2568,9 @@ export function App({
             const bossRes = advanceBoss(reviewBumped, "audit_response", now);
             reviewBumped = bossRes.stats;
             if (bossRes.message) addItem("system", bossRes.message);
+            if (bossRes.advanced) {
+              reviewBumped = bumpAgenda(reviewBumped, "boss_step", 1, now).stats;
+            }
           }
           const dcBump = bumpDailyChallenge(reviewBumped, "survive_2_events", 1, now);
           reviewBumped = dcBump.stats;

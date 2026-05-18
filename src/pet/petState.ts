@@ -12,6 +12,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { homedir, hostname } from "node:os";
 import { join } from "node:path";
+import { localDateStamp } from "./trade.ts";
 
 // pet.json persistence intentionally diverges from `withJsonFileLock`
 // (src/pet/fileLock.ts) — V64 documents why both pipelines coexist.
@@ -105,6 +106,7 @@ export interface PetBossRecord {
   step: number;
   startedAt: number;
   deadline: number;
+  forcedAuditAt?: number;
 }
 
 export interface PetMinigameRecord {
@@ -125,6 +127,38 @@ export interface AchievementProgress {
   seenWorldEvents: string[];
   survivedWorldEvents: string[];
 }
+
+export type PetAgendaItemKind =
+  | "feed"
+  | "play"
+  | "work"
+  | "rest"
+  | "close_deal"
+  | "win_trade"
+  | "boss_step";
+
+export interface PetAgendaItem {
+  id: string;
+  kind: PetAgendaItemKind;
+  label: string;
+  target: number;
+  progress: number;
+  rewarded: boolean;
+}
+
+export interface PetAgendaRecord {
+  dailyDate: string;
+  daily: PetAgendaItem[];
+  weeklyDate: string;
+  weekly: PetAgendaItem;
+}
+
+export interface PetDailyFocusRecord {
+  date: string;
+  directLifetime: number;
+}
+
+export type PetCriticalStat = "hunger" | "happiness" | "energy";
 
 export interface PetStats {
   hunger: number;
@@ -152,6 +186,9 @@ export interface PetStats {
   boss?: PetBossRecord;
   minigame?: PetMinigameRecord;
   achievementProgress?: AchievementProgress;
+  agenda?: PetAgendaRecord;
+  dailyFocus?: PetDailyFocusRecord;
+  criticalSince?: Partial<Record<PetCriticalStat, number>>;
 }
 
 export interface ReviewCounters {
@@ -231,10 +268,10 @@ export function sanitizePetName(input: string): string {
 
 // Per-hour decay rates
 const DECAY_PER_HOUR = {
-  hunger: 15,
-  happiness: 8,
-  energy: 10,
-  deals: 5,
+  hunger: 1.5,
+  happiness: 0.8,
+  energy: 1,
+  deals: 0.5,
 };
 
 export type PetActionKey = "feed" | "play" | "work" | "praise" | "rest" | "vibe";
@@ -519,12 +556,82 @@ function parseBoss(input: unknown): PetStats["boss"] | undefined {
   if (typeof maxStep !== "number") return undefined;
   const step = Math.floor(o.step);
   if (step < 0 || step >= maxStep) return undefined;
-  return {
+  const out: PetBossRecord = {
     id: o.id,
     step,
     startedAt: o.startedAt,
     deadline: o.deadline,
   };
+  if (typeof o.forcedAuditAt === "number" && Number.isFinite(o.forcedAuditAt)) {
+    out.forcedAuditAt = o.forcedAuditAt;
+  }
+  return out;
+}
+
+const AGENDA_KIND_SET: ReadonlySet<PetAgendaItemKind> = new Set([
+  "feed",
+  "play",
+  "work",
+  "rest",
+  "close_deal",
+  "win_trade",
+  "boss_step",
+]);
+
+function parseAgendaItem(input: unknown): PetAgendaItem | null {
+  if (!input || typeof input !== "object") return null;
+  const o = input as Record<string, unknown>;
+  if (typeof o.id !== "string" || typeof o.label !== "string") return null;
+  if (typeof o.kind !== "string" || !AGENDA_KIND_SET.has(o.kind as PetAgendaItemKind)) {
+    return null;
+  }
+  if (typeof o.target !== "number" || !Number.isFinite(o.target) || o.target <= 0) return null;
+  const progress =
+    typeof o.progress === "number" && Number.isFinite(o.progress)
+      ? Math.max(0, Math.floor(o.progress))
+      : 0;
+  return {
+    id: o.id,
+    kind: o.kind as PetAgendaItemKind,
+    label: o.label,
+    target: Math.max(1, Math.floor(o.target)),
+    progress,
+    rewarded: o.rewarded === true,
+  };
+}
+
+function parseAgenda(input: unknown): PetAgendaRecord | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const o = input as Record<string, unknown>;
+  if (typeof o.dailyDate !== "string" || typeof o.weeklyDate !== "string") return undefined;
+  if (!Array.isArray(o.daily)) return undefined;
+  const daily = o.daily.map(parseAgendaItem).filter((i): i is PetAgendaItem => i !== null);
+  const weekly = parseAgendaItem(o.weekly);
+  if (daily.length === 0 || !weekly) return undefined;
+  return { dailyDate: o.dailyDate, daily: daily.slice(0, 3), weeklyDate: o.weeklyDate, weekly };
+}
+
+function parseDailyFocus(input: unknown): PetDailyFocusRecord | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const o = input as Record<string, unknown>;
+  if (typeof o.date !== "string") return undefined;
+  return {
+    date: o.date,
+    directLifetime:
+      typeof o.directLifetime === "number" && Number.isFinite(o.directLifetime)
+        ? Math.max(0, Math.floor(o.directLifetime))
+        : 0,
+  };
+}
+
+function parseCriticalSince(input: unknown): PetStats["criticalSince"] | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const out: Partial<Record<PetCriticalStat, number>> = {};
+  for (const key of ["hunger", "happiness", "energy"] as const) {
+    const v = (input as Record<string, unknown>)[key];
+    if (typeof v === "number" && Number.isFinite(v)) out[key] = v;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 function parseStringList(input: unknown): string[] {
@@ -719,15 +826,39 @@ export function applyDecay(
     typeof multiplier === "number" && Number.isFinite(multiplier) && multiplier >= 0
       ? Math.min(1, multiplier)
       : 1;
-  const nextHunger = clamp(stats.hunger - DECAY_PER_HOUR.hunger * elapsed * safeMult);
-  const nextHappiness = clamp(stats.happiness - DECAY_PER_HOUR.happiness * elapsed * safeMult);
-  const nextEnergy = clamp(stats.energy - DECAY_PER_HOUR.energy * elapsed * safeMult);
+  let nextHunger = clamp(stats.hunger - DECAY_PER_HOUR.hunger * elapsed * safeMult);
+  let nextHappiness = clamp(stats.happiness - DECAY_PER_HOUR.happiness * elapsed * safeMult);
+  let nextEnergy = clamp(stats.energy - DECAY_PER_HOUR.energy * elapsed * safeMult);
   const nextDeals = clamp(stats.deals - DECAY_PER_HOUR.deals * elapsed * safeMult);
+  let criticalSince: PetStats["criticalSince"] = stats.criticalSince
+    ? { ...stats.criticalSince }
+    : undefined;
+  for (const key of ["hunger", "happiness", "energy"] as const) {
+    const nextValue =
+      key === "hunger" ? nextHunger : key === "happiness" ? nextHappiness : nextEnergy;
+    if (nextValue <= 0) {
+      const since = criticalSince?.[key];
+      if (typeof since === "number" && now - since >= 24 * 60 * 60_000) continue;
+      criticalSince = { ...(criticalSince ?? {}), [key]: since ?? now };
+      if (key === "hunger") nextHunger = 5;
+      else if (key === "happiness") nextHappiness = 5;
+      else nextEnergy = 5;
+    }
+  }
+  if (criticalSince) {
+    for (const key of ["hunger", "happiness", "energy"] as const) {
+      const value =
+        key === "hunger" ? nextHunger : key === "happiness" ? nextHappiness : nextEnergy;
+      if (value > 25) delete criticalSince[key];
+    }
+    if (Object.keys(criticalSince).length === 0) criticalSince = undefined;
+  }
   if (
     nextHunger === stats.hunger &&
     nextHappiness === stats.happiness &&
     nextEnergy === stats.energy &&
-    nextDeals === stats.deals
+    nextDeals === stats.deals &&
+    (criticalSince ?? undefined) === (stats.criticalSince ?? undefined)
   ) {
     // No movement: return same identity so caller can skip the disk write.
     // lastSaved intentionally not bumped — next tick measures from the same
@@ -740,6 +871,7 @@ export function applyDecay(
     happiness: nextHappiness,
     energy: nextEnergy,
     deals: nextDeals,
+    criticalSince,
     lastSaved: now,
   };
 }
@@ -838,6 +970,9 @@ export function loadPetState(): PetStats {
         boss: parseBoss(parsed.boss),
         minigame: parseMinigame(parsed.minigame),
         achievementProgress: parseAchievementProgress(parsed.achievementProgress, now),
+        agenda: parseAgenda(parsed.agenda),
+        dailyFocus: parseDailyFocus(parsed.dailyFocus),
+        criticalSince: parseCriticalSince(parsed.criticalSince),
       };
       return applyDecay(stats, now);
     }
@@ -1068,35 +1203,46 @@ export function flushPetSaves(timeoutMs: number = 2000): Promise<PetSaveResult> 
   });
 }
 
+function clearCriticalWarnings(stats: PetStats): PetStats {
+  if (!stats.criticalSince) return stats;
+  const criticalSince = { ...stats.criticalSince };
+  for (const key of ["hunger", "happiness", "energy"] as const) {
+    if (stats[key] > 25) delete criticalSince[key];
+  }
+  return Object.keys(criticalSince).length === 0
+    ? { ...stats, criticalSince: undefined }
+    : { ...stats, criticalSince };
+}
+
 export function applyFeed(stats: PetStats): PetStats {
-  return {
+  return clearCriticalWarnings({
     ...stats,
     hunger: clamp(stats.hunger + 25),
     happiness: clamp(stats.happiness + 5),
     deals: clamp(stats.deals + 10),
-  };
+  });
 }
 
 export function applyPlay(stats: PetStats): PetStats {
-  return {
+  return clearCriticalWarnings({
     ...stats,
     happiness: clamp(stats.happiness + 20),
     energy: clamp(stats.energy - 10),
     deals: clamp(stats.deals + 5),
-  };
+  });
 }
 
 export function applyWork(stats: PetStats): PetStats {
-  return {
+  return clearCriticalWarnings({
     ...stats,
     deals: clamp(stats.deals + 20),
     energy: clamp(stats.energy - 15),
     hunger: clamp(stats.hunger - 5),
-  };
+  });
 }
 
 export function applyPraise(stats: PetStats): PetStats {
-  return { ...stats, happiness: clamp(stats.happiness + 15) };
+  return clearCriticalWarnings({ ...stats, happiness: clamp(stats.happiness + 15) });
 }
 
 // `roll` is the random branch selector for the non-precedence outcomes.
@@ -1108,7 +1254,7 @@ export function applyVibe(
 ): { stats: PetStats; message: string } {
   if (stats.energy < 30) {
     return {
-      stats: { ...stats, energy: clamp(stats.energy + 20) },
+      stats: clearCriticalWarnings({ ...stats, energy: clamp(stats.energy + 20) }),
       message: "Drexler naps briefly under desk. Power restored.",
     };
   }
@@ -1120,34 +1266,42 @@ export function applyVibe(
   }
   if (roll < 0.25) {
     return {
-      stats: { ...stats, happiness: clamp(stats.happiness + 10), deals: clamp(stats.deals + 15) },
+      stats: clearCriticalWarnings({
+        ...stats,
+        happiness: clamp(stats.happiness + 10),
+        deals: clamp(stats.deals + 15),
+      }),
       message: "Drexler does spontaneous deal origination. Numbers climbing.",
     };
   }
   if (roll < 0.5) {
     return {
-      stats: { ...stats, happiness: clamp(stats.happiness + 8) },
+      stats: clearCriticalWarnings({ ...stats, happiness: clamp(stats.happiness + 8) }),
       message: "Drexler stares out window. Market conditions assessed.",
     };
   }
   if (roll < 0.75) {
     return {
-      stats: { ...stats, energy: clamp(stats.energy + 10) },
+      stats: clearCriticalWarnings({ ...stats, energy: clamp(stats.energy + 10) }),
       message: "Drexler conducts standing meeting with himself. Productive.",
     };
   }
   return {
-    stats: { ...stats, happiness: clamp(stats.happiness + 12), energy: clamp(stats.energy - 5) },
+    stats: clearCriticalWarnings({
+      ...stats,
+      happiness: clamp(stats.happiness + 12),
+      energy: clamp(stats.energy - 5),
+    }),
     message: "Drexler practices pitch deck delivery to the plant.",
   };
 }
 
 export function applyRest(stats: PetStats): PetStats {
-  return {
+  return clearCriticalWarnings({
     ...stats,
     energy: clamp(stats.energy + 30),
     happiness: clamp(stats.happiness + 5),
-  };
+  });
 }
 
 export function isPetDead(stats: PetStats): boolean {
@@ -1204,11 +1358,26 @@ const RANK_INCREMENTS: Record<Exclude<PetActionKey, "rest" | "praise">, number> 
   vibe: 3,
 };
 
-export function accrueLifetimeDeals(stats: PetStats, action: PetActionKey): PetStats {
+export function accrueLifetimeDeals(
+  stats: PetStats,
+  action: PetActionKey,
+  now: number = Date.now(),
+): PetStats {
   if (action === "rest" || action === "praise") return stats;
   const inc = RANK_INCREMENTS[action];
-  const next = lifetimeDeals(stats) + inc;
-  return { ...stats, lifetimeDeals: next };
+  const today = localDateStamp(now);
+  const focus =
+    stats.dailyFocus?.date === today ? stats.dailyFocus : { date: today, directLifetime: 0 };
+  const before = focus.directLifetime;
+  const after = before + inc;
+  const fullCredit = Math.max(0, Math.min(after, 30) - before);
+  const halfCredit = Math.max(0, Math.min(after, 60) - Math.max(before, 30)) * 0.5;
+  const credited = Math.floor(fullCredit + halfCredit);
+  return {
+    ...stats,
+    lifetimeDeals: lifetimeDeals(stats) + credited,
+    dailyFocus: { date: today, directLifetime: after },
+  };
 }
 
 export function applyName(stats: PetStats, name: string): PetStats {

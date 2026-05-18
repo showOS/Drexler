@@ -112,6 +112,8 @@ describe("dispatch (V7, V8, V16, V17)", () => {
       "/vibe",
       "/name Bartholomew",
       "/profile",
+      "/agenda",
+      "/boss",
     ]) {
       const { ctx, out } = makeCtx();
       const action = dispatch(command, ctx);

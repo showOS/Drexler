@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { BOSS_QUARTERLY, advanceBoss, renderBoss, startBoss } from "../src/pet/boss.ts";
+import {
+  BOSS_QUARTERLY,
+  advanceBoss,
+  bossNeedsAudit,
+  renderBoss,
+  startBoss,
+} from "../src/pet/boss.ts";
 import type { PetStats } from "../src/pet/petState.ts";
 
 function baseStats(overrides: Partial<PetStats> = {}): PetStats {
@@ -37,6 +43,18 @@ describe("boss encounter", () => {
     const r2 = advanceBoss(seeded, "work", 1_000);
     expect(r2.advanced).toBe(true);
     expect(r2.stats.boss?.step).toBe(1);
+  });
+
+  test("trade win step schedules a forced audit inside boss window", () => {
+    const now = 1_000;
+    const seeded = startBoss(baseStats(), BOSS_QUARTERLY, now).stats;
+    const afterWork = advanceBoss(seeded, "work", now + 1);
+    const afterTrade = advanceBoss(afterWork.stats, "trade_win", now + 2);
+    expect(bossNeedsAudit(afterTrade.stats, now + 2)).toBe(true);
+    expect(afterTrade.stats.boss?.forcedAuditAt).toBeGreaterThan(now + 2);
+    expect(afterTrade.stats.boss!.forcedAuditAt!).toBeLessThanOrEqual(
+      afterTrade.stats.boss!.deadline,
+    );
   });
 
   test("advanceBoss completes after final step + bumps lifetimeDeals", () => {

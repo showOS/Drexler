@@ -295,7 +295,7 @@ describe("pet state", () => {
       now,
       0.5,
     );
-    expect(halfDecayed.hunger).toBeCloseTo(65, 5);
+    expect(halfDecayed.hunger).toBeCloseTo(78.5, 5);
   });
 
   test("applyDecay multiplier 0 disables decay; negative falls back to 1 (V60)", () => {
@@ -312,7 +312,7 @@ describe("pet state", () => {
       now,
       -1,
     );
-    expect(fallback.hunger).toBeCloseTo(5, 0);
+    expect(fallback.hunger).toBeCloseTo(72.5, 5);
   });
 
   test("PET_COOLDOWN_MS lowered to 60s (V60)", () => {
@@ -376,10 +376,9 @@ describe("pet state", () => {
       deals: 80,
       lastSaved: fiveHoursAgo,
     });
-    // DECAY_PER_HOUR.hunger = 15 → 75 over 5h → 80 - 75 = 5.
-    expect(decayed.hunger).toBeCloseTo(5, 0);
-    // DECAY_PER_HOUR.happiness = 8 → 40 → 80 - 40 = 40.
-    expect(decayed.happiness).toBeCloseTo(40, 0);
+    // Daily cadence decay: hunger 1.5/h, happiness 0.8/h.
+    expect(decayed.hunger).toBeCloseTo(72.5, 0);
+    expect(decayed.happiness).toBeCloseTo(76, 0);
     // lastSaved is re-stamped so the next tick measures from now.
     expect(decayed.lastSaved).toBeGreaterThanOrEqual(fiveHoursAgo);
     expect(Date.now() - decayed.lastSaved).toBeLessThan(1_000);
@@ -399,11 +398,41 @@ describe("pet state", () => {
       now,
     );
 
-    expect(decayed.hunger).toBeCloseTo(50, 5);
-    expect(decayed.happiness).toBeCloseTo(64, 5);
-    expect(decayed.energy).toBeCloseTo(60, 5);
-    expect(decayed.deals).toBeCloseTo(70, 5);
+    expect(decayed.hunger).toBeCloseTo(77, 5);
+    expect(decayed.happiness).toBeCloseTo(78.4, 5);
+    expect(decayed.energy).toBeCloseTo(78, 5);
+    expect(decayed.deals).toBeCloseTo(79, 5);
     expect(decayed.lastSaved).toBe(now);
+  });
+
+  test("applyDecay clamps first decay-to-zero critical stat then allows death after grace", () => {
+    const baseTime = 1_700_000_000_000;
+    const first = applyDecay(
+      { hunger: 1, happiness: 80, energy: 80, deals: 80, lastSaved: baseTime },
+      baseTime + 2 * 3_600_000,
+    );
+    expect(first.hunger).toBe(5);
+    expect(first.criticalSince?.hunger).toBe(baseTime + 2 * 3_600_000);
+    expect(isPetDead(first)).toBe(false);
+    const later = applyDecay(
+      { ...first, lastSaved: baseTime + 2 * 3_600_000 },
+      baseTime + 27 * 3_600_000,
+    );
+    expect(later.hunger).toBe(0);
+    expect(isPetDead(later)).toBe(true);
+  });
+
+  test("recovery above 25 clears critical warning", () => {
+    const stats = applyFeed({
+      hunger: 5,
+      happiness: 80,
+      energy: 80,
+      deals: 80,
+      lastSaved: 0,
+      criticalSince: { hunger: 1 },
+    });
+    expect(stats.hunger).toBe(30);
+    expect(stats.criticalSince?.hunger).toBeUndefined();
   });
 
   test("applyPlay boosts happiness, costs energy, nudges deals", () => {
@@ -790,6 +819,24 @@ describe("pet state", () => {
     expect(accrueLifetimeDeals(base, "play").lifetimeDeals).toBe(101);
     expect(accrueLifetimeDeals(base, "rest").lifetimeDeals).toBe(100);
     expect(accrueLifetimeDeals(base, "praise").lifetimeDeals).toBe(100);
+  });
+
+  test("accrueLifetimeDeals applies daily focus cap to direct action gains", () => {
+    const now = Date.parse("2026-05-18T17:00:00Z");
+    let stats: PetStats = {
+      hunger: 50,
+      happiness: 50,
+      energy: 50,
+      deals: 50,
+      lastSaved: now,
+      lifetimeDeals: 0,
+    };
+    for (let i = 0; i < 8; i++) stats = accrueLifetimeDeals(stats, "work", now);
+    expect(stats.dailyFocus?.directLifetime).toBe(64);
+    expect(stats.lifetimeDeals).toBe(45);
+    const nextDay = accrueLifetimeDeals(stats, "work", now + 24 * 60 * 60_000);
+    expect(nextDay.dailyFocus?.directLifetime).toBe(8);
+    expect(nextDay.lifetimeDeals).toBe(53);
   });
 
   test("lifetimeDeals persists across save/load round-trips", async () => {
