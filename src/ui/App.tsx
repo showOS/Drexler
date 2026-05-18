@@ -118,6 +118,7 @@ import {
 import {
   classifyPaste,
   isLikelyDroppedPath,
+  parseMultiFileDrop,
   splitBracketedPaste,
   unquoteDroppedPath,
 } from "../attach/intake.ts";
@@ -2335,6 +2336,35 @@ export function App({
         }
         await handleSlashWithMutation(line);
         return;
+      }
+      // §V76 — multi-file drop: N≥2 newline-separated absolute paths.
+      // Each path is loaded independently; success accrues to chip strip,
+      // failures emit one notice each. Payload is never sent as text.
+      if (attachments.length === 0) {
+        const paths = parseMultiFileDrop(raw);
+        if (paths !== null) {
+          let added = 0;
+          for (const p of paths) {
+            const r = await loadAttachment(p);
+            if (!r.ok) {
+              addItem("system", `Attach rejected: ${r.error.message} (${p})`);
+              continue;
+            }
+            const placed = tryAttach(r.value);
+            if (!placed.ok) {
+              addItem("system", placed.reason);
+              break;
+            }
+            added += 1;
+          }
+          if (added > 0) {
+            addItem(
+              "system",
+              `Attached ${added} file${added === 1 ? "" : "s"}. Type a message and Enter, or ESC to clear.`,
+            );
+          }
+          return;
+        }
       }
       // Drag/drop: bare absolute-path input auto-attaches when no chips pending.
       if (attachments.length === 0 && isLikelyDroppedPath(line)) {
