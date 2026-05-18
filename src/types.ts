@@ -45,9 +45,28 @@ export interface CliFlags {
   resume?: boolean;
 }
 
+export interface TextContentPart {
+  type: "text";
+  text: string;
+}
+
+export interface ImageContentPart {
+  type: "image_url";
+  image_url: { url: string; detail?: "auto" | "low" | "high" };
+}
+
+export type ContentPart = TextContentPart | ImageContentPart;
+
+export type OutboundMessageContent = string | ContentPart[];
+
+export interface OutboundMessage {
+  role: Role;
+  content: OutboundMessageContent;
+}
+
 export interface OpenRouterRequestBody {
   model: string;
-  messages: Message[];
+  messages: OutboundMessage[];
   stream: true;
   max_tokens?: number;
   temperature?: number;

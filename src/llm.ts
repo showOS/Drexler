@@ -1,5 +1,13 @@
-import type { Message, OpenRouterRequestBody, StreamChunk } from "./types.ts";
+import type {
+  ContentPart,
+  Message,
+  OpenRouterRequestBody,
+  OutboundMessage,
+  StreamChunk,
+} from "./types.ts";
 import { homedir } from "node:os";
+import type { Attachment } from "./attach/types.ts";
+import { buildImageDataUrl, buildTextAttachmentBlock, isImage } from "./attach/loader.ts";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
@@ -79,6 +87,51 @@ export interface StreamOptions {
   onToken: (token: string) => void;
   signal?: AbortSignal;
   fetchFn?: FetchFn;
+  // §V71/V72 — attachments for the last user message. Image attachments
+  // require a vision-capable model; non-vision + image ⇒ early refusal,
+  // zero HTTP issued.
+  attachments?: readonly Attachment[];
+}
+
+// §V71 — Model capability registry. Aliases `31b` and `26b` (Gemma 4)
+// are text-only. Vision-capable models default to vendor families with
+// known multimodal support. Unknown models default to non-vision
+// (conservative; user can switch via /model).
+export interface ModelCaps {
+  vision: boolean;
+}
+
+export const MODEL_CAPS: Record<string, ModelCaps> = {
+  "google/gemma-4-31b-it": { vision: false },
+  "google/gemma-4-26b-a4b-it": { vision: false },
+  "openai/gpt-4o": { vision: true },
+  "openai/gpt-4o-mini": { vision: true },
+  "openai/gpt-4-turbo": { vision: true },
+  "anthropic/claude-3-opus": { vision: true },
+  "anthropic/claude-3-sonnet": { vision: true },
+  "anthropic/claude-3-haiku": { vision: true },
+  "anthropic/claude-3.5-sonnet": { vision: true },
+  "anthropic/claude-3.5-haiku": { vision: true },
+  "google/gemini-pro-1.5": { vision: true },
+  "google/gemini-2.0-flash": { vision: true },
+  "google/gemini-2.5-pro": { vision: true },
+  "meta-llama/llama-3.2-90b-vision-instruct": { vision: true },
+  "meta-llama/llama-3.2-11b-vision-instruct": { vision: true },
+};
+
+const VISION_PATTERN_HINTS: RegExp[] = [
+  /gpt-4o/i,
+  /gpt-4-vision/i,
+  /claude-3/i,
+  /claude-3\.5/i,
+  /gemini.*(?:pro|vision|flash|2\.0|2\.5)/i,
+  /llama.*vision/i,
+];
+
+export function isVisionCapable(modelId: string): boolean {
+  const cap = MODEL_CAPS[modelId];
+  if (cap) return cap.vision;
+  return VISION_PATTERN_HINTS.some((re) => re.test(modelId));
 }
 
 export interface StreamResult {
@@ -89,6 +142,7 @@ export interface StreamResult {
   fellBack?: boolean;
   interrupted?: boolean;
   authFailure?: boolean;
+  visionRequired?: boolean;
 }
 
 // Telemetry: small FIFO ring of the last N stream attempts so `/debug`
@@ -157,6 +211,28 @@ export function clearTelemetry(): void {
 export async function streamChat(opts: StreamOptions): Promise<StreamResult> {
   const fetchFn = opts.fetchFn ?? fetch;
   const startedAt = Date.now();
+  // §V71 — vision gate. Image attachments + non-vision model ⇒ refuse
+  // pre-flight; never issue HTTP. Recorded in telemetry so /debug shows it.
+  const hasImage = (opts.attachments ?? []).some(isImage);
+  if (hasImage && !isVisionCapable(opts.model)) {
+    const result: StreamResult = {
+      ok: false,
+      content: "",
+      modelUsed: opts.model,
+      error: `VISION_REQUIRED: model ${opts.model} cannot accept images. Switch model via /model (e.g. openai/gpt-4o, anthropic/claude-3.5-sonnet).`,
+      visionRequired: true,
+    };
+    recordTelemetry({
+      at: startedAt,
+      model: opts.model,
+      ok: false,
+      error: result.error,
+      status: "vision_required",
+      modelUsed: opts.model,
+      durationMs: 0,
+    });
+    return result;
+  }
   const finalize = (result: StreamResult, status: string): StreamResult => {
     recordTelemetry({
       at: startedAt,
@@ -202,6 +278,54 @@ interface AttemptOutcome {
   error?: string;
 }
 
+// §V72 — Build outbound messages. Pure-text turns keep the string-content
+// form (back-compat for every existing call site + telemetry redaction).
+// Any image attachment switches the LAST user message to OpenAI
+// content-array form. Text attachments inline as fenced code blocks
+// inside the user message text (already done by App.tsx send path);
+// llm.ts threads them through here only when explicitly provided.
+export function buildOutboundMessages(
+  messages: readonly Message[],
+  attachments: readonly Attachment[] = [],
+): OutboundMessage[] {
+  if (attachments.length === 0) {
+    return messages.map((m) => ({ role: m.role, content: m.content }));
+  }
+  const images = attachments.filter(isImage);
+  const textAtts = attachments.filter((a) => a.kind === "text");
+
+  const out: OutboundMessage[] = messages.map((m) => ({ role: m.role, content: m.content }));
+  if (out.length === 0) return out;
+
+  // Find last user message; that's where attachments anchor.
+  let lastUserIdx = -1;
+  for (let i = out.length - 1; i >= 0; i--) {
+    if (out[i]!.role === "user") {
+      lastUserIdx = i;
+      break;
+    }
+  }
+  if (lastUserIdx < 0) return out;
+
+  const baseUser = out[lastUserIdx]!;
+  const baseText = typeof baseUser.content === "string" ? baseUser.content : "";
+  const textBlocks = textAtts.map(buildTextAttachmentBlock).filter((s) => s.length > 0);
+  const combinedText = [baseText, ...textBlocks].filter((s) => s.length > 0).join("\n\n");
+
+  if (images.length === 0) {
+    out[lastUserIdx] = { role: "user", content: combinedText };
+    return out;
+  }
+
+  const parts: ContentPart[] = [];
+  if (combinedText.length > 0) parts.push({ type: "text", text: combinedText });
+  for (const img of images) {
+    parts.push({ type: "image_url", image_url: { url: buildImageDataUrl(img) } });
+  }
+  out[lastUserIdx] = { role: "user", content: parts };
+  return out;
+}
+
 async function attempt(
   model: string,
   opts: StreamOptions,
@@ -210,7 +334,7 @@ async function attempt(
 ): Promise<AttemptOutcome> {
   const body: OpenRouterRequestBody = {
     model,
-    messages: opts.messages,
+    messages: buildOutboundMessages(opts.messages, opts.attachments ?? []),
     stream: true,
     max_tokens: MAX_TOKENS,
     temperature: TEMPERATURE,
