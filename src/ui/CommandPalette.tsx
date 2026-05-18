@@ -60,6 +60,9 @@ export const COMMAND_HINTS: Record<string, string> = {
   "/pitch": "Enter at the peak ▇█",
   "/negotiate": "1/2/3 to pick (ESC abort)",
   "/archetype": "/archetype closer · networker · operator",
+  "/attach": "/attach ~/Downloads/spec.png",
+  "/paste": "arm next paste as attachment",
+  "/attachments": "list pending attachments",
 };
 
 const ARGUMENT_TITLES: Record<string, { title: string; hint: string }> = {

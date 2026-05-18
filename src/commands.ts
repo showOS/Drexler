@@ -141,6 +141,9 @@ export const COMMAND_PALETTE: ReadonlyArray<SlashCommand> = [
   { name: "/update", description: "Show upgrade instructions", group: "directives" },
   { name: "/auth", description: "Replace the API key in-session", group: "directives" },
   { name: "/debug", description: "Dump last 5 stream telemetry frames", group: "directives" },
+  { name: "/attach", description: "Stage a file as attachment for next send", group: "directives" },
+  { name: "/paste", description: "Capture next paste as attachment", group: "directives" },
+  { name: "/attachments", description: "List pending attachments", group: "directives" },
 ];
 
 const THEME_PALETTE_COPY: Record<
@@ -481,6 +484,12 @@ export function dispatch(input: string, ctx: CommandContext): CommandAction {
       ctx.print(
         "Drexler pet directives require the interactive deal desk. Launch Drexler in a TTY.",
       );
+      return { type: "continue" };
+
+    case "attach":
+    case "paste":
+    case "attachments":
+      ctx.print("Drexler attachments require the interactive deal desk. Launch Drexler in a TTY.");
       return { type: "continue" };
 
     case "model":

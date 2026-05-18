@@ -263,3 +263,40 @@ export function isImage(att: Attachment): boolean {
 export function shortSha(att: Attachment): string {
   return att.sha256.slice(0, 8);
 }
+
+// Build an attachment from an in-memory buffer (bracketed paste payload,
+// programmatic ingest). Same caps + mime allowlist as the path loader.
+export function loadAttachmentFromBuffer(
+  buf: Buffer,
+  filename: string,
+  hintMime?: string,
+): Result<Attachment, AttachError> {
+  if (buf.length === 0) {
+    return { ok: false, error: err("empty_file", "empty buffer") };
+  }
+  // Sniff first; fall back to hint only if sniff fails on text.
+  const ext = extname(filename).toLowerCase();
+  let sniffed = sniffMime(buf, ext);
+  if (!sniffed && hintMime && isTextMime(hintMime) && looksLikeText(buf)) {
+    sniffed = { mime: hintMime, kind: "text" };
+  }
+  if (!sniffed) {
+    return { ok: false, error: err("mime_not_allowed", "mime sniff rejected", filename) };
+  }
+  const cap = capForKind(sniffed.kind);
+  if (buf.length > cap) {
+    return { ok: false, error: err("too_large", `${buf.length}B > cap ${cap}B`, filename) };
+  }
+  const sha256 = createHash("sha256").update(buf).digest("hex");
+  return {
+    ok: true,
+    value: {
+      kind: sniffed.kind,
+      filename,
+      mime: sniffed.mime,
+      sizeBytes: buf.length,
+      sha256,
+      payload: buf,
+    },
+  };
+}

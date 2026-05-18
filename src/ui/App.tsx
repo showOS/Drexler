@@ -104,6 +104,21 @@ import {
 import { BOSS_QUARTERLY, advanceBoss, startBoss } from "../pet/boss.ts";
 import { defaultRng, pickInt } from "../pet/rng.ts";
 import { handlePetViewSlash } from "./pet/petViewCommands.ts";
+import type { Attachment } from "../attach/types.ts";
+import { MAX_ATTACHMENTS, MAX_TOTAL_BYTES } from "../attach/types.ts";
+import {
+  buildTextAttachmentBlock,
+  loadAttachment,
+  loadAttachmentFromBuffer,
+  shortSha as attShortSha,
+} from "../attach/loader.ts";
+import {
+  classifyPaste,
+  isLikelyDroppedPath,
+  splitBracketedPaste,
+  unquoteDroppedPath,
+} from "../attach/intake.ts";
+import type { AttachmentChip } from "./InputBox.tsx";
 
 // V60/T43 — single helper that composes the four sources that scale
 // stat decay so both the action-commit path and the 60s tick use the
@@ -529,6 +544,9 @@ export function App({
   }, [persistDebouncer, writePersistNow]);
 
   const [draft, setDraft] = useState({ value: "", cursor: 0 });
+  const [pendingAttachments, setPendingAttachments] = useState<readonly Attachment[]>([]);
+  const pendingAttachmentsRef = useRef<readonly Attachment[]>(pendingAttachments);
+  const pasteArmedRef = useRef(false);
 
   const draftRef = useRef(draft);
   const updateDraft = useCallback(
@@ -548,6 +566,44 @@ export function App({
   );
   const input = draft.value;
   const cursor = draft.cursor;
+
+  const setAttachments = useCallback((next: readonly Attachment[]) => {
+    pendingAttachmentsRef.current = next;
+    setPendingAttachments(next);
+  }, []);
+
+  const clearAttachments = useCallback(() => {
+    if (pendingAttachmentsRef.current.length === 0) return;
+    setAttachments([]);
+  }, [setAttachments]);
+
+  const formatBytesShort = useCallback((n: number): string => {
+    if (n < 1024) return `${n}B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)}KB`;
+    return `${(n / (1024 * 1024)).toFixed(1)}MB`;
+  }, []);
+
+  const tryAttach = useCallback(
+    (att: Attachment): { ok: true } | { ok: false; reason: string } => {
+      const current = pendingAttachmentsRef.current;
+      if (current.length >= MAX_ATTACHMENTS) {
+        return { ok: false, reason: `Attachment slots full (${MAX_ATTACHMENTS} max).` };
+      }
+      if (current.some((a) => a.sha256 === att.sha256)) {
+        return { ok: false, reason: `Already attached: ${att.filename}.` };
+      }
+      const total = current.reduce((sum, a) => sum + a.sizeBytes, 0) + att.sizeBytes;
+      if (total > MAX_TOTAL_BYTES) {
+        return {
+          ok: false,
+          reason: `Attachment total ${formatBytesShort(total)} > ${formatBytesShort(MAX_TOTAL_BYTES)}.`,
+        };
+      }
+      setAttachments([...current, att]);
+      return { ok: true };
+    },
+    [setAttachments, formatBytesShort],
+  );
   const [streaming, setStreaming] = useState<string | null>(null);
   const [thinking, setThinking] = useState<string | null>(null);
   const [requestInFlight, setRequestInFlight] = useState(false);
@@ -1375,7 +1431,7 @@ export function App({
   }, [addItem]);
 
   const runLLM = useCallback(
-    async (instruction?: string) => {
+    async (instruction?: string, attachments?: readonly Attachment[]) => {
       if (requestInFlightRef.current) return;
       requestInFlightRef.current = true;
       setRequestInFlight(true);
@@ -1403,6 +1459,7 @@ export function App({
             model,
             fallbackModel: pickFallback(model),
             messages: composedMessages,
+            attachments,
             onToken: (t) => {
               if (!mountedRef.current || exitingRef.current) return;
               const isFirst = firstToken;
@@ -2031,6 +2088,51 @@ export function App({
         return;
       }
 
+      if (slashCommand === "/attach") {
+        const arg = line.slice("/attach".length).trim();
+        if (arg.length === 0) {
+          addItem("system", "Usage: /attach <path>");
+          return;
+        }
+        const path = unquoteDroppedPath(arg);
+        const r = await loadAttachment(path);
+        if (!r.ok) {
+          addItem("system", `Attach rejected: ${r.error.message}`);
+          return;
+        }
+        const placed = tryAttach(r.value);
+        if (!placed.ok) {
+          addItem("system", placed.reason);
+          return;
+        }
+        addItem(
+          "system",
+          `Attached ${r.value.filename} (${formatBytesShort(r.value.sizeBytes)}) ${attShortSha(r.value)}. ESC to clear.`,
+        );
+        return;
+      }
+      if (slashCommand === "/paste") {
+        pasteArmedRef.current = true;
+        addItem("system", "Paste armed. Next paste will be attached.");
+        return;
+      }
+      if (slashCommand === "/attachments") {
+        const current = pendingAttachmentsRef.current;
+        if (current.length === 0) {
+          addItem("system", "No attachments pending.");
+          return;
+        }
+        const lines = ["Pending attachments:"];
+        for (const a of current) {
+          lines.push(
+            `  ${a.kind === "image" ? "image" : "text "} ${a.filename} (${formatBytesShort(a.sizeBytes)}) ${attShortSha(a)}`,
+          );
+        }
+        lines.push("ESC to clear.");
+        addItem("system", lines.join("\n"));
+        return;
+      }
+
       let captured = "";
       const mutableConfig: Config = { ...config, model };
       const action = dispatch(line, {
@@ -2042,6 +2144,7 @@ export function App({
       });
       if (lower === "/clear" || lower.startsWith("/clear ")) {
         setItems([]);
+        clearAttachments();
       }
       if (mutableConfig.model !== model) {
         setModel(mutableConfig.model);
@@ -2105,9 +2208,11 @@ export function App({
       addItem,
       activeTheme,
       applyPetAction,
+      clearAttachments,
       config,
       conversation,
       evaluateProgressBadges,
+      formatBytesShort,
       isDead,
       model,
       PET_MESSAGES,
@@ -2119,6 +2224,7 @@ export function App({
       scheduleNextEventFrom,
       triggerExit,
       triggerPetActivity,
+      tryAttach,
       updateDraft,
       updatePetStats,
     ],
@@ -2128,7 +2234,8 @@ export function App({
     async (raw: string) => {
       if (requestInFlightRef.current || synergyActiveRef.current) return;
       const line = raw.trim();
-      if (line === "") {
+      const attachments = pendingAttachmentsRef.current;
+      if (line === "" && attachments.length === 0) {
         addItem("system", EMPTY_NUDGE);
         return;
       }
@@ -2151,12 +2258,57 @@ export function App({
         await handleSlashWithMutation(line);
         return;
       }
-      addItem("user", line);
-      conversation.push("user", line);
+      // Drag/drop: bare absolute-path input auto-attaches when no chips pending.
+      if (attachments.length === 0 && isLikelyDroppedPath(line)) {
+        const candidate = unquoteDroppedPath(line);
+        const r = await loadAttachment(candidate);
+        if (r.ok) {
+          const placed = tryAttach(r.value);
+          if (placed.ok) {
+            addItem(
+              "system",
+              `Attached ${r.value.filename} (${formatBytesShort(r.value.sizeBytes)}) ${attShortSha(r.value)}. Type a message and Enter, or ESC to clear.`,
+            );
+            return;
+          }
+          addItem("system", placed.reason);
+          return;
+        }
+        // Loader rejected: fall through and send the path as plain text.
+      }
+      // Build outbound user message: line + text-attachment fences + image placeholders.
+      const textBlocks: string[] = [];
+      const imagePlaceholders: string[] = [];
+      for (const a of attachments) {
+        if (a.kind === "text") {
+          textBlocks.push(buildTextAttachmentBlock(a));
+        } else {
+          imagePlaceholders.push(
+            `[attachment: ${a.filename} (${formatBytesShort(a.sizeBytes)}) sha256:${attShortSha(a)}]`,
+          );
+        }
+      }
+      const synthesized = [line, ...imagePlaceholders, ...textBlocks]
+        .filter((s) => s.length > 0)
+        .join("\n\n");
+      addItem("user", synthesized);
+      conversation.push("user", synthesized);
       setMsgCount(conversation.length);
-      await runLLM();
+      const attachmentsForSend = attachments.length > 0 ? [...attachments] : undefined;
+      clearAttachments();
+      await runLLM(undefined, attachmentsForSend);
     },
-    [addItem, conversation, handleSlashWithMutation, runLLM, setPaletteIdx, updateDraft],
+    [
+      addItem,
+      clearAttachments,
+      conversation,
+      formatBytesShort,
+      handleSlashWithMutation,
+      runLLM,
+      setPaletteIdx,
+      tryAttach,
+      updateDraft,
+    ],
   );
 
   const reportSubmitError = useCallback(
@@ -2393,6 +2545,15 @@ export function App({
       }
       return;
     }
+    // §V70/V73 — ESC over the input clears pending attachments first
+    // (chip strip), before the palette/draft escape paths. Only when
+    // no palette is open and no other modal owns ESC.
+    if (key.escape && !paletteOpen && pendingAttachmentsRef.current.length > 0) {
+      clearAttachments();
+      pasteArmedRef.current = false;
+      addItem("system", "Attachments cleared.");
+      return;
+    }
     if (key.return) {
       // Shift+Enter (Kitty/iTerm2/Windows Terminal) and Alt+Enter
       // (universal) insert a literal newline at the cursor so the
@@ -2533,17 +2694,52 @@ export function App({
     // Plain text input. Filter out control chars except printable +
     // newline (so multi-line paste survives).
     if (!key.ctrl && !key.meta && char) {
-      // Normalize CRLF / CR → LF first, then strip every other control
-      // byte. LF (0x0a) survives so pasted multi-line text renders as
-      // multiple lines in the input.
-      const normalized = char.replace(/\r\n?/g, "\n");
-      // intentional: strip ANSI/control chars
-      // eslint-disable-next-line no-control-regex
-      const filtered = normalized.replace(/[\x00-\x09\x0b-\x1f]/g, "");
-      if (filtered.length > 0) {
-        updateDraft((prev) =>
-          insertAtCursor(prev.value, clampCursor(prev.value, prev.cursor), filtered),
-        );
+      const { chunks } = splitBracketedPaste(char);
+      const armed = pasteArmedRef.current;
+      // If no bracketed-paste markers were found AND the whole chunk
+      // looks paste-shaped (big or NUL-bearing or /paste-armed), treat
+      // the entire char as one paste payload.
+      const noMarkers = chunks.length === 1 && chunks[0]!.kind === "text";
+      const wholeReasons = classifyPaste(char);
+      const treatWholeAsPaste = noMarkers && (armed || wholeReasons.length > 0);
+      const effectiveChunks = treatWholeAsPaste
+        ? [{ kind: "paste" as const, data: char, reasons: wholeReasons }]
+        : chunks;
+
+      for (const ch of effectiveChunks) {
+        if (ch.kind === "paste") {
+          const shouldAttach = armed || ch.reasons.length > 0;
+          if (shouldAttach) {
+            const buf = Buffer.from(ch.data, "utf-8");
+            const filename = `paste-${Date.now()}.txt`;
+            const r = loadAttachmentFromBuffer(buf, filename, "text/plain");
+            if (!r.ok) {
+              addItem("system", `Paste rejected: ${r.error.message}`);
+            } else {
+              const placed = tryAttach(r.value);
+              if (placed.ok) {
+                addItem(
+                  "system",
+                  `Pasted ${formatBytesShort(r.value.sizeBytes)} attached as ${r.value.filename} ${attShortSha(r.value)}. ESC to clear.`,
+                );
+              } else {
+                addItem("system", placed.reason);
+              }
+            }
+            if (armed) pasteArmedRef.current = false;
+            continue;
+          }
+        }
+        // Either a small inline-friendly paste chunk or normal text.
+        const normalized = ch.data.replace(/\r\n?/g, "\n");
+        // intentional: strip ANSI/control chars
+        // eslint-disable-next-line no-control-regex
+        const filtered = normalized.replace(/[\x00-\x09\x0b-\x1f]/g, "");
+        if (filtered.length > 0) {
+          updateDraft((prev) =>
+            insertAtCursor(prev.value, clampCursor(prev.value, prev.cursor), filtered),
+          );
+        }
       }
     }
   });
@@ -2746,6 +2942,12 @@ export function App({
                               : undefined
                       }
                       width={contentInputWidth}
+                      attachments={pendingAttachments.map<AttachmentChip>((a) => ({
+                        filename: a.filename,
+                        sizeBytes: a.sizeBytes,
+                        kind: a.kind,
+                        shortSha: attShortSha(a),
+                      }))}
                     />
                   </Box>
                   <StatusBar
