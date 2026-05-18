@@ -234,7 +234,10 @@ export function buildTextAttachmentBlock(att: Attachment): string {
   const lang = langFromMime(att.mime);
   const text = att.payload.toString("utf-8");
   const fence = "```";
-  return `${fence}${lang} filename=${att.filename}\n${text}\n${fence}`;
+  // Tag the info-string with `filename=`, `size=`, and `sha256=` so the
+  // export sanitizer (§V73) can extract metadata without re-reading the
+  // original buffer.
+  return `${fence}${lang} filename=${att.filename} size=${att.sizeBytes} sha256=${att.sha256.slice(0, 8)}\n${text}\n${fence}`;
 }
 
 export function buildImageDataUrl(att: Attachment): string {

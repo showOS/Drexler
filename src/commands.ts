@@ -12,6 +12,7 @@ import type { Conversation } from "./conversation.ts";
 import { error, resetMarkedTheme } from "./renderer.ts";
 import { THEME_NAMES, type Config, type ThemeName } from "./types.ts";
 import { getActiveTheme, isThemeName, setActiveTheme, THEMES } from "./ui/themes.ts";
+import { sanitizeAttachmentBlocks } from "./attach/sanitize.ts";
 
 export type CommandAction =
   | { type: "continue"; persistConfig?: Partial<Config> }
@@ -658,7 +659,7 @@ function formatConversationAsMarkdown(conv: Conversation, config: Config): strin
   for (const m of snap) {
     if (m.role === "system") continue;
     const heading = m.role === "user" ? "## You" : "## Drexler";
-    lines.push(heading, "", m.content, "", "---", "");
+    lines.push(heading, "", sanitizeAttachmentBlocks(m.content), "", "---", "");
   }
   return lines.join("\n");
 }
@@ -669,7 +670,7 @@ function formatConversationAsText(conv: Conversation, config: Config): string {
   for (const m of snap) {
     if (m.role === "system") continue;
     const heading = m.role === "user" ? "You" : "Drexler";
-    lines.push(`[${heading}]`, m.content, "");
+    lines.push(`[${heading}]`, sanitizeAttachmentBlocks(m.content), "");
   }
   return lines.join("\n");
 }
@@ -682,7 +683,10 @@ function formatConversationAsJson(conv: Conversation, config: Config): string {
       approximateTokens: conv.approximateTokens(),
       model: config.model,
       theme: config.theme ?? currentThemeName(config),
-      messages: conv.snapshot().filter((m) => m.role !== "system"),
+      messages: conv
+        .snapshot()
+        .filter((m) => m.role !== "system")
+        .map((m) => ({ role: m.role, content: sanitizeAttachmentBlocks(m.content) })),
     },
     null,
     2,
@@ -707,7 +711,7 @@ function formatConversationAsHtml(conv: Conversation, config: Config): string {
     .map((m) => {
       const label = m.role === "user" ? "You" : "Drexler";
       return `<article class="message ${m.role}"><h2>${label}</h2><div>${escapeHtml(
-        m.content,
+        sanitizeAttachmentBlocks(m.content),
       ).replaceAll("\n", "<br>")}</div></article>`;
     })
     .join("\n");
@@ -865,7 +869,7 @@ function handleExpand(args: string[], ctx: CommandContext): void {
     );
     return;
   }
-  ctx.print(target.content);
+  ctx.print(sanitizeAttachmentBlocks(target.content));
 }
 
 function handleQuote(args: string[], ctx: CommandContext): void {
@@ -879,7 +883,7 @@ function handleQuote(args: string[], ctx: CommandContext): void {
     );
     return;
   }
-  const quoted = target.content
+  const quoted = sanitizeAttachmentBlocks(target.content)
     .split("\n")
     .map((line) => `> ${line}`)
     .join("\n");
@@ -974,7 +978,9 @@ function handleCopyLast(args: string[], ctx: CommandContext): void {
     return;
   }
 
-  const result = (ctx.copyToClipboard ?? copyTextToClipboard)(target.content);
+  const result = (ctx.copyToClipboard ?? copyTextToClipboard)(
+    sanitizeAttachmentBlocks(target.content),
+  );
   if (result.ok) {
     const label = args.length === 0 ? "last response" : `message ${target.index}`;
     ctx.print(`Drexler copied ${label} to clipboard via ${result.command}.`);

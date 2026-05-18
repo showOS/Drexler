@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Conversation } from "../conversation.ts";
 import type { Message } from "../types.ts";
+import { sanitizeAttachmentBlocks } from "../attach/sanitize.ts";
 
 const SCHEMA_VERSION = 1;
 const MAX_SAVED_MESSAGES = 200;
@@ -145,11 +146,18 @@ export function buildSavedSession(
   const body = snap.filter((m) => m.role !== "system");
   const trimmed =
     body.length > MAX_SAVED_MESSAGES ? body.slice(body.length - MAX_SAVED_MESSAGES) : body;
+  // §V73 — strip attachment payloads before persisting. Raw bytes never
+  // land in disk-resident transcript files; the placeholder retains
+  // filename/size/sha for later reference without leaking content.
+  const sanitized = trimmed.map((m) => ({
+    role: m.role,
+    content: sanitizeAttachmentBlocks(m.content),
+  }));
   return {
     version: SCHEMA_VERSION,
     savedAt: Date.now(),
     systemPrompt,
-    messages: trimmed,
+    messages: sanitized,
     model,
   };
 }
