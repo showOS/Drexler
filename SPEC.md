@@ -8,7 +8,7 @@ Bun + TypeScript terminal chat app. Ink UI. Corporate-executive AI persona over 
 
 - Runtime: Bun ≥ 1.1, TypeScript source, React 19 + Ink 7 terminal UI.
 - Terminal-only: no web server, GUI, DB, browser client.
-- Chat only: no model tool calls, no model-side fs, no multimodal.
+- Chat-first: no model tool calls, no model-side fs. Multimodal (text + image attachments) opt-in per turn via §I Attachments; image turns gated by vision-capable model (§V71).
 - OpenRouter API key required. Missing key collected first run, stored local.
 - Transcript: in-memory current session. Persistent writes = config + explicit export.
 - Config: JSON at `~/.config/drexler/config.json`. Legacy fallback `~/.drexlerrc` (read only).
@@ -120,8 +120,11 @@ Case-insensitive. Local-only. Never sent to model. Never appended to history.
 | `/pitch` | timing mini-game (V57) |
 | `/negotiate` | text-choice mini-game (V57) |
 | `/archetype <closer\|networker\|operator>` | pick specialization at vp+ (V61) |
+| `/attach <path>` | stage file as attachment for next send (V68,V69,V73) |
+| `/paste` | capture next bracketed-paste payload as attachment instead of input (V70) |
+| `/attachments` | list pending attachments; ESC clears (V73) |
 
-Palette opens on `/`. Argument choosers: `/theme`, `/startup`, `/retry`, `/export`, `/model`, `/respond`, `/trade`, `/buy`, `/use`, `/perk`, `/archetype`.
+Palette opens on `/`. Argument choosers: `/theme`, `/startup`, `/retry`, `/export`, `/model`, `/respond`, `/trade`, `/buy`, `/use`, `/perk`, `/archetype`, `/attach`.
 
 ### Pet state — `src/pet/petState.ts`
 
@@ -296,6 +299,27 @@ Palette opens on `/`. Argument choosers: `/theme`, `/startup`, `/retry`, `/expor
   - `networker` ⇒ applyPlay deltas ×1.5; applyWork deltas ×0.75
   - `operator` ⇒ applyRest deltas ×1.5; decay rate ×0.9
 
+### Attachments — `src/attach/*` (new)
+
+- Sources of intake:
+  - Drag/drop: terminal-dropped file path lands as text in the input line. When the entire input resolves to a single absolute path to a regular file, InputBox offers attach (Enter) or send-as-text (ESC).
+  - Bracketed paste: xterm bracketed paste (`ESC[200~ … ESC[201~`) intercepted. Payload > 4 KiB or containing NUL bytes ⇒ attach prompt instead of inline insert.
+  - `/attach <path>`: explicit. Argument chooser shows recent files + tab-completion. Tilde + env-var expanded.
+  - `/paste`: arms a one-shot capture so the next bracketed-paste payload is staged as `text/plain` attachment regardless of size.
+- Schema: `Attachment = { kind: 'text'|'image', filename, mime, sizeBytes, sha256, payload: Buffer }`. Lives in `pendingAttachments: Attachment[]` on the App state. Cleared on send, `/clear`, or ESC over the chip strip.
+- Allowlist:
+  - Text mimes (`text/*`, `application/json`, `application/x-yaml`, `application/toml`) and extensions `.md|.txt|.json|.yaml|.yml|.ts|.tsx|.js|.jsx|.py|.go|.rs|.sh|.toml|.csv|.log`.
+  - Image mimes `image/png|image/jpeg|image/webp|image/gif` (still frame only).
+  - Mime sniffed by magic bytes; extension used only as tiebreak.
+- Size caps: text ≤ 256 KiB/file, image ≤ 4 MiB/file, total ≤ 8 MiB/message, ≤ 4 attachments/message.
+- Path safety: regular files only. Reject symlinks, FIFOs, sockets, devices, traversal (`..`), and any path under `~/.ssh`, `~/.aws`, `~/.config/drexler`, or any `.env*` basename.
+- Send shape:
+  - Text attachments append to the user message as a fenced block with `filename` info-string. Token estimate folded into `/history` accounting.
+  - Image attachments switch the outbound message to OpenAI content-array form: `content: [{type:'text', text}, {type:'image_url', image_url:{url:'data:<mime>;base64,<...>'}}, …]`. Text-only sends keep the existing string-content form.
+- Vision-model gate: image attachments require a vision-capable model. `src/llm.ts` exposes `MODEL_CAPS: Record<modelId, {vision:boolean}>`. Non-vision + image ⇒ in-character refusal + suggest `/model`. No HTTP issued.
+- UI: chip strip rendered above InputBox prompt — one chip per attachment showing icon, filename, size, sha256 prefix. `/attachments` slash prints the same list as a transcript card. ESC over input with chips present clears chips (does not exit input).
+- Persistence: attachments live in memory only. Never written to `pet.json`, `config.json`, graveyard, notification log, or transcript history slot. Exports (`/save`, `/export`) render placeholders only: `[attachment: <filename> (<size>) sha256:<8>]`. Image bytes never written to disk by Drexler.
+
 ## §V Invariants
 
 - V1 — System message always index 0. Never trimmed.
@@ -365,6 +389,12 @@ Palette opens on `/`. Argument choosers: `/theme`, `/startup`, `/retry`, `/expor
 - V65 — Achievement reads in the hot path are cached. The first `loadAchievements()` after process boot may read disk; subsequent `isAchievementUnlocked` / `loadAchievements` calls hit an in-memory mirror until `unlockAchievement` mutates it. The cache invalidates only on (a) successful unlock, (b) explicit reload, (c) failed write.
 - V66 — Non-deterministic primitives (`Math.random`) under `src/pet/` and pet-mode call sites in `src/ui/App.tsx` are injectable via an `rng?: () => number` parameter that defaults to `Math.random`. Inline `Math.random()` at the use site is banned outside the default-parameter line itself. The shared helper lives at `src/pet/rng.ts` (`defaultRng()` / `pickInt(rng, n)`).
 - V67 — Pet-mode slash handlers in `src/ui/App.tsx` are extracted into co-located modules (`src/ui/pet/handlers/*.ts` or a single `src/ui/pet/petCommands.ts`) so `App.tsx` stays ≤ 2400 LOC. Each handler is testable against a stubbed `PetHandlerContext` without rendering React.
+- V68 — Attachment path safety: regular files only. Reject symlinks, non-regular files, traversal (`..`), and deny-list (`~/.ssh`, `~/.aws`, `~/.config/drexler`, any `.env*` basename). Rejection ⇒ in-character local notice (§V6), no model call, no fs read of payload.
+- V69 — Attachment size + count caps: text ≤ 256 KiB/file, image ≤ 4 MiB/file, total ≤ 8 MiB/message, ≤ 4 attachments/message. Over-cap rejected pre-send with local notice; partial loads discarded.
+- V70 — Bracketed paste: payloads > 4 KiB OR containing NUL bytes prompt attach-vs-inline before insertion. Raw payload bytes never echoed to telemetry, exports, or notification log (truncated body + sha256-8 prefix per §V39 redaction rules).
+- V71 — Image attachments require a vision-capable model per `MODEL_CAPS[modelId].vision`. Image + non-vision model ⇒ in-character refusal + suggest `/model`; zero HTTP requests issued. Aliases `31b` / `26b` are not vision-capable.
+- V72 — Multimodal message shape: presence of any image attachment switches the request body to OpenAI content-array form `[{type:'text'},{type:'image_url',…}]`. Pure-text turns (no attachments OR text-only attachments inlined) keep the existing string-content form — back-compat for all V8/V46 paths.
+- V73 — Attachments are in-memory per session only. Never persisted to `pet.json`, `config.json`, `graveyard.json`, `achievements.json`, or notification log. Transcript history slot stores the synthesized user message text only. Exports/saves emit `[attachment: <filename> (<size>) sha256:<8>]` placeholders — never raw bytes, never base64. Cleared on send, `/clear`, ESC over chip strip, and Ink unmount.
 
 ## §T Tasks
 
@@ -416,6 +446,13 @@ Palette opens on `/`. Argument choosers: `/theme`, `/startup`, `/retry`, `/expor
 | T44 | ~ | Partial: view-only slash handlers (`/achievements`, `/perks`, `/streak`, `/challenge`, `/log`, `/review`, `/graveyard`, `/deals`) extracted to `src/ui/pet/petViewCommands.ts` with `handlePetViewSlash(slashCommand, ctx)` dispatch + standalone tests. App.tsx 2796 → 2774 LOC. Stateful handlers (`/perk`, `/archetype`, `/trade`, `/buy`, `/use`, `/respond`, `/pitch`, `/negotiate`, action mutators) still inline because they need the `setPetStats` + ref + timer plumbing; full extraction to ≤ 2400 LOC remains follow-up. | V67,B11 |
 | T45 | x | Tests added: `tests/pet-rng.test.ts` (deterministic + bounds), `tests/pet-view-commands.test.ts` (dispatch), achievements cache-hit test, review rng-injection test. StrictMode regression covered indirectly via the precompute pattern in T39 (reducer body is empty so double-invoke is provably safe). | V63,V65,V66 |
 | T46 | x | Bench added at `tests/pet-perf-bench.test.ts`. Opt-in via `DREXLER_PERF=1`. Composed action step (compose decay + applyDecay + applyWork + stamp + accrue + history + tickDeals + detectSynergy) runs in p50 ≈ 0.001ms, p99 ≈ 0.015ms, max 0.345ms on a developer box — well under the 1ms p99 target. | V60 |
+| T47 | x | `src/attach/types.ts`: `Attachment` shape, allowlist + cap constants, `AttachError` union. Single source of truth for limits in V68/V69. | V68,V69,V73 |
+| T48 | . | `src/attach/loader.ts`: `loadAttachment(path)` — stat-then-read, mime sniff (magic bytes), extension allowlist tiebreak, deny-list path check, size cap enforcement. Returns `Result<Attachment, AttachError>`. No I/O on rejected paths beyond stat. | V68,V69 |
+| T49 | . | `src/ui/InputBox.tsx`: drag/drop path heuristic (single absolute path → attach prompt), bracketed-paste interception (>4 KiB or NUL ⇒ attach prompt), chip strip render above prompt, ESC-clear semantics. | V70 |
+| T50 | . | `src/llm.ts`: add `MODEL_CAPS` registry w/ vision flag; multimodal request body builder (content-array vs string-content branch); image gate at request prep. Aliases `31b`/`26b` marked non-vision. | V71,V72 |
+| T51 | . | `src/commands.ts` + palette: `/attach`, `/paste`, `/attachments` slash dispatch. `/attach` argument chooser w/ recent-files + tab-complete. Honors §V6/§V7/§V22/§V31 per §V62. | V62,V68,V70 |
+| T52 | . | Export + transcript-history sanitizer: replace attachment payloads with `[attachment: <filename> (<size>) sha256:<8>]` placeholders across `src/conversation/persist.ts`, `/save`, `/save-last`, `/copy-last`, `/export`. | V73 |
+| T53 | . | Tests: path-safety matrix (symlink, traversal, deny-list, FIFO), size-cap edges, bracketed-paste detection (NUL + >4 KiB + small inline), multimodal body shape vs text-only back-compat, vision-gate refusal path, export-sanitizer placeholder, in-memory-only persistence assertions. | V68,V69,V70,V71,V72,V73 |
 
 ## §B Bugs
 
